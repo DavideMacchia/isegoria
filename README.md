@@ -141,7 +141,7 @@ flowchart TD
     E -->|rejected for a defect| X["Rejected"]
     E -->|rejected for polarization| G["5b. Appeal to evidence — stake reputation, skip to pilot"]
     G --> F
-    F --> H["7. Pilot 2, ~1500 people, in batches — IRT + multi-axis DIF"]
+    F --> H["7. Pilot 2, ~1500–3000 people, in batches — IRT + multi-axis DIF"]
     H --> I["8. Active pool — usable, periodically re-validated"]
     I --> J["9. Retirement — exposure, drift, obsolescence, emerging bias"]
 ```
@@ -280,6 +280,11 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 This is a research/specification-stage project. Nothing here is production-ready
 security; the cryptographic plug points are explicitly non-production.
+
+**Scale.** The evidence filter needs ~1,500–3,000 distinct respondents per validation
+batch, so the network has a floor: below ~2,000 active participants it cannot run as
+specified, and anonymity itself weakens in a small crowd. See
+[`docs/02-scoring-engine.md`](docs/02-scoring-engine.md) §B.6.
 
 ---
 

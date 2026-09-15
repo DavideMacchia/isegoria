@@ -40,8 +40,7 @@ Every node (person) can take three distinct actions, each under a **separate
 pseudonym not linkable to the others**:
 
 - **Propose** — write a new question.
-- **Judge** — evaluate other people's questions during review (this is the "voting"
-  of the original request).
+- **Judge** — evaluate other people's questions during review.
 - **Answer** — act as a sample for the trial: answer quizzes in which the new
   question is mixed with already-validated ones, without the answer counting toward
   one's own score.
@@ -68,7 +67,7 @@ the same person.
  [5] Pilot 1        cheap screen on ~300 respondents: immediately kills
                     broken and non-discriminating questions
       ↓
- [6] Pilot 2        ~1500 respondents: IRT + DIF on latent axes
+ [6] Pilot 2        ~1500–3000 respondents: IRT + DIF on latent axes
                     (in batches, never a single item)
       ↓
  [7] Active pool    usable; periodic re-validation of the whole pool

@@ -146,12 +146,14 @@ grow to infinity.
 ## D11 — Two-stage pilot
 
 **Choice.** A cheap first stage (~300 respondents) that immediately kills broken and
-non-discriminating questions; a second stage (~1500) only for the survivors, for DIF
-analysis.
+non-discriminating questions; a second stage (~1500–3000) only for the survivors, for
+DIF analysis.
 
 **Why.** DIF analysis on latent axes needs many respondents to have enough people at
 each competence level. Wasting them on obviously broken questions is inefficient.
-Respondents are the system's scarce resource.
+Respondents are the system's scarce resource. The sizes are derived, not arbitrary,
+and set a floor on the network itself — see `02` §B.6 (the fully-anonymous
+latent-class DIF wants ~3000, not 1500).
 
 ---
 

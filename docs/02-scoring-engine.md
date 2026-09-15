@@ -194,6 +194,62 @@ Psychometrics does not save you from badly conceived questions. Strict taxonomy:
 Disputes over an item are resolved by an evidentiary procedure (comparison with the
 source), not by a vote.
 
+### B.6 Sample sizes and the minimum viable network
+
+The `~300` and `~1500` respondent counts are not arbitrary; they come from
+psychometric sample-size requirements. They are still **calibration targets** to be
+confirmed with a formal power analysis before a real pilot — this section states the
+reasoning and the constraints, not a proof.
+
+**Where the two pilot sizes come from.**
+
+- **Pilot 1 (~300)** is a cheap classical screen (proportion correct, point-biserial,
+  a rough 2PL). Classical item statistics stabilize around 100–200 respondents; a 2PL
+  fit wants ~250–500. `~300` is the smallest count that gives a reliable first cut —
+  no larger, because respondents are the scarce resource (`01` D11).
+- **Pilot 2 (~1500)** is the full IRT + DIF stage, which needs enough people *at every
+  competence level and in every latent subgroup* (DIF compares people of equal `θ`):
+  3PL wants ~500–1000+, and Mantel–Haenszel / logistic DIF wants ≥200 per group. `1500`
+  covers this **when a grouping signal exists** (the observed group, or `f` from Level
+  A).
+
+**The anonymity ↔ sample-size tension.** The anonymity-compatible detector is the
+latent-class mixture (§B.3, Variant 2), which must estimate class membership *and*
+per-class item parameters without observing the group. It is far more data-hungry:
+`sim/latent_dif_and_capacity.py` uses **NT = 3000**, not 1500. So:
+
+> **1500 is optimistic for the fully-anonymous variant.** For latent-class,
+> multi-axis DIF, budget ~2500–3000+ respondents per batch, rising with the number of
+> axes/classes sought. Giving up observed group labels is paid for in sample size.
+
+**Three distinct floors on network size** (person-nodes, `04`), of different natures:
+
+1. **Evidence-filter correctness (the binding one).** Each batch needs ~1500–3000
+   *distinct* respondents — not many answers from few people: DIF needs different people
+   spread across competence and latent groups. Below ~1500–2000 active answerers in the
+   validation window, Level B cannot run as specified.
+2. **Level A identifiability.** The matrix factorization recovers the axis `f` only with
+   enough overlapping judgments; the spec already sets `n_min = 30` reviews per node to
+   enter the `f`-space (§A.4) and `k = 7–11` reviewers per item. This needs at least a
+   few hundred active reviewers spanning the axis.
+3. **Anonymity (a privacy floor, often forgotten).** Anonymity is a form of
+   k-anonymity: you hide in the crowd. In a small network, statistical deanonymization
+   (`03`: stylometry, timing, topic choice) becomes easy — a few hundred authors is not
+   enough to hide 200 questions from one ID. There is a size below which the system
+   *functions* but is no longer *anonymous*.
+
+**Throughput** (a floor on usefulness, not correctness) follows `01` D10:
+`validatable_questions/month ≈ (nodes × answers_per_node_month) / answers_per_question`.
+With 10,000 nodes × 50 answers ÷ 1500 ≈ 333 questions/month. Halving the network halves
+output; it does not break correctness.
+
+| Active person-nodes | What is possible |
+|---|---|
+| < ~1,500 | Evidence filter not runnable as specified; only a weak Level A |
+| ~2,000–3,000 | Minimum viable: one batch at a time, anonymous DIF at the edge, fragile anonymity |
+| ~10,000 | ~300 questions/month, stable latent-class DIF, good k-anonymity |
+| 100,000+ | Robust on throughput, multi-axis DIF, and privacy |
+
 ---
 
 ## Level C — Node reputation
@@ -314,8 +370,8 @@ conservatively.
 | `ε` (uncertainty band) | ~0.008 | questions in the band → supplementary review |
 | `d` (factors) | 1 → 2 | start from 1 |
 | `k` (reviewers/item) | 7–11 | odd, random assignment stratified on `f_u` |
-| `N` pilot stage 1 | ~300 | cheap screen |
-| `N` pilot stage 2 | ≥ 1500 | for stable latent-class DIF |
+| `N` pilot stage 1 | ~300 | cheap classical screen (see §B.6) |
+| `N` pilot stage 2 | ~1500–3000 | 1500 with a group signal; ≥3000 for latent-class DIF (§B.6) |
 | `a_min` | 0.6 | minimum discrimination |
 | `|β₂|` max DIF | 0.40 | logistic regression |
 | `DIF_j` max (latent classes) | 0.5 logit | IRT mixture |

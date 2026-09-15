@@ -21,7 +21,7 @@ it neutralizes).
       ↓
  [6] Pilot 1        ~300 respondents: kills broken and non-discriminating questions
       ↓
- [7] Pilot 2        ~1500 respondents, IN BATCHES: IRT + multi-axis DIF
+ [7] Pilot 2        ~1500–3000 respondents, IN BATCHES: IRT + multi-axis DIF
       ↓
  [8] Active pool    usable; periodic re-validation of the whole pool
       ↓
@@ -91,9 +91,11 @@ judgment to the data.
 insufficient discrimination (`a < 0.6`, `r_pbis < 0.20`) and those with a wrong key
 (negative `r_pbis`). Costs little.
 
-**Stage 2 (~1500 respondents), only for survivors.** The large sample is needed
+**Stage 2 (~1500–3000 respondents), only for survivors.** The large sample is needed
 because **latent-class DIF** (`02` B.3) requires enough people at each competence
-level. Requirements:
+level. 1500 suffices with a group signal; the fully-anonymous latent-class variant
+wants ~3000 (see `02` §B.6 for the derivation and the minimum network size).
+Requirements:
 
 - **In batches, never a single item**: an isolated distorted question is
   unidentifiable (in testing: 1/8 invisible, 2/8 detected). Validate groups.
