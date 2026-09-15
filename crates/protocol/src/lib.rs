@@ -7,6 +7,7 @@
 
 pub mod deposit;
 pub mod gate;
+pub mod governance;
 pub mod honeypot;
 pub mod lottery;
 pub mod pilot;

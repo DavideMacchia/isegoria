@@ -6,6 +6,7 @@ use identity::nym::Role;
 use network::log::TransparencyLog;
 use protocol::deposit::{deposit, Draft, NoPrimarySource};
 use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
+use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
 use protocol::lottery::admit;
 use protocol::pilot::{stage1_screen, stage2_dif};
@@ -203,4 +204,60 @@ fn pilot_stage2_drops_dif_items() {
     let keep = stage2_dif(&theta, &group, &[clean, biased]);
     assert!(keep[0], "a neutral item should pass DIF");
     assert!(!keep[1], "an item favoring one group should be rejected");
+}
+
+#[test]
+fn sortition_is_stratified_deterministic_and_sized() {
+    // 100 candidates spread along the axis; draw a committee of 9 across 3 strata.
+    let candidates: Vec<Candidate<usize>> = (0..100)
+        .map(|i| Candidate {
+            id: i,
+            f_u: -1.0 + 2.0 * i as f64 / 99.0,
+        })
+        .collect();
+
+    let a = stratified_sortition(&candidates, 9, 3, 999);
+    assert_eq!(a.len(), 9);
+
+    // Deterministic per seed.
+    assert_eq!(a, stratified_sortition(&candidates, 9, 3, 999));
+    // A different seed generally draws a different committee.
+    assert_ne!(a, stratified_sortition(&candidates, 9, 3, 1000));
+
+    // Stratified: both axis extremes are represented (ids map monotonically to f_u).
+    assert!(a.iter().any(|&id| id < 33), "no one from the low stratum");
+    assert!(a.iter().any(|&id| id >= 66), "no one from the high stratum");
+}
+
+#[test]
+fn sortition_handles_more_seats_than_candidates() {
+    let candidates: Vec<Candidate<usize>> = (0..5)
+        .map(|i| Candidate {
+            id: i,
+            f_u: i as f64,
+        })
+        .collect();
+    let all = stratified_sortition(&candidates, 20, 4, 1);
+    assert_eq!(all.len(), 5, "cannot draw more than exist");
+}
+
+#[test]
+fn meta_level_change_needs_supermajority_and_delay() {
+    // 2/3 + 30 days both required (docs/05).
+    assert!(
+        change_approved(70, 100, 30),
+        "70% after 30 days should pass"
+    );
+    assert!(
+        !change_approved(60, 100, 60),
+        "below 2/3 must fail even after delay"
+    );
+    assert!(
+        !change_approved(90, 100, 10),
+        "before the delay must fail even at 90%"
+    );
+    assert!(
+        !change_approved(1, 0, 60),
+        "no eligible voters → not approved"
+    );
 }

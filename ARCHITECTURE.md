@@ -126,6 +126,7 @@ steps are seeded for reproducibility.
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `settle_appeal` | (scoring outputs) |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif` | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
+| `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -202,8 +203,9 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- Extract meta-level governance (stratified sortition for the honeypot committee,
-  coverage blueprint, and consortium selection) into its own module.
+- Wire `protocol::governance` sortition into the honeypot committee, the coverage
+  blueprint (per-domain quotas), and consortium selection; add the probation period
+  and cold-start founder set; add pool re-validation and item-exposure retirement.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple
