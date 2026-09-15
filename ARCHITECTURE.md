@@ -181,6 +181,10 @@ Three kinds of tests, 61 in total:
    needs k valid signatures; erasure recovers from any k of n; a 500-node cartel's
    influence ≈ 22 independents; a lone biased item stays invisible (batch validation).
 3. **Reproducibility tests** assert determinism (above).
+4. **End-to-end integration** (`protocol/tests/end_to_end.rs`) walks the ten civic
+   items of the oracle fixtures through all four crates in one epoch and asserts each
+   item is stopped at the right stage (ESM by DIF not review; the non-discriminating
+   item by the pilot screen; a true-but-divisive item recovered via the appeal).
 
 Run them:
 
