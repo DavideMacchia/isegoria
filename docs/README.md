@@ -1,0 +1,65 @@
+# A distributed network for producing and validating quiz questions
+
+A network whose nodes — pseudonymous people — **propose** questions, **judge**
+other people's questions, and **answer** quizzes to trial them. It exists to
+produce banks of questions (true/false or multiple-choice items) in settings where
+**no authority is credibly impartial**: control over the questions is distributed
+across all nodes instead of belonging to an institution.
+
+Reference use case: civic questions for a possible weighted vote, where you do not
+want the government to control the questions. Less contested, more immediate use
+cases: professional certifications independent of training bodies, collaborative
+fact-checking, licensing exams removed from the profession that has a stake in them.
+
+## The idea in one line
+
+The quality of a question is **not decided by voting** (whoever holds the majority
+would control the questions). It is decided by two filters in a row:
+
+1. **Opinion filter** — aggregated peer review *across the bridge* (bridging): what
+   matters is where the approval comes from, not how much of it there is. A question
+   approved only by the largest camp is discarded.
+2. **Evidence filter** — the question is field-trialled on a sample of respondents;
+   psychometric statistics (IRT) and bias analysis (DIF) give the final verdict.
+   Here nobody's opinion is needed.
+
+The anonymity of the nodes is the non-negotiable base. The uniqueness of a person is
+guaranteed by an external enrollment layer (national eID / CIE / SPID / others),
+**cryptographically severed** from what the node does.
+
+## Document structure
+
+| File | Contents |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Instructions for implementing with Claude Code: work order, invariants not to violate, stack |
+| [`00-overview.md`](00-overview.md) | Two-level conceptual architecture, lifecycle of a question |
+| [`01-decisions.md`](01-decisions.md) | Every decision taken and every alternative rejected, with rationale (ADR) |
+| [`02-scoring-engine.md`](02-scoring-engine.md) | **The mathematical core**: bridging, IRT, DIF, reputation, anti-collusion |
+| [`03-identity-enrollment.md`](03-identity-enrollment.md) | Anonymous multi-source enrollment, threshold credentials, role pseudonyms |
+| [`04-storage-network.md`](04-storage-network.md) | P2P layer, consortium, erasure coding, anchoring, node types |
+| [`05-question-lifecycle.md`](05-question-lifecycle.md) | Step-by-step protocol, appeal to evidence, lottery, honeypot, cold start |
+| [`06-threat-model.md`](06-threat-model.md) | Attack surface and countermeasures; what the system does NOT solve |
+| [`99-glossary.md`](99-glossary.md) | Every concept explained from scratch, from the problem to the formula |
+| [`sim/`](../sim/) | Executable simulations that demonstrate the behavior and the corner cases |
+
+## Recommended implementation order
+
+1. **Offline scoring engine** (`02`) on synthetic data — it is the genuinely new
+   piece and validates itself. The simulations in `sim/` are the starting point.
+2. **Closed pilot** on a low-political-temperature domain, with manually managed
+   identities, to calibrate the thresholds on real data.
+3. **Identity layer** (`03`) — the longest technical and regulatory lead time; start
+   it in parallel from phase 1.
+4. **Storage and network layer** (`04`) with public reproducibility of the
+   computation.
+5. **Opening up** and recruiting independent operators.
+
+## Status
+
+Specification phase. No production code written yet. The simulations in `sim/` are
+research prototypes, not reference implementations.
+
+## Recommended license
+
+AGPL-3.0 (like Decidim) or EUPL-1.2 if targeting adoption by European public
+bodies. To be decided before the first code commit.

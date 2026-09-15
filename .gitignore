@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# Python env used only to regenerate the oracle fixtures from the sims
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Editor
+.idea/
+.vscode/

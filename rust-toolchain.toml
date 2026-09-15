@@ -1,0 +1,4 @@
+# Pinned toolchain: bit-for-bit reproducibility of the scoring engine (CLAUDE.md #7).
+[toolchain]
+channel = "1.86.0"
+components = ["rustfmt", "clippy"]

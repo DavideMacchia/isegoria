@@ -1,0 +1,250 @@
+//! Level A — bridging. See `docs/02-scoring-engine.md`, §A.
+//!
+//! Matrix factorization `r̂_uj = μ + b_u + b_j + ⟨f_u, f_j⟩` with asymmetric
+//! regularization (`λ_b ≫ λ_f`). The bridge score is the item intercept `b_j`.
+//! This module covers the `d = 1` case. Reference prototype: `sim/bridging_irt_dif.py`.
+
+use crate::optim::lbfgs;
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Obs {
+    pub u: usize,
+    pub j: usize,
+    pub r: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct Ratings {
+    pub n: usize,
+    pub m: usize,
+    pub obs: Vec<Obs>,
+}
+
+impl Ratings {
+    pub fn from_dense(r: &[Vec<f64>], mask: &[Vec<bool>]) -> Self {
+        let n = r.len();
+        let m = if n > 0 { r[0].len() } else { 0 };
+        let mut obs = Vec::new();
+        for u in 0..n {
+            for j in 0..m {
+                if mask[u][j] {
+                    obs.push(Obs { u, j, r: r[u][j] });
+                }
+            }
+        }
+        Ratings { n, m, obs }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct BridgingParams {
+    pub lam_b: f64,
+    pub lam_f: f64,
+    pub m_hist: usize,
+    pub max_iters: usize,
+    pub g_tol: f64,
+    pub seed: u64,
+}
+
+impl Default for BridgingParams {
+    fn default() -> Self {
+        BridgingParams {
+            lam_b: 0.15,
+            lam_f: 0.03,
+            m_hist: 10,
+            max_iters: 4000,
+            g_tol: 1e-7,
+            seed: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Fit {
+    pub mu: f64,
+    pub b_u: Vec<f64>,
+    pub b_j: Vec<f64>,
+    pub f_u: Vec<f64>,
+    pub f_j: Vec<f64>,
+}
+
+// Parameter vector layout: [ μ | b_u(n) | b_j(m) | f_u(n) | f_j(m) ].
+struct Layout {
+    n: usize,
+    m: usize,
+}
+impl Layout {
+    #[inline]
+    fn mu(&self, x: &[f64]) -> f64 {
+        x[0]
+    }
+    #[inline]
+    fn bu<'a>(&self, x: &'a [f64]) -> &'a [f64] {
+        &x[1..1 + self.n]
+    }
+    #[inline]
+    fn bj<'a>(&self, x: &'a [f64]) -> &'a [f64] {
+        &x[1 + self.n..1 + self.n + self.m]
+    }
+    #[inline]
+    fn fu<'a>(&self, x: &'a [f64]) -> &'a [f64] {
+        &x[1 + self.n + self.m..1 + 2 * self.n + self.m]
+    }
+    #[inline]
+    fn fj<'a>(&self, x: &'a [f64]) -> &'a [f64] {
+        &x[1 + 2 * self.n + self.m..]
+    }
+}
+
+pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
+    let x0 = random_init(data, p.seed);
+    fit_with_init(data, p, x0)
+}
+
+// RNG consumption order is part of the reproducibility contract.
+fn random_init(data: &Ratings, seed: u64) -> Vec<f64> {
+    let (n, m) = (data.n, data.m);
+    let mean_r = if data.obs.is_empty() {
+        0.0
+    } else {
+        data.obs.iter().map(|o| o.r).sum::<f64>() / data.obs.len() as f64
+    };
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut x0 = vec![0.0_f64; 1 + 2 * n + 2 * m];
+    x0[0] = mean_r;
+    for i in 0..n {
+        x0[1 + i] = normal(&mut rng) * 0.1;
+    }
+    for j in 0..m {
+        x0[1 + n + j] = normal(&mut rng) * 0.1;
+    }
+    for i in 0..n {
+        x0[1 + n + m + i] = normal(&mut rng) * 0.3;
+    }
+    for j in 0..m {
+        x0[1 + 2 * n + m + j] = normal(&mut rng) * 0.3;
+    }
+    x0
+}
+
+fn pack(f: &Fit) -> Vec<f64> {
+    let mut x = Vec::with_capacity(1 + 2 * f.b_u.len() + 2 * f.b_j.len());
+    x.push(f.mu);
+    x.extend_from_slice(&f.b_u);
+    x.extend_from_slice(&f.b_j);
+    x.extend_from_slice(&f.f_u);
+    x.extend_from_slice(&f.f_j);
+    x
+}
+
+fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
+    let n = data.n;
+    let m = data.m;
+    let lay = Layout { n, m };
+    let obs = &data.obs;
+
+    let lam_b = p.lam_b;
+    let lam_f = p.lam_f;
+
+    let cost = |x: &[f64]| -> f64 {
+        let mu = lay.mu(x);
+        let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
+        let mut se = 0.0;
+        for o in obs {
+            let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
+            let e = pred - o.r;
+            se += e * e;
+        }
+        let reg_b: f64 =
+            bu.iter().map(|v| v * v).sum::<f64>() + bj.iter().map(|v| v * v).sum::<f64>();
+        let reg_f: f64 =
+            fu.iter().map(|v| v * v).sum::<f64>() + fj.iter().map(|v| v * v).sum::<f64>();
+        se + lam_b * reg_b + lam_f * reg_f
+    };
+
+    let grad = |x: &[f64]| -> Vec<f64> {
+        let mu = lay.mu(x);
+        let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
+        let mut g = vec![0.0_f64; x.len()];
+        for o in obs {
+            let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
+            let e = 2.0 * (pred - o.r);
+            g[0] += e;
+            g[1 + o.u] += e;
+            g[1 + n + o.j] += e;
+            g[1 + n + m + o.u] += e * fj[o.j];
+            g[1 + 2 * n + m + o.j] += e * fu[o.u];
+        }
+        for i in 0..n {
+            g[1 + i] += 2.0 * lam_b * bu[i];
+            g[1 + n + m + i] += 2.0 * lam_f * fu[i];
+        }
+        for j in 0..m {
+            g[1 + n + j] += 2.0 * lam_b * bj[j];
+            g[1 + 2 * n + m + j] += 2.0 * lam_f * fj[j];
+        }
+        g
+    };
+
+    let x = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
+
+    Fit {
+        mu: lay.mu(&x),
+        b_u: lay.bu(&x).to_vec(),
+        b_j: lay.bj(&x).to_vec(),
+        f_u: lay.fu(&x).to_vec(),
+        f_j: lay.fj(&x).to_vec(),
+    }
+}
+
+/// Robust bridge score (`docs/02`, §A.4): bootstrap-min over `n_bootstrap`
+/// subsamples (each observation kept with probability `keep_frac`).
+pub fn bridge_scores(
+    data: &Ratings,
+    p: &BridgingParams,
+    n_bootstrap: usize,
+    keep_frac: f64,
+) -> Vec<f64> {
+    // Warm-start each subsample from the full fit: the bilinear term makes the
+    // objective non-convex, so independent random inits would let some subsamples
+    // land in a different minimum, polluting the min with optimizer noise.
+    let full = fit(data, p);
+    let anchor = pack(&full);
+
+    let mut best = full.b_j.clone();
+    for s in 0..n_bootstrap {
+        let mut rng = ChaCha8Rng::seed_from_u64(p.seed.wrapping_add(100 + s as u64));
+        let sub_obs: Vec<Obs> = data
+            .obs
+            .iter()
+            .copied()
+            .filter(|_| rng.gen::<f64>() < keep_frac)
+            .collect();
+        let sub = Ratings {
+            n: data.n,
+            m: data.m,
+            obs: sub_obs,
+        };
+        let mut x0 = anchor.clone();
+        for v in x0.iter_mut() {
+            *v += normal(&mut rng) * 0.02;
+        }
+        let fit_s = fit_with_init(&sub, p, x0);
+        for (b, &bj) in best.iter_mut().zip(fit_s.b_j.iter()) {
+            if bj < *b {
+                *b = bj;
+            }
+        }
+    }
+    best
+}
+
+// Standard normal via Box–Muller, to control exact RNG consumption order.
+fn normal(rng: &mut ChaCha8Rng) -> f64 {
+    let u1: f64 = 1.0 - rng.gen::<f64>();
+    let u2: f64 = rng.gen::<f64>();
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
