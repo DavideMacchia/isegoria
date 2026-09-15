@@ -10,7 +10,7 @@
 //!   recovered through the appeal channel because the evidence vindicates it.
 
 use identity::credential::Credential;
-use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, ReferenceOracle, Spid};
+use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
 use identity::nym::Role;
 use network::log::TransparencyLog;
 use protocol::deposit::{deposit, Draft};
@@ -71,7 +71,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let m = 10;
 
     // --- identity: one real person enrolls once; a duplicate is refused ---
-    let oracle = ReferenceOracle::new([7u8; 32]);
+    let oracle = VoprfOracle::new([7u8; 32]);
     let mut registry = EnrollmentRegistry::new();
     let author_cf = "RSSMRA80A01H501U";
     registry

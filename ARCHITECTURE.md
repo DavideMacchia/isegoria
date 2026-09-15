@@ -42,7 +42,7 @@ protocol ──► scoring
         └──► network
 
 scoring   (no internal deps; only rand, rand_chacha)
-identity  (sha2)
+identity  (sha2, voprf)
 network   (sha2, ed25519-dalek, reed-solomon-erasure)
 ```
 
@@ -85,15 +85,20 @@ The state authenticates but does not issue (`docs/03`).
 |---|---|---|
 | `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` |
 | `ratelimit` | §Cost of proposing | `rln_token`, `within_quota`, `SlotLedger` |
-| `enrollment` | §M1–M2 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (+ `ReferenceOracle`), `EnrollmentRegistry` |
+| `enrollment` | §M1–M2 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (`VoprfOracle` real + `ReferenceOracle` test-only), `EnrollmentRegistry` |
 | `credential` | §M2 | `Credential`, `BlindIssuer` (+ `ReferenceIssuer`) |
 | `hash` (private) | — | domain-separated SHA-256 |
 
 **Real:** role nullifiers (deterministic → not rotatable → no whitewashing; distinct
-per role → unlinkable) and rate-limiting tokens (reuse collides and is detected).
-**Plug points:** `UniquenessOracle` (threshold OPRF over the anchor) and
-`BlindIssuer` (BBS+ blind, t-of-n issuance) — the reference impls exist only to
-exercise the pipeline and provide no security on their own.
+per role → unlinkable), rate-limiting tokens (reuse collides and is detected), and the
+uniqueness label — `VoprfOracle` is a real single-server **VOPRF** (RFC 9497,
+Ristretto255-SHA512, via `voprf`): the anchor is evaluated obliviously (the server
+never sees it in the clear) and verifiably (the client checks the committed key).
+**Still modeled:** the *threshold* split of that OPRF key t-of-n across the committee
+(a single key-holder can still brute-force the enumerable codice-fiscale space; the
+single-server step neither regresses on nor overclaims that). **Plug point:**
+`BlindIssuer` (BBS+ blind, t-of-n issuance) — its reference impl exists only to
+exercise the pipeline and provides no security on its own.
 
 ## `network` — tamper-evident storage
 
@@ -213,7 +218,7 @@ cargo clippy --workspace --all-targets
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
 | Role nullifiers, rate-limiting tokens | **Real** (hash-based) | Semaphore (ZK nullifiers) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
-| Uniqueness label | Trait + reference | Threshold OPRF |
+| Uniqueness label | **Real** (single-server VOPRF, RFC 9497) | Threshold OPRF (key split t-of-n) |
 | Credential issuance | Trait + reference | BBS+, t-of-n blind |
 | Public-chain anchoring | Trait + reference | OpenTimestamps |
 | Gossip/DHT transport, CRDT | Documented, not implemented | libp2p, Automerge/Yjs |

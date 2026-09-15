@@ -4,13 +4,13 @@
 
 use identity::credential::{BlindIssuer, Credential, ReferenceIssuer};
 use identity::enrollment::{
-    Cie, DuplicateEnrollment, EnrollmentRegistry, Label, ReferenceOracle, Spid,
+    Cie, DuplicateEnrollment, EnrollmentRegistry, Label, Spid, VoprfOracle,
 };
 use identity::nym::Role;
 use identity::ratelimit::{rln_token, within_quota, DoubleSpend, SlotLedger};
 
-fn oracle() -> ReferenceOracle {
-    ReferenceOracle::new([7u8; 32])
+fn oracle() -> VoprfOracle {
+    VoprfOracle::new([7u8; 32])
 }
 
 #[test]

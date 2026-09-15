@@ -4,7 +4,7 @@
 //! enrollment of the same person is refused, so no fresh credential is available.
 
 use identity::credential::Credential;
-use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, ReferenceOracle, Spid};
+use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
 use identity::nym::{Nym, Role};
 use std::collections::HashMap;
 
@@ -27,7 +27,7 @@ fn whitewashing_cannot_shed_a_bad_reputation() {
 
     // A fresh pseudonym would need a fresh credential, but the same person cannot
     // enroll a second time — the uniqueness label is the same regardless of source.
-    let oracle = ReferenceOracle::new([1u8; 32]);
+    let oracle = VoprfOracle::new([1u8; 32]);
     let mut registry = EnrollmentRegistry::new();
     registry
         .enroll(

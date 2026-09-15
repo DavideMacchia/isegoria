@@ -224,14 +224,16 @@ dependency on identity or network** — it runs offline and is reproducible
 | Crate | Role | Status |
 |---|---|---|
 | [`scoring`](crates/scoring) | Deterministic engine: bridging (A), IRT/DIF (B), reputation (C), anti-collusion | **Complete**, validated against `sim/` |
-| [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real hash-based mechanisms |
+| [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real mechanisms (VOPRF uniqueness label, hash nullifiers) |
 | [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, erasure coding | Scaffold + real integrity primitives |
 | [`protocol`](crates/protocol) | Lifecycle orchestration: deposit, lottery, blind review, gate + appeal, pilot, honeypot | Scaffold, wires the three layers together |
 
-Heavy cryptography (threshold OPRF, BBS+ blind issuance, Semaphore nullifiers),
-peer-to-peer transport (libp2p), convergent state (CRDT) and public-chain anchoring
-(OpenTimestamps) enter behind **traits** with clearly-marked, non-production
-reference implementations — the specification's rule is *never roll your own crypto*.
+The uniqueness label already runs on a real single-server **VOPRF** (RFC 9497, via
+`voprf`); the remaining heavy cryptography — the *threshold* split of that OPRF, BBS+
+blind issuance, Semaphore nullifiers — plus peer-to-peer transport (libp2p),
+convergent state (CRDT) and public-chain anchoring (OpenTimestamps) enter behind
+**traits** with clearly-marked, non-production reference implementations. The
+specification's rule is *never roll your own crypto*.
 
 For how the design maps onto the code, module by module, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -278,8 +280,8 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Complete, reproducible bit-for-bit, validated against the sims |
-| Identity, network, protocol | Working scaffolds; deterministic mechanisms real, heavy crypto/transport behind traits |
-| Real crypto/transport integration (Semaphore, BBS+, threshold OPRF, libp2p, OpenTimestamps) | Future work |
+| Identity, network, protocol | Working scaffolds; deterministic mechanisms + the VOPRF uniqueness label real, remaining heavy crypto/transport behind traits |
+| Real crypto/transport integration (Semaphore, BBS+, *threshold* OPRF, libp2p, OpenTimestamps) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
 
 This is a research/specification-stage project. Nothing here is production-ready
