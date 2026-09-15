@@ -7,6 +7,7 @@
 
 pub mod blueprint;
 pub mod deposit;
+pub mod exposure;
 pub mod gate;
 pub mod governance;
 pub mod honeypot;

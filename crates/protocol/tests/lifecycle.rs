@@ -6,6 +6,9 @@ use identity::nym::Role;
 use network::log::TransparencyLog;
 use protocol::blueprint::{assemble_test, Blueprint};
 use protocol::deposit::{deposit, Draft, NoPrimarySource};
+use protocol::exposure::{
+    least_exposed_variant, should_retire, ExposureLedger, ItemHealth, RetirementReason, Template,
+};
 use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
@@ -343,6 +346,77 @@ fn blueprint_detects_pool_skew() {
     let health = dev.iter().find(|(d, _)| *d == "health").unwrap().1;
     assert!(law > 0.4, "law over-represented: {law:.2}");
     assert!(health < -0.4, "health under-represented: {health:.2}");
+}
+
+#[test]
+fn exposure_ledger_counts_administrations() {
+    let template = Template::new(b"how many deputies?".to_vec());
+    let item = template.variant(b"variant-1");
+    let mut ledger = ExposureLedger::new();
+    assert_eq!(ledger.count(&item), 0);
+    for _ in 0..5 {
+        ledger.record(item);
+    }
+    assert_eq!(ledger.count(&item), 5);
+    assert!(ledger.is_overexposed(&item, 5));
+    assert!(!ledger.is_overexposed(&item, 6));
+}
+
+#[test]
+fn retirement_triggers_and_precedence() {
+    let clean = ItemHealth::default();
+    // Exposure alone retires past the limit.
+    assert_eq!(
+        should_retire(2000, 2000, clean),
+        Some(RetirementReason::Exposure)
+    );
+    assert_eq!(should_retire(1999, 2000, clean), None);
+    // Emerging DIF retires regardless of exposure, and outranks exposure.
+    let dif = ItemHealth {
+        emerging_dif: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        should_retire(0, 2000, dif),
+        Some(RetirementReason::EmergingDif)
+    );
+    assert_eq!(
+        should_retire(9999, 2000, dif),
+        Some(RetirementReason::EmergingDif)
+    );
+    // Drift and obsolescence are their own reasons.
+    let drift = ItemHealth {
+        drifted: true,
+        ..Default::default()
+    };
+    assert_eq!(should_retire(0, 2000, drift), Some(RetirementReason::Drift));
+}
+
+#[test]
+fn parametric_variants_are_distinct_and_stable() {
+    let t1 = Template::new(b"structure A".to_vec());
+    let t2 = Template::new(b"structure B".to_vec());
+    // Same (structure, values) → same content id.
+    assert_eq!(t1.variant(b"x=3"), t1.variant(b"x=3"));
+    // Different values → different item.
+    assert_ne!(t1.variant(b"x=3"), t1.variant(b"x=4"));
+    // Different structure, same values → different item (no collision).
+    assert_ne!(t1.variant(b"x=3"), t2.variant(b"x=3"));
+}
+
+#[test]
+fn rotation_picks_the_least_exposed_variant() {
+    let template = Template::new(b"parametric item".to_vec());
+    let value_sets = vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()];
+    let mut ledger = ExposureLedger::new();
+    // Expose variants a and b heavily; c is fresh.
+    for _ in 0..10 {
+        ledger.record(template.variant(b"a"));
+        ledger.record(template.variant(b"b"));
+    }
+    let (values, id) = least_exposed_variant(&template, &value_sets, &ledger).unwrap();
+    assert_eq!(values, b"c");
+    assert_eq!(id, template.variant(b"c"));
 }
 
 #[test]
