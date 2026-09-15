@@ -241,9 +241,13 @@ For how the design maps onto the code, module by module, see
 ## Try it
 
 ```sh
-cargo test --workspace     # 61 tests: acceptance + property + reproducibility
+cargo test --workspace                 # acceptance + property (proptest) + reproducibility + end-to-end
 cargo clippy --workspace --all-targets
+cargo llvm-cov --workspace --summary-only   # line coverage (~97%); needs cargo-llvm-cov
 ```
+
+CI runs fmt, clippy (`-D warnings`), the full test suite, and coverage on every push
+and pull request (`.github/workflows/ci.yml`).
 
 The scoring tests run against **fixtures exported from the Python simulations** in
 [`sim/`](sim/): the Rust engine must reproduce the simulations' results on the same

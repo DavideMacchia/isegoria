@@ -16,6 +16,7 @@ use network::log::TransparencyLog;
 use protocol::deposit::{deposit, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
 use protocol::pilot::{stage1_screen, stage2_dif};
+use protocol::revalidation::revalidate_pool_latent;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
 use std::collections::BTreeSet;
@@ -239,5 +240,23 @@ fn appeal_recovers_a_true_but_divisive_item() {
     assert!(
         with.contains(&REAL_HEALTH),
         "recovered through the appeal channel"
+    );
+}
+
+#[test]
+fn pool_revalidation_flags_latent_bias() {
+    // The whole-pool latent-class re-check catches bias on an axis no one observed.
+    // The mixture fixture plants 3 of 8 biased items on a hidden (education) axis.
+    let theta = read_vector("mixture_batch_theta.csv");
+    let responses = read_matrix("mixture_batch_X.csv");
+    let flagged = revalidate_pool_latent(&theta, &responses, 0);
+
+    assert!(
+        flagged[..3].iter().all(|&f| f),
+        "the biased items should be flagged: {flagged:?}"
+    );
+    assert!(
+        flagged[3..].iter().filter(|&&f| f).count() <= 1,
+        "clean items should be mostly unflagged: {flagged:?}"
     );
 }
