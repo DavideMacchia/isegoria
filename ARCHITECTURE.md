@@ -189,6 +189,11 @@ Three kinds of tests, 61 in total:
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
    item by the pilot screen; a true-but-divisive item recovered via the appeal).
+5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
+   the threat model: a 400-node cartel is detected and √k-discounted below an honest
+   majority; a long-con's reputation rises slowly, falls fast, and is capped;
+   whitewashing fails because the role pseudonym is deterministic and re-enrollment
+   is refused.
 
 Run them:
 
