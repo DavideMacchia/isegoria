@@ -180,6 +180,10 @@ Three kinds of tests, 61 in total:
    enrollment is rejected; a tampered log entry breaks `verify`; a k-of-n checkpoint
    needs k valid signatures; erasure recovers from any k of n; a 500-node cartel's
    influence ≈ 22 independents; a lone biased item stays invisible (batch validation).
+   A `proptest` suite (`network/tests/properties.rs`, `protocol/tests/properties.rs`)
+   fuzzes these over arbitrary inputs: Merkle inclusion + root sensitivity, erasure
+   recovery from any survivor set, log append/verify, blueprint apportionment, lottery,
+   sortition.
 3. **Reproducibility tests** assert determinism (above).
 4. **End-to-end integration** (`protocol/tests/end_to_end.rs`) walks the ten civic
    items of the oracle fixtures through all four crates in one epoch and asserts each

@@ -13,3 +13,6 @@ description = "Signed append-only logs, content addressing, Merkle anchoring, co
 sha2 = "0.10"
 ed25519-dalek = "2"
 reed-solomon-erasure = "6"
+
+[dev-dependencies]
+proptest = "1"
