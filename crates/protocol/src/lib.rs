@@ -11,6 +11,7 @@ pub mod governance;
 pub mod honeypot;
 pub mod lottery;
 pub mod pilot;
+pub mod probation;
 pub mod review;
 
 /// Lifecycle stages (`docs/05`).

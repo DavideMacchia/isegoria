@@ -10,6 +10,7 @@ use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
 use protocol::lottery::admit;
 use protocol::pilot::{stage1_screen, stage2_dif};
+use protocol::probation::{effective_review_weight, status, FounderSet, Status, N_PROBATION};
 use protocol::review::{assign_reviewers, commit, reveal, Reviewer};
 
 const TAU: f64 = 0.08;
@@ -239,6 +240,45 @@ fn sortition_handles_more_seats_than_candidates() {
         .collect();
     let all = stratified_sortition(&candidates, 20, 4, 1);
     assert_eq!(all.len(), 5, "cannot draw more than exist");
+}
+
+#[test]
+fn probation_gates_weight_until_a_track_record_exists() {
+    // A new node is on probation: measured, but weight 0 (docs/03 P2).
+    assert_eq!(status(false, 0), Status::Probation);
+    assert_eq!(status(false, N_PROBATION - 1), Status::Probation);
+    assert_eq!(effective_review_weight(false, 50, 0.9, 1.5), 0.0);
+
+    // A founder seeds the bootstrap at uniform weight 1 (docs/05 cold start).
+    assert_eq!(status(true, 0), Status::Founder);
+    assert_eq!(effective_review_weight(true, 0, 0.9, 1.5), 1.0);
+
+    // Past the threshold, anyone becomes E_u-weighted and capped.
+    assert_eq!(status(false, N_PROBATION), Status::Established);
+    assert_eq!(status(true, N_PROBATION), Status::Established);
+    assert_eq!(effective_review_weight(false, N_PROBATION, 0.7, 1.5), 0.7);
+    assert_eq!(effective_review_weight(true, N_PROBATION, 2.0, 1.5), 1.5); // capped
+}
+
+#[test]
+fn founder_set_tracks_declared_members() {
+    let alice = Credential::from_secret([1u8; 32]).nym(Role::Judge);
+    let bob = Credential::from_secret([2u8; 32]).nym(Role::Judge);
+    let carol = Credential::from_secret([3u8; 32]).nym(Role::Judge);
+    let founders = FounderSet::new([alice, bob]);
+
+    assert_eq!(founders.len(), 2);
+    assert!(founders.contains(&alice));
+    assert!(!founders.contains(&carol));
+    // A node's founder status feeds the weight rule.
+    assert_eq!(
+        effective_review_weight(founders.contains(&carol), 0, 0.9, 1.5),
+        0.0
+    );
+    assert_eq!(
+        effective_review_weight(founders.contains(&alice), 0, 0.9, 1.5),
+        1.0
+    );
 }
 
 #[test]
