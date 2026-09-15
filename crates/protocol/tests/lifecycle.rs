@@ -4,6 +4,7 @@
 use identity::credential::Credential;
 use identity::nym::Role;
 use network::log::TransparencyLog;
+use protocol::blueprint::{assemble_test, Blueprint};
 use protocol::deposit::{deposit, Draft, NoPrimarySource};
 use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
@@ -279,6 +280,69 @@ fn founder_set_tracks_declared_members() {
         effective_review_weight(founders.contains(&alice), 0, 0.9, 1.5),
         1.0
     );
+}
+
+#[test]
+fn blueprint_apportions_quotas_proportionally() {
+    let bp = Blueprint::new(vec![("law", 2.0), ("health", 1.0), ("procedure", 1.0)]);
+    let quotas = bp.quotas(8);
+    assert_eq!(quotas, vec![("law", 4), ("health", 2), ("procedure", 2)]);
+    // Seats always sum to the requested size, even with awkward remainders.
+    let odd = Blueprint::new(vec![("a", 1.0), ("b", 1.0), ("c", 1.0)]);
+    assert_eq!(odd.quotas(8).iter().map(|(_, n)| n).sum::<usize>(), 8);
+}
+
+#[test]
+fn blueprint_assembles_a_balanced_test() {
+    // Plenty of items in each domain; the test must match the quotas exactly.
+    let mut available: Vec<(u32, &str)> = Vec::new();
+    for i in 0..50 {
+        available.push((i, "law"));
+    }
+    for i in 50..80 {
+        available.push((i, "health"));
+    }
+    for i in 80..110 {
+        available.push((i, "procedure"));
+    }
+    let bp = Blueprint::new(vec![("law", 2.0), ("health", 1.0), ("procedure", 1.0)]);
+
+    let test = assemble_test(&available, 8, &bp, 42).expect("enough items");
+    assert_eq!(test.len(), 8);
+    let by = |dom: &str| {
+        test.iter()
+            .filter(|id| available.iter().find(|(i, _)| i == *id).unwrap().1 == dom)
+            .count()
+    };
+    assert_eq!(by("law"), 4);
+    assert_eq!(by("health"), 2);
+    assert_eq!(by("procedure"), 2);
+
+    // Deterministic per seed.
+    assert_eq!(assemble_test(&available, 8, &bp, 42).unwrap(), test);
+}
+
+#[test]
+fn blueprint_reports_shortfall_when_a_domain_is_thin() {
+    let available = vec![(1u32, "law"), (2, "law"), (3, "health")];
+    let bp = Blueprint::new(vec![("law", 1.0), ("health", 1.0)]);
+    // size 4 → 2 law + 2 health, but only 1 health item exists.
+    let err = assemble_test(&available, 4, &bp, 1).unwrap_err();
+    assert!(err
+        .iter()
+        .any(|s| s.domain == "health" && s.needed == 2 && s.available == 1));
+}
+
+#[test]
+fn blueprint_detects_pool_skew() {
+    // A pool that is all "law" against an even blueprint is over/under-represented.
+    let bp = Blueprint::new(vec![("law", 1.0), ("health", 1.0)]);
+    let pool = vec!["law", "law", "law", "law"];
+    let dev = bp.coverage_deviation(&pool);
+    let law = dev.iter().find(|(d, _)| *d == "law").unwrap().1;
+    let health = dev.iter().find(|(d, _)| *d == "health").unwrap().1;
+    assert!(law > 0.4, "law over-represented: {law:.2}");
+    assert!(health < -0.4, "health under-represented: {health:.2}");
 }
 
 #[test]

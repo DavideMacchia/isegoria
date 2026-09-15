@@ -120,6 +120,7 @@ steps are seeded for reproducibility.
 
 | Module | Stage | Key items | Uses |
 |---|---|---|---|
+| `blueprint` | [8]/L2 | `Blueprint`, `quotas`, `coverage_deviation`, `assemble_test` | — |
 | `deposit` | [2] | `Draft`, `deposit`, `NoPrimarySource` | `network::log`, `network::cid` |
 | `lottery` | [3] | `admit` | — |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal` | `identity::nym` |
@@ -205,9 +206,9 @@ to make the pipeline testable end-to-end.
 
 - Integrate the real cryptographic and transport backends into the plug points.
 - Wire `protocol::governance` sortition into the honeypot committee, the coverage
-  blueprint (per-domain quotas), and consortium selection; wire `protocol::probation`
-  weights into the review aggregation; add pool re-validation and item-exposure
-  retirement.
+  blueprint committee, and consortium selection; wire `protocol::probation` weights
+  into the review aggregation; add pool re-validation (periodic multi-axis DIF over
+  the active pool) and item-exposure retirement (parametric items).
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple
