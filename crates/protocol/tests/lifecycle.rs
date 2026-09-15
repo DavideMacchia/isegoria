@@ -15,6 +15,7 @@ use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
 use protocol::lottery::admit;
 use protocol::pilot::{stage1_screen, stage2_dif};
 use protocol::probation::{effective_review_weight, status, FounderSet, Status, N_PROBATION};
+use protocol::revalidation::{items_to_retire, revalidate_pool};
 use protocol::review::{assign_reviewers, commit, reveal, Reviewer};
 
 const TAU: f64 = 0.08;
@@ -417,6 +418,79 @@ fn rotation_picks_the_least_exposed_variant() {
     let (values, id) = least_exposed_variant(&template, &value_sets, &ledger).unwrap();
     assert_eq!(values, b"c");
     assert_eq!(id, template.variant(b"c"));
+}
+
+#[test]
+fn revalidation_catches_dif_on_any_axis_including_the_blind_spot() {
+    let (theta, axis_pol) = synthetic();
+    let axis_edu: Vec<f64> = (0..theta.len())
+        .map(|i| if i % 3 == 0 { 1.0 } else { -1.0 })
+        .collect();
+
+    let clean: Vec<f64> = theta
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| noisy(i, t > 0.0))
+        .collect();
+    let dif_pol: Vec<f64> = theta
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| noisy(i, t + 1.5 * axis_pol[i] > 0.0))
+        .collect();
+    let dif_edu: Vec<f64> = theta
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| noisy(i, t + 1.5 * axis_edu[i] > 0.0))
+        .collect();
+
+    // responses as respondents × items [clean, dif_pol, dif_edu]
+    let responses: Vec<Vec<f64>> = (0..theta.len())
+        .map(|i| vec![clean[i], dif_pol[i], dif_edu[i]])
+        .collect();
+
+    // Looking only at the political axis misses the education-biased item (blind spot).
+    let single = revalidate_pool(&theta, &[axis_pol.clone()], &responses);
+    assert!(
+        !single[2].emerging_dif,
+        "single-axis review should miss the edu-biased item"
+    );
+
+    // Multi-axis catches all real DIF and leaves the clean item alone.
+    let multi = revalidate_pool(&theta, &[axis_pol, axis_edu], &responses);
+    assert!(!multi[0].emerging_dif, "clean item wrongly flagged");
+    assert!(multi[1].emerging_dif, "political DIF missed");
+    assert!(multi[2].emerging_dif, "education DIF missed");
+}
+
+#[test]
+fn revalidation_feeds_the_retirement_list() {
+    let items = [
+        Template::new(b"item A".to_vec()).variant(b"1"),
+        Template::new(b"item B".to_vec()).variant(b"1"),
+        Template::new(b"item C".to_vec()).variant(b"1"),
+    ];
+    // A is clean but over-exposed; B developed DIF; C is fine.
+    let health = vec![
+        ItemHealth::default(),
+        ItemHealth {
+            emerging_dif: true,
+            ..Default::default()
+        },
+        ItemHealth::default(),
+    ];
+    let mut exposure = ExposureLedger::new();
+    for _ in 0..2000 {
+        exposure.record(items[0]);
+    }
+
+    let retire = items_to_retire(&items, &health, &exposure, 2000);
+    assert_eq!(retire.len(), 2);
+    assert!(retire.contains(&(items[0], RetirementReason::Exposure)));
+    assert!(retire.contains(&(items[1], RetirementReason::EmergingDif)));
+    assert!(
+        !retire.iter().any(|(id, _)| *id == items[2]),
+        "clean item should stay"
+    );
 }
 
 #[test]

@@ -130,6 +130,7 @@ steps are seeded for reproducibility.
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
+| `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -206,11 +207,10 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- Wire `protocol::governance` sortition into the honeypot committee, the coverage
-  blueprint committee, and consortium selection; wire `protocol::probation` weights
-  into the review aggregation; wire `protocol::exposure` retirement into the pool
-  lifecycle; add pool re-validation (periodic multi-axis DIF over the active pool
-  feeding `ItemHealth`).
+- A single end-to-end review-aggregation flow that composes the existing bricks:
+  `governance` sortition feeding the honeypot committee / blueprint committee /
+  consortium; `probation` + anti-collusion weights in the review aggregation;
+  `revalidation` → `exposure` retirement on a schedule.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple
