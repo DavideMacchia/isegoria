@@ -194,6 +194,10 @@ Three kinds of tests, 61 in total:
    majority; a long-con's reputation rises slowly, falls fast, and is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.
+6. **`#[ignore]` guards**, run on demand: `fixture_drift` regenerates the oracle
+   fixtures from the Python sims and diffs them against the committed ones (catches
+   sim/fixture drift; needs numpy/scipy); `power` is a Monte-Carlo check of the
+   §B.6 sample-size claim (latent-class DIF detection rate at N≈1500 vs 3000).
 
 Run them:
 
