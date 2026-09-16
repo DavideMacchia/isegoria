@@ -203,7 +203,7 @@ Rust — SciPy and the in-house optimizer differ. The Python sims are an oracle 
 
 ## Testing strategy
 
-Three kinds of tests, 61 in total:
+Six kinds of test, 141 in total:
 
 1. **Oracle acceptance tests** run the Rust engine on the *same dataset* as the
    Python sims (exported by `sim/export_fixtures.py` into
@@ -222,7 +222,13 @@ Three kinds of tests, 61 in total:
 4. **End-to-end integration** (`protocol/tests/end_to_end.rs`) walks the ten civic
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
-   item by the pilot screen; a true-but-divisive item recovered via the appeal).
+   item by the pilot screen; a true-but-divisive item recovered via the appeal). The
+   bridging uncertainty band is resolved by the weighted, anti-collusion-discounted
+   review aggregation (`protocol::aggregate`), not passed by default; `composed_gate`
+   stress-tests that `bridging_gate → aggregate → resolve_band` path (skilled reviewer
+   carries it, a cartel is √k-discounted and cannot flip it, probationers do not count,
+   an all-probation panel stays undecided) with reviewer skill grounded in the real
+   Level-C oracle profiles.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
    majority; a long-con's reputation rises slowly, falls fast, and is capped;
@@ -259,12 +265,15 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- The review aggregation itself is **done** (`protocol::aggregate`: `probation` +
-  anti-collusion weights over reviewer judgments, resolving the gate band — see its
-  scenario/edge/property tests). Still open in the composition: `governance` sortition
-  feeding the honeypot / blueprint committees; wiring `aggregate` into the fixture
-  `end_to_end` epoch to resolve the band; `revalidation` → `exposure` retirement on a
-  schedule; deduplicating reviewer votes via the M3 ZK nullifier.
+- The review aggregation is **done** (`protocol::aggregate`: `probation` +
+  anti-collusion weights over reviewer judgments) and **wired into the epoch**: the
+  fixture `end_to_end` resolves the bridging uncertainty band with it (items 1/5/6 fall
+  in the band; item 6 advances on the weighted merit of its reviewers, not by default),
+  and `composed_gate` exercises the `bridging_gate → aggregate → resolve_band` path
+  against cartels, probationers, and an undecided panel. Still open in the composition:
+  `governance` sortition feeding the honeypot / blueprint committees; `revalidation` →
+  `exposure` retirement on a schedule; deduplicating reviewer votes via the M3 ZK
+  nullifier.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple
