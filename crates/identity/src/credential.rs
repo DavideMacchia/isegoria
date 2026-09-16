@@ -28,14 +28,30 @@ use crate::nym::{derive_nym, Nym, Role};
 use ark_bls12_381::{Bls12_381, Fr, G1Affine};
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
+use ark_std::rand::{rngs::StdRng, SeedableRng};
 use ark_std::UniformRand;
-use bbs_plus::prelude::{KeypairG2, PublicKeyG2, SecretKey, SignatureG1, SignatureParamsG1};
+use bbs_plus::prelude::{
+    BBSPlusError, KeypairG2, PublicKeyG2, SecretKey, SignatureG1, SignatureParamsG1,
+};
+use bbs_plus::threshold::multiplication_phase::Phase2;
+use bbs_plus::threshold::randomness_generation_phase::Phase1;
+use bbs_plus::threshold::threshold_bbs_plus::BBSPlusSignatureShare;
+use blake2::Blake2b512;
+use oblivious_transfer_protocols::ot_based_multiplication::base_ot_multi_party_pairwise::{
+    BaseOTOutput, Participant,
+};
+use oblivious_transfer_protocols::ot_based_multiplication::dkls18_mul_2p::MultiplicationOTEParams;
+use oblivious_transfer_protocols::ot_based_multiplication::dkls19_batch_mul_2p::GadgetVector;
+use oblivious_transfer_protocols::ParticipantId;
 use rand_core::OsRng;
 use schnorr_pok::pok_generalized_pedersen::{
     compute_random_oracle_challenge, SchnorrCommitment, SchnorrResponse,
 };
+use secret_sharing_and_dkg::shamir_ss::deal_random_secret;
 use sha2::Sha256;
+use sha3::Shake256;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 type E = Bls12_381;
 
@@ -228,12 +244,7 @@ impl Issuer {
     /// Verify the request's proof of knowledge, then blind-sign `(secret, label)`,
     /// learning only the label.
     pub fn issue(&self, request: &IssuanceRequest) -> Result<BlindSignature, IssuanceError> {
-        let bases = pok_bases(&self.params);
-        let challenge = pok_challenge(&bases, &request.commitment, &request.t, &request.label);
-        request
-            .response
-            .is_valid(&bases, &request.commitment, &request.t, &challenge)
-            .map_err(|_| IssuanceError::InvalidProofOfKnowledge)?;
+        verify_request(&self.params, request)?;
 
         // The label is the only message the issuer knows; the secret stays committed.
         let label = label_scalar(&request.label);
@@ -252,11 +263,279 @@ impl Issuer {
     }
 }
 
+/// Verify a request's Fiat–Shamir proof of knowledge of the committed secret. Shared
+/// by the single [`Issuer`] and the threshold [`ThresholdIssuer`].
+fn verify_request(
+    params: &SignatureParamsG1<E>,
+    request: &IssuanceRequest,
+) -> Result<(), IssuanceError> {
+    let bases = pok_bases(params);
+    let challenge = pok_challenge(&bases, &request.commitment, &request.t, &request.label);
+    request
+        .response
+        .is_valid(&bases, &request.commitment, &request.t, &challenge)
+        .map_err(|_| IssuanceError::InvalidProofOfKnowledge)
+}
+
 /// The issuer's public material (parameters + verifying key), shareable with holders.
 #[derive(Clone, Debug)]
 pub struct IssuerPublic {
     params: SignatureParamsG1<E>,
     public_key: PublicKeyG2<E>,
+}
+
+// Threshold BBS+ signing parameters (DKLS multiplication over OT extension).
+const KAPPA: u16 = 256;
+const STAT: u16 = 80;
+const BASE_OT_KEY_SIZE: u16 = 128;
+type Ote = MultiplicationOTEParams<KAPPA, STAT>;
+type Gadget = GadgetVector<Fr, KAPPA, STAT>;
+
+/// Threshold BBS+ issuer (`docs/03` §M2): the signing key is Shamir-shared across `n`
+/// members, and a signature needs `t` of them. Issuance runs the DKLS-based MPC of
+/// [`bbs_plus::threshold`] over an in-process committee and yields a standard BBS+
+/// signature — so the holder's request and unblinding are identical to the single
+/// [`Issuer`], and `AnonymousCredential` verifies against the committee's aggregate key.
+///
+/// **What is real:** threshold signing — `t-1` members cannot sign, and the committee
+/// never learns the holder's committed secret. **Still modeled (future work):** a real
+/// interactive distributed key generation and base-OT setup between remote members
+/// (here a trusted dealer + in-process base OT, seeded for reproducibility) and network
+/// transport; the whole committee runs in one process.
+pub struct ThresholdIssuer {
+    params: SignatureParamsG1<E>,
+    public_key: PublicKeyG2<E>,
+    key_shares: Vec<Fr>,
+    threshold: u16,
+    ote_params: Ote,
+    gadget: Gadget,
+    base_ot: Vec<BaseOTOutput>,
+}
+
+impl ThresholdIssuer {
+    /// Set up an `n`-member committee that needs `t` to sign, deterministically from
+    /// `seed`: a trusted dealer derives the Shamir shares and the one-time base-OT
+    /// material. A real remote DKG and OT bootstrap are future work.
+    pub fn new(seed: [u8; 32], n: u16, t: u16) -> Self {
+        assert!(t >= 1 && t <= n, "need 1 <= t <= n");
+        let mut rng = StdRng::from_seed(seed);
+
+        let (secret, shares, _) =
+            deal_random_secret::<_, Fr>(&mut rng, t, n).expect("valid Shamir sharing");
+        let key_shares: Vec<Fr> = shares.0.into_iter().map(|s| s.share).collect();
+
+        let params = SignatureParamsG1::<E>::new::<Sha256>(PARAMS_LABEL, MSG_COUNT);
+        let public_key = PublicKeyG2::generate_using_secret_key(&SecretKey(secret), &params);
+
+        let ote_params = MultiplicationOTEParams::<KAPPA, STAT> {};
+        let gadget = GadgetVector::new::<Blake2b512>(ote_params, b"isegoria/bbs+/gadget/v1");
+        let all: BTreeSet<ParticipantId> = (1..=n).collect();
+        let base_ot = setup_base_ot::<BASE_OT_KEY_SIZE>(&mut rng, ote_params.num_base_ot(), n, all);
+
+        ThresholdIssuer {
+            params,
+            public_key,
+            key_shares,
+            threshold: t,
+            ote_params,
+            gadget,
+            base_ot,
+        }
+    }
+
+    /// The public material a holder needs (identical shape to the single issuer).
+    pub fn public(&self) -> IssuerPublic {
+        IssuerPublic {
+            params: self.params.clone(),
+            public_key: self.public_key.clone(),
+        }
+    }
+
+    /// Verify the request's proof of knowledge, then run the threshold MPC across the
+    /// first `t` members to blind-sign `(secret, label)`, learning only the label.
+    pub fn issue(&self, request: &IssuanceRequest) -> Result<BlindSignature, IssuanceError> {
+        verify_request(&self.params, request)?;
+        let sig = self
+            .threshold_sign(request)
+            .map_err(|_| IssuanceError::Signing)?;
+        Ok(BlindSignature(sig))
+    }
+
+    fn threshold_sign(&self, request: &IssuanceRequest) -> Result<SignatureG1<E>, BBSPlusError> {
+        let t = self.threshold;
+        let party_set: BTreeSet<ParticipantId> = (1..=t).collect();
+        let protocol_id = b"isegoria/bbs+/threshold/v1".to_vec();
+        let mut rng = OsRng;
+
+        // Phase 1 — joint randomness (e, s) and masked key / r shares.
+        let mut round1 = Vec::new();
+        let mut comms = Vec::new();
+        let mut comm_zeros = Vec::new();
+        for i in 1..=t {
+            let mut others = party_set.clone();
+            others.remove(&i);
+            let (r1, comm, comm_zero) = Phase1::<Fr, 256>::init_for_bbs_plus::<_, Blake2b512>(
+                &mut rng,
+                1,
+                i,
+                others,
+                protocol_id.clone(),
+            )?;
+            round1.push(r1);
+            comms.push(comm);
+            comm_zeros.push(comm_zero);
+        }
+        for i in 1..=t {
+            for j in 1..=t {
+                if i != j {
+                    let cz = comm_zeros[(j - 1) as usize].get(&i).unwrap().clone();
+                    round1[(i - 1) as usize].receive_commitment(
+                        j,
+                        comms[(j - 1) as usize].clone(),
+                        cz,
+                    )?;
+                }
+            }
+        }
+        for i in 1..=t {
+            for j in 1..=t {
+                if i != j {
+                    let share = round1[(j - 1) as usize].get_comm_shares_and_salts();
+                    let zero = round1[(j - 1) as usize]
+                        .get_comm_shares_and_salts_for_zero_sharing_protocol_with_other(&i);
+                    round1[(i - 1) as usize].receive_shares::<Blake2b512>(j, share, zero)?;
+                }
+            }
+        }
+        let mut phase1 = Vec::new();
+        for (idx, r1) in round1.into_iter().enumerate() {
+            phase1.push(r1.finish_for_bbs_plus::<Blake2b512>(&self.key_shares[idx])?);
+        }
+
+        // Phase 2 — OT-based multiplications between every pair of signers.
+        let mut round2 = Vec::new();
+        let mut msg1s = Vec::new();
+        for i in 1..=t {
+            let mut others = party_set.clone();
+            others.remove(&i);
+            let (phase, u) = Phase2::init::<_, Shake256>(
+                &mut rng,
+                i,
+                phase1[(i - 1) as usize].masked_signing_key_shares.clone(),
+                phase1[(i - 1) as usize].masked_rs.clone(),
+                self.base_ot[(i - 1) as usize].clone(),
+                others,
+                self.ote_params,
+                &self.gadget,
+            )?;
+            round2.push(phase);
+            msg1s.push((i, u));
+        }
+        // message1 goes sender -> receiver; the receiver replies with message2, which
+        // the original sender consumes (keep the roles explicit to route correctly).
+        let mut msg2s = Vec::new();
+        for (sender, us) in msg1s {
+            for (receiver, m) in us {
+                let m2 = round2[(receiver - 1) as usize].receive_message1::<Blake2b512, Shake256>(
+                    sender,
+                    m,
+                    &self.gadget,
+                )?;
+                msg2s.push((sender, receiver, m2));
+            }
+        }
+        for (sender, receiver, m2) in msg2s {
+            round2[(sender - 1) as usize].receive_message2::<Blake2b512>(
+                receiver,
+                m2,
+                &self.gadget,
+            )?;
+        }
+        let phase2: Vec<_> = round2.into_iter().map(|p| p.finish()).collect();
+
+        // Phase 3 — each signer non-interactively produces its signature share over the
+        // committed request; the aggregate is a standard BBS+ signature.
+        let label = label_scalar(&request.label);
+        let mut uncommitted: BTreeMap<usize, &Fr> = BTreeMap::new();
+        uncommitted.insert(IDX_LABEL, &label);
+        let mut shares = Vec::new();
+        for i in 0..t as usize {
+            shares.push(BBSPlusSignatureShare::new_with_committed_messages(
+                &request.commitment,
+                uncommitted.clone(),
+                0,
+                &phase1[i],
+                &phase2[i],
+                &self.params,
+            )?);
+        }
+        BBSPlusSignatureShare::aggregate(shares)
+    }
+}
+
+/// Bootstrap pairwise base OT between all `n` members (one-time setup). Mirrors the
+/// reference `do_pairwise_base_ot` from `oblivious_transfer_protocols` (which lives in
+/// that crate's own test module and so is not importable), driving every message of the
+/// endemic-OT exchange in-process. Real deployments run this between remote members.
+fn setup_base_ot<const KEY_SIZE: u16>(
+    rng: &mut StdRng,
+    num_base_ot: u16,
+    n: u16,
+    all: BTreeSet<ParticipantId>,
+) -> Vec<BaseOTOutput> {
+    let b = G1Affine::rand(rng);
+    let mut base_ots = Vec::new();
+    let mut sender_pks = BTreeMap::new();
+    for i in 1..=n {
+        let mut others = all.clone();
+        others.remove(&i);
+        let (base_ot, sender_pk_and_proof) =
+            Participant::init::<_, Blake2b512>(rng, i, others, num_base_ot, &b).unwrap();
+        base_ots.push(base_ot);
+        sender_pks.insert(i, sender_pk_and_proof);
+    }
+
+    let mut receiver_pks = BTreeMap::new();
+    for (sender_id, pks) in sender_pks {
+        for (id, pk) in pks {
+            let recv_pk = base_ots[(id - 1) as usize]
+                .receive_sender_pubkey::<_, Blake2b512, Shake256, KEY_SIZE>(rng, sender_id, pk, &b)
+                .unwrap();
+            receiver_pks.insert((id, sender_id), recv_pk);
+        }
+    }
+
+    let mut challenges = BTreeMap::new();
+    for ((sender, receiver), pk) in receiver_pks {
+        let chal = base_ots[(receiver - 1) as usize]
+            .receive_receiver_pubkey::<Blake2b512, Shake256, KEY_SIZE>(sender, pk)
+            .unwrap();
+        challenges.insert((receiver, sender), chal);
+    }
+
+    let mut responses = BTreeMap::new();
+    for ((sender, receiver), chal) in challenges {
+        let resp = base_ots[(receiver - 1) as usize]
+            .receive_challenges::<Blake2b512>(sender, chal)
+            .unwrap();
+        responses.insert((receiver, sender), resp);
+    }
+
+    let mut hashed_keys = BTreeMap::new();
+    for ((sender, receiver), resp) in responses {
+        let hk = base_ots[(receiver - 1) as usize]
+            .receive_responses(sender, resp)
+            .unwrap();
+        hashed_keys.insert((receiver, sender), hk);
+    }
+
+    for ((sender, receiver), hk) in hashed_keys {
+        base_ots[(receiver - 1) as usize]
+            .receive_hashed_keys::<Blake2b512>(sender, hk)
+            .unwrap();
+    }
+
+    base_ots.into_iter().map(|b| b.finish()).collect()
 }
 
 #[cfg(test)]

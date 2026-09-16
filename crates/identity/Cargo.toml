@@ -18,6 +18,11 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 bbs_plus = "0.25"
 # Schnorr PoK so the issuer verifies the holder knows the committed secret (Apache-2.0).
 schnorr_pok = "0.23"
+# Threshold BBS+ issuance (docs/03 §M2): DKG + base OT + MPC multiplication. Apache-2.0.
+oblivious_transfer_protocols = "0.12"
+secret_sharing_and_dkg = "0.16"
+blake2 = "0.10"
+sha3 = "0.10"
 # arkworks curve + traits that bbs_plus / schnorr_pok are generic over (BLS12-381).
 ark-bls12-381 = "0.4"
 ark-ec = "0.4"

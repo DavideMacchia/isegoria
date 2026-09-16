@@ -45,7 +45,8 @@ protocol ──► scoring
         └──► network
 
 scoring   (no internal deps; only rand, rand_chacha)
-identity  (sha2, voprf, curve25519-dalek, bbs_plus, schnorr_pok, arkworks)
+identity  (sha2, voprf, curve25519-dalek, bbs_plus, schnorr_pok, arkworks,
+           oblivious_transfer_protocols, secret_sharing_and_dkg)
 network   (sha2, ed25519-dalek, reed-solomon-erasure, opentimestamps)
 ```
 
@@ -90,7 +91,7 @@ The state authenticates but does not issue (`docs/03`).
 | `ratelimit` | §Cost of proposing | `rln_token`, `within_quota`, `SlotLedger` |
 | `enrollment` | §M1 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (`VoprfOracle` real + `ReferenceOracle` test-only), `EnrollmentRegistry` |
 | `oprf` | §M1 | `ThresholdOprfOracle` (Shamir + DLEQ), `KeyShare`, `PublicShare`, `PartialEval`, `DleqProof` |
-| `credential` | §M2 | `Credential`, `Issuer`, `IssuerPublic`, `IssuanceRequest`, `AnonymousCredential` |
+| `credential` | §M2 | `Credential`, `Issuer`, `ThresholdIssuer`, `IssuerPublic`, `IssuanceRequest`, `AnonymousCredential` |
 | `hash` (private) | — | domain-separated SHA-256 |
 
 **Real:** role nullifiers (deterministic → not rotatable → no whitewashing; distinct
@@ -102,16 +103,19 @@ closes the single-holder gap — the key is Shamir-shared, each member proves it
 partial evaluation with a Chaum–Pedersen **DLEQ**, and any `t` Lagrange-combine to the
 label, so `t-1` members cannot compute it and none can brute-force the codice-fiscale
 space alone. It is a bespoke DH-OPRF on the vetted `curve25519-dalek` group (a tested
-exception, see the crypto-rule note). Credential issuance — `Issuer` — is a real
-**BBS+** blind signature (via `bbs_plus`, BLS12-381): the holder commits to its secret
-and proves knowledge of it (`schnorr_pok`), the issuer verifies that proof and
-blind-signs `(secret, label)` learning only the label, and the holder unblinds a
-verifiable signature.
-**Still modeled:** the *threshold* t-of-n split of the BBS+ issuing key (a single
-`Issuer` issues alone; `bbs_plus`'s `threshold` module is the growth path); a real
-distributed key-generation ceremony and network transport for the threshold OPRF (here
-a trusted dealer + in-process committee); and selective-disclosure *presentation* of
-the credential (the `PoKOfSignature` reveal, tied to the M3 nullifier).
+exception, see the crypto-rule note). Credential issuance is a real **BBS+** blind
+signature (via `bbs_plus`, BLS12-381): the holder commits to its secret and proves
+knowledge of it (`schnorr_pok`), the issuer verifies that proof and blind-signs
+`(secret, label)` learning only the label, and the holder unblinds a verifiable
+signature. This too has both a single-issuer backend (`Issuer`) and a real **threshold**
+t-of-n one (`ThresholdIssuer`): the signing key is Shamir-shared and a signature is
+produced by the DKLS-based MPC of `bbs_plus::threshold` (DKG + base OT + a
+multiplication phase), so `t-1` members cannot sign; the aggregate is an ordinary BBS+
+signature, so the holder's request and unblinding are unchanged.
+**Still modeled:** a real distributed key-generation ceremony and network transport for
+both threshold committees (here trusted-dealer keygen + an in-process committee running
+every protocol message locally); and selective-disclosure *presentation* of the
+credential (the `PoKOfSignature` reveal, tied to the M3 nullifier).
 
 ## `network` — tamper-evident storage
 
@@ -237,7 +241,7 @@ cargo clippy --workspace --all-targets
 | Role nullifiers, rate-limiting tokens | **Real** (hash-based) | Semaphore (ZK nullifiers) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
-| Credential issuance | **Real** (BBS+ blind, single-issuer) | Threshold t-of-n issuing key; selective-disclosure presentation |
+| Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |
 | Public-chain anchoring | **Real** (OpenTimestamps proof format + verification) | Live calendar POST + Bitcoin node/SPV block source |
 | Gossip/DHT transport, CRDT | Documented, not implemented | libp2p, Automerge/Yjs |
 
