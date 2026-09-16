@@ -754,6 +754,7 @@ dependencies = [
  "bbs_plus",
  "blake2",
  "curve25519-dalek",
+ "dock_crypto_utils",
  "oblivious_transfer_protocols",
  "rand_core 0.6.4",
  "schnorr_pok",

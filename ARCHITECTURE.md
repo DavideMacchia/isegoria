@@ -46,7 +46,7 @@ protocol ──► scoring
 
 scoring   (no internal deps; only rand, rand_chacha)
 identity  (sha2, voprf, curve25519-dalek, bbs_plus, schnorr_pok, arkworks,
-           oblivious_transfer_protocols, secret_sharing_and_dkg)
+           oblivious_transfer_protocols, secret_sharing_and_dkg, dock_crypto_utils)
 network   (sha2, ed25519-dalek, reed-solomon-erasure, opentimestamps)
 ```
 
@@ -87,16 +87,22 @@ The state authenticates but does not issue (`docs/03`).
 
 | Module | Spec | Key items |
 |---|---|---|
-| `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` |
+| `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` (lightweight address) |
+| `nullifier` | §M3 | `NullifierProof`, `prove`, `verify` (ZK nullifier bound to the BBS+ credential) |
 | `ratelimit` | §Cost of proposing | `rln_token`, `within_quota`, `SlotLedger` |
 | `enrollment` | §M1 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (`VoprfOracle` real + `ReferenceOracle` test-only), `EnrollmentRegistry` |
 | `oprf` | §M1 | `ThresholdOprfOracle` (Shamir + DLEQ), `KeyShare`, `PublicShare`, `PartialEval`, `DleqProof` |
 | `credential` | §M2 | `Credential`, `Issuer`, `ThresholdIssuer`, `IssuerPublic`, `IssuanceRequest`, `AnonymousCredential` |
 | `hash` (private) | — | domain-separated SHA-256 |
 
-**Real:** role nullifiers (deterministic → not rotatable → no whitewashing; distinct
-per role → unlinkable), rate-limiting tokens (reuse collides and is detected), the
-uniqueness label, and credential issuance. The label has two real backends: a
+**Real:** role pseudonyms (deterministic → not rotatable → no whitewashing; distinct
+per role → unlinkable) with, on top, a Semaphore-style **ZK nullifier** (`nullifier`):
+`N = x·H_role` plus a proof that binds it, in zero knowledge, to a valid BBS+
+credential over the same secret `x` — a bespoke sigma-protocol composition (the BBS+
+proof of knowledge sharing its message blinding with the nullifier's Schnorr proof
+under one Fiat–Shamir challenge), so no circom/Groth16 stack is needed. Also real:
+rate-limiting tokens (reuse collides and is detected), the uniqueness label, and
+credential issuance. The label has two real backends: a
 single-server **VOPRF** (`VoprfOracle`, RFC 9497 via `voprf` — oblivious and
 verifiable) and a real **threshold** t-of-n OPRF (`oprf::ThresholdOprfOracle`) that
 closes the single-holder gap — the key is Shamir-shared, each member proves its
@@ -238,7 +244,8 @@ cargo clippy --workspace --all-targets
 | Concern | Status | Production backend |
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
-| Role nullifiers, rate-limiting tokens | **Real** (hash-based) | Semaphore (ZK nullifiers) |
+| Role pseudonyms, rate-limiting tokens | **Real** (hash-based) | — |
+| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol) | (circom Semaphore avoided) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
 | Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |

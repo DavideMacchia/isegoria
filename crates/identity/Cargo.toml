@@ -23,6 +23,8 @@ oblivious_transfer_protocols = "0.12"
 secret_sharing_and_dkg = "0.16"
 blake2 = "0.10"
 sha3 = "0.10"
+# MessageOrBlinding for linking the BBS+ proof to the ZK nullifier (docs/03 §M3). Apache-2.0.
+dock_crypto_utils = "0.23"
 # arkworks curve + traits that bbs_plus / schnorr_pok are generic over (BLS12-381).
 ark-bls12-381 = "0.4"
 ark-ec = "0.4"

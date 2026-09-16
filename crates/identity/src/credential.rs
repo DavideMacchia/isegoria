@@ -191,6 +191,16 @@ pub struct AnonymousCredential {
 }
 
 impl AnonymousCredential {
+    pub(crate) fn signature(&self) -> &SignatureG1<E> {
+        &self.signature
+    }
+    pub(crate) fn secret(&self) -> &Fr {
+        &self.secret
+    }
+    pub(crate) fn label_scalar(&self) -> &Fr {
+        &self.label_scalar
+    }
+
     /// Holder-side check that the freshly issued signature is valid under the
     /// issuer's key. (Real presentation to a third party reveals only the label via a
     /// proof of knowledge of the signature — future work, see the module docs.)
@@ -282,6 +292,15 @@ fn verify_request(
 pub struct IssuerPublic {
     params: SignatureParamsG1<E>,
     public_key: PublicKeyG2<E>,
+}
+
+impl IssuerPublic {
+    pub(crate) fn params(&self) -> &SignatureParamsG1<E> {
+        &self.params
+    }
+    pub(crate) fn public_key(&self) -> &PublicKeyG2<E> {
+        &self.public_key
+    }
 }
 
 // Threshold BBS+ signing parameters (DKLS multiplication over OT extension).
