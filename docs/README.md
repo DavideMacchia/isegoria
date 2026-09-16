@@ -56,10 +56,12 @@ guaranteed by an external enrollment layer (national eID / CIE / SPID / others),
 
 ## Status
 
-Specification phase. No production code written yet. The simulations in `sim/` are
-research prototypes, not reference implementations.
+A reference implementation exists as a Cargo workspace (`crates/{scoring,identity,
+network,protocol}`); see the top-level `README.md` and `ARCHITECTURE.md` for the
+current state, and `docs/08-formal-specification.md` for an independent audit of what
+is implemented, tested, and still open. The simulations in `sim/` are the executable
+specification the engine reproduces, not the deployment target.
 
-## Recommended license
+## License
 
-AGPL-3.0 (like Decidim) or EUPL-1.2 if targeting adoption by European public
-bodies. To be decided before the first code commit.
+EUPL-1.2 (see `LICENSE`).

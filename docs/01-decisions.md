@@ -196,15 +196,17 @@ structures. Heavier consensus is the last thing to touch.
 
 ---
 
-## D15 — Issuing committee separate from the storage consortium (preferred)
+## D15 — Issuing committee separate from the storage consortium
 
-**Choice.** The committee that issues identity credentials is, preferably, distinct
-from the consortium that signs the data.
+**Choice.** The committee that issues identity credentials is distinct from the
+consortium that signs the data. Two separate bodies, not one. (Confirmed; this
+supersedes the earlier "preferred" wording — see D22 for the enrollment binding it
+protects.)
 
 **Why.** The same committee is simpler but concentrates two powers (data custody +
-identity issuance) in a single body. Separated is more faithful to the
-separation-of-powers logic that underpins the whole design. A governance decision,
-dependent on how many independent organizations can be involved.
+identity issuance) in a single body: a single compromised body could then both learn
+who you are and manipulate the data. Separation is exactly what protects anonymity,
+and is faithful to the separation-of-powers logic that underpins the whole design.
 
 ---
 
@@ -221,3 +223,210 @@ stratified sortition.
 is the weakest link. But it becomes a bearable — not fatal — problem if the
 computation stays reproducible and exit stays free: the choice becomes revocable
 instead of permanent.
+
+---
+
+## D17 — Who may re-check the computation: consortium now, cryptographic proofs later
+
+**Choice.** Verifying the scores requires the votes, and votes are **never published
+in the clear** (that would enable statistical de-anonymization). Therefore:
+- *Interim:* only the storage consortium — redundant and threshold-signed — re-runs
+  the deterministic engine and signs the result. Ordinary participants trust the
+  signed output, not their own recomputation.
+- *Target:* zero-knowledge proofs of the computation (D14 step 4), so anyone can
+  verify the scores are correct **without** seeing any vote — adopted as soon as it
+  is computationally feasible.
+
+**Why.** Reproducibility (invariant #7) and secrecy of voting patterns are in direct
+tension. Publishing every pseudonymous vote so "anyone can redo the math" breaks the
+anonymity that is the base of the whole system. Keeping the check inside a signed,
+forkable consortium preserves both today; zk proofs remove the trust assumption
+tomorrow. Resolves docs/08 §17 Q-1 / G-20.
+
+**Rejected.** Publishing all ratings per pseudonym (contradicts docs/CLAUDE.md and
+the anonymity base).
+
+---
+
+## D18 — A lost or stolen secret is not recoverable
+
+**Choice.** If a person loses or has stolen their credential secret, the identity is
+lost permanently: no recovery, no re-issuance to the same "self", accumulated
+reputation is gone. No revocation list at launch.
+
+**Why.** The non-rotatable pseudonym (invariant #5) is what stops whitewashing —
+starting over to shed a bad reputation. Any recovery/revocation path is, by
+construction, also a way to obtain a fresh identity, and a revocation list keyed on
+identities adds a linkability channel that weakens anonymity. The loss is a real
+cost, accepted for now in exchange for simplicity and privacy. Resolves Q-13 / G-17.
+
+---
+
+## D19 — Only CIE/SPID identities at launch; foreign documents deferred
+
+**Choice.** Enrollment accepts only Italian digital identities (CIE/SPID) at launch.
+People without one (e.g. foreign passports) cannot enroll until a mechanism that
+preserves "one person = one account" across identity systems exists.
+
+**Why.** Uniqueness (Sybil resistance) depends on a single canonical anchor space.
+Different national identity systems live in different anchor spaces, so a person
+could enroll once per system — a Sybil hole. Better to exclude for now than to open
+that hole. A known limitation to revisit, not a permanent exclusion. Resolves Q-14 /
+docs/03 F2.
+
+---
+
+## D20 — Bias detection: latent-class method in production, attribute-based only in pilots
+
+**Choice.** The empirical bias test (DIF) runs in production using the **latent-class
+(Variant 2)** method only, which needs no declared attribute. The attribute-based
+method (Variant 1) is permitted **only in closed calibration pilots** with declared
+attributes, never in production.
+
+**Why.** Variant 1 needs a per-respondent group value that the live system cannot
+possess without either linking a person's roles (violates P3) or collecting a
+declared attribute (violates invariant #1). Only the latent method is compatible with
+anonymity. Resolves Q-2 / G-01.
+
+---
+
+## D21 — Honeypot ground truth comes from validated history, not committee opinion
+
+**Choice.** The "known quality" of the golden items used to score evaluators is taken
+from the empirical history (items that passed or failed Level-B validation), not from
+a committee's judgment of what a good item is.
+
+**Why.** Letting a committee declare an item's quality would reintroduce exactly the
+subjective opinion-as-truth that the evidence filter (D3) exists to remove, and hand
+the committee a lever over evaluator scores. Resolves Q-9 / G-16.
+
+---
+
+## D22 — Enrollment binds the anonymous label to the state-authenticated identity
+
+**Choice.** The uniqueness label is derived from an input that is cryptographically
+bound to the identity the state authenticated (e.g. the identity provider signs a
+commitment to the fiscal code, and the holder proves the blinded OPRF input opens to
+that signed value). A holder cannot enroll with a made-up identity.
+
+**Why.** Without this binding, anyone could request a label for an invented anchor and
+enroll any number of times — Sybil resistance would not be provided by the
+cryptography at all. This is the enrollment-side counterpart of D15's separation.
+Resolves Q-3 / G-02.
+
+---
+
+## D23 — Evaluator score baseline: the crowd's prediction, not the outcome base rate
+
+**Choice.** The evaluator skill score (BSS) is measured against the crowd's average
+predicted probability (a weight-adjusted average of the reviewers' own predictions),
+computed by the consortium re-runner — not against the after-the-fact base rate of
+outcomes.
+
+**Why.** The design goal (D6) is to reward genuine judgment and give ~0 to someone who
+just follows the crowd. That property holds against a crowd baseline; the base-rate
+baseline currently in code measures something different and depends on hindsight.
+Predictions stay private (D17): the consortium computes the baseline without
+publishing them. Resolves Q-4 / G-09.
+
+---
+
+## D24 — One documented threshold for the latent-bias detector
+
+**Choice.** The latent-class bias detector reports a single quantity as the item's
+DIF, `DIF_j = 2·|δ̂_j|` (the gap in difficulty between the two hidden groups), and
+rejects above one documented value chosen from a false-positive / false-negative
+study — not the three different metrics/values currently spread across docs, sim and
+code.
+
+**Why.** Today the design doc, the simulation and the code disagree on both what is
+measured and the cut-off, so the same data could pass in one place and fail in
+another. One metric, one value, one justification. Resolves Q-5 / G-08.
+
+---
+
+## D25 — Declared ability metric; guessing correction for multiple-choice
+
+**Choice.** The document states explicitly which "ability" scale the item thresholds
+are expressed in, and adds the guessing correction (3PL) for multiple-choice items,
+or documents why it is safe to omit.
+
+**Why.** The thresholds (discrimination, difficulty) were borrowed from the
+psychometric literature, which uses a specific ability scale; the code uses a simpler
+proxy, so a threshold can mean something different than intended. Multiple-choice is
+exactly where guessing matters. Resolves Q-6 / G-07.
+
+---
+
+## D26 — Borderline items: more reviewers, then a clean re-decision
+
+**Choice.** An item that lands in the uncertainty band at the bridging gate goes to an
+additional round of reviewers and is then re-decided against the plain threshold,
+without the band.
+
+**Why.** "Supplementary review" was a label with no defined meaning; an item could sit
+there forever. Adding reviewers and re-deciding gives borderline items a definite,
+evidence-based outcome. Resolves Q-7 / G-15 (supplementary-review part).
+
+---
+
+## D27 — Appeal cost is a pseudo-observation inside the author score
+
+**Choice.** The cost of a (failed) appeal is modelled as a negative pseudo-observation
+inside the author's reputation score, escrowed when the appeal is filed and replaced
+by the real result on verdict — not as a separate deduction from an unrelated ledger.
+
+**Why.** The author score is defined as an average of item-quality observations;
+subtracting an arbitrary constant makes it no longer that average, so two parts of the
+spec contradict each other. A pseudo-observation keeps the score coherent. Resolves
+Q-8 / REPUTATION-007.
+
+---
+
+## D28 — Sortition members act under a dedicated pseudonym
+
+**Choice.** A participant drawn by lottery for a governance role acts under a separate,
+dedicated pseudonym, not under their proposing or judging pseudonym.
+
+**Why.** The sortition draws from judging pseudonyms (which carry a position
+estimate); if the drawn member then acted under another role, it would link their
+pseudonyms and leak. A dedicated pseudonym keeps the roles unlinkable. Resolves Q-10 /
+G-19.
+
+---
+
+## D29 — Public randomness comes from the latest signed checkpoint
+
+**Choice.** Every lottery, reviewer assignment, honeypot placement and sortition draws
+its randomness from the latest threshold-signed consortium checkpoint head (fixed
+after the relevant submissions close), combined with the item id — not from a seed any
+participant can choose or grind.
+
+**Why.** If an author could influence the seed (e.g. by editing their draft), they
+could select their own reviewers — the brigading random assignment exists to prevent.
+A value fixed by the signed checkpoint is public, unpredictable in advance and
+unchooseable. Resolves Q-11 / G-05.
+
+---
+
+## D30 — The uniqueness key is not rotated without a dedup-preserving migration
+
+**Choice.** The key behind the uniqueness label is not rotated except through a
+documented migration that preserves de-duplication. Routine proactive refresh of the
+committee's shares (which does not change the label) is fine; changing the key itself
+is not, absent such a migration.
+
+**Why.** Every label is a function of that key. Silently changing it re-computes every
+label and re-opens double enrollment for everyone. Resolves Q-12 / ID-006 (INV-11).
+
+---
+
+## D31 — One ideological dimension (d=1) for now
+
+**Choice.** The bridging model uses a single latent axis (`d = 1`). A second dimension
+(`d = 2`) is deferred; the reference use case and the simulations do not require it.
+
+**Why.** One axis already captures the dominant fracture the design targets, and it
+keeps the model simpler to reason about and reproduce. Adding a dimension is a future
+option if a real deployment shows a single axis is insufficient. Resolves Q-16 /
+BRIDGE-001.
