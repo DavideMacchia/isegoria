@@ -13,9 +13,13 @@ use identity::credential::Credential;
 use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
 use identity::nym::Role;
 use network::log::TransparencyLog;
+use protocol::aggregate::{
+    aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
+};
 use protocol::deposit::{deposit, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
 use protocol::pilot::{stage1_screen, stage2_dif};
+use protocol::probation::N_PROBATION;
 use protocol::revalidation::revalidate_pool_latent;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
@@ -54,6 +58,38 @@ fn read_vector(name: &str) -> Vec<f64> {
 
 fn column(m: &[Vec<f64>], j: usize) -> Vec<f64> {
     m.iter().map(|row| row[j]).collect()
+}
+
+/// Cluster only near-identical raters (a real cartel), not honest reviewers who merely
+/// share a side of the latent axis.
+const SUPP_CORR: f64 = 0.95;
+
+/// Resolve a bridging-band item `j` with the reviewers who actually rated it: their
+/// rating `R[u][j]` is their pass-probability, weighted (established, unit E_u — the
+/// fixtures carry no per-reviewer E_u) and discounted for collusion over their full
+/// rating rows. Advances iff the weighted probability reaches the decision threshold;
+/// an undecided panel (no eligible weight) does not advance.
+fn resolve_supplementary(r_dense: &[Vec<f64>], mask: &[Vec<f64>], j: usize) -> bool {
+    let mut probs = Vec::new();
+    let mut vectors = Vec::new();
+    for (u, row) in r_dense.iter().enumerate() {
+        if mask[u][j] != 0.0 {
+            probs.push(row[j]);
+            vectors.push(row.clone());
+        }
+    }
+    let n = probs.len();
+    let weights = review_weights(
+        &vec![false; n],
+        &vec![N_PROBATION; n],
+        &vec![1.0; n],
+        1.0,
+        &vectors,
+        SUPP_CORR,
+    );
+    aggregate_pass_probability(&probs, &weights)
+        .map(|p| resolve_band(p, DECISION_THRESHOLD))
+        .unwrap_or(false)
 }
 
 fn load_ratings() -> Ratings {
@@ -122,11 +158,23 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let bridge = bridge_scores(&ratings, &params, 10, 0.85);
     let f = fit(&ratings, &params);
 
+    // Dense ratings + mask, to resolve the uncertainty band with a weighted,
+    // anti-collusion-discounted second look at the same panel (docs/05 [4]/[5]).
+    let r_dense = read_matrix("R.csv");
+    let mask = read_matrix("mask.csv");
+
     let mut advancing: Vec<usize> = Vec::new();
     for (j, &b) in bridge.iter().enumerate() {
         match bridging_gate(b, f.f_j[j], TAU, EPS, APPEAL_THRESHOLD) {
-            // Above the band or inside it (supplementary review, assumed to pass here).
-            GateOutcome::Pass | GateOutcome::SupplementaryReview => advancing.push(j),
+            GateOutcome::Pass => advancing.push(j),
+            // Inside the band: resolved by the reviewers who rated it, weighted
+            // (established, unit E_u — the fixtures carry no per-reviewer E_u) and
+            // discounted for collusion, not passed by default.
+            GateOutcome::SupplementaryReview => {
+                if resolve_supplementary(&r_dense, &mask, j) {
+                    advancing.push(j);
+                }
+            }
             // Rejected for polarization: advances only if the author appeals.
             GateOutcome::AppealEligible if appeals.contains(&j) => advancing.push(j),
             _ => {}
@@ -153,6 +201,35 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .zip(keep2.iter())
         .filter_map(|(&j, &k)| k.then_some(j))
         .collect()
+}
+
+#[test]
+fn the_bridging_band_is_resolved_by_weighted_review_not_by_default() {
+    // On these fixtures three items land in the bridging uncertainty band; instead of
+    // passing them by default, the panel that rated each one resolves it — weighted and
+    // anti-collusion-discounted. Item 6 (a genuine quality item near the threshold) is
+    // carried upward on merit and is what keeps it in the pool.
+    let ratings = load_ratings();
+    let params = BridgingParams::default();
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
+    let f = fit(&ratings, &params);
+
+    let band: Vec<usize> = (0..bridge.len())
+        .filter(|&j| {
+            matches!(
+                bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD),
+                GateOutcome::SupplementaryReview
+            )
+        })
+        .collect();
+    assert_eq!(band, vec![1, 5, 6], "the bridging band on these fixtures");
+
+    let r_dense = read_matrix("R.csv");
+    let mask = read_matrix("mask.csv");
+    assert!(
+        resolve_supplementary(&r_dense, &mask, 6),
+        "item 6 advances on the weighted merit of its reviewers, not by default"
+    );
 }
 
 #[test]
