@@ -24,6 +24,25 @@ Nothing in this document infers correctness from the existing code or documentat
 
 ---
 
+## 0-bis. Remediation log (maintainer, post-audit)
+
+The audit body below is a **snapshot of commit `c4a09b1`** and is left unedited: its findings were real at that commit. This log records the maintainer fixes applied afterwards. It does not re-run the audit; a finding is marked RESOLVED only where the code-level defect is closed and a regression test pins it. Design-level and multi-part findings remain open beyond the specific sub-fix noted.
+
+Fixes landed on branch `fix/audit-concrete-bugs`, commit `289aae3` — six concrete, design-free code defects. Workspace: 149 tests green; `cargo fmt` and `clippy -D warnings` clean.
+
+| Finding | Was | Now | Fix | Regression test |
+|---|---|---|---|---|
+| COLLUSION-004 (§5.4) | INV-14 VIOLATED — sub-unit weights boosted (`0.25 → 0.5`) | **RESOLVED** | per-node multiplier `s^{α−1}` and `sublinear_group_weight` capped so the transform never increases a weight | `anti_collusion.rs::discount_never_increases_a_weight`, `::group_weight_is_capped_at_its_raw_total` (AT-COL-04) |
+| NET-003 (§5.8, §10.2) | DEFECT — duplicate-last-node; `root([x,y,z]) == root([x,y,z,z])` | **RESOLVED** | RFC 6962 promotion of the odd node; `merkle_root`/`merkle_proof` share `next_level` | `integrity.rs::root_commits_to_the_leaf_count`, `::inclusion_proofs_verify_at_every_size` (AT-NET-02) |
+| PROTO-011 / G-18 (§5.9) | DEFECT — `Draft::content_id` fields not length-prefixed | **RESOLVED** | each field length-prefixed before hashing | `lifecycle.rs::content_id_is_unambiguous_across_the_field_boundary` (AT-PRO-04) |
+| REPUTATION-003 guard (§5.4) | `brier_skill_score` divides by zero on a zero-variance baseline | **RESOLVED (sub-fix)** — the guard only; the baseline choice (crowd vs base-rate) stays open (G-09) | `den == 0.0 → 0.0` (finite, neutral) | `level_c.rs::brier_skill_score_is_finite_when_the_baseline_is_perfect` (AT-REP-03) |
+| DIF-003 guard (§6.5) | `mantel_haenszel` panics on NaN θ (`partial_cmp().unwrap()`) | **RESOLVED (sub-fix)** — the panic only; the stratification/significance gaps stay open | incomparable values treated as equal | `level_b.rs::mantel_haenszel_tolerates_a_nan_theta` |
+| ID-003(ii) (§5.5) | `label_with_quorum` accepts duplicate indices → wrong label silently | **RESOLVED (sub-fix)** — duplicate-index guard only; DKG/transport/external review stay open | reject non-distinct quorum indices | `oprf.rs::a_quorum_with_duplicate_indices_is_refused` (AT-ID-04) |
+
+Everything else in §14 (gaps), §16 (acceptance gate) and the rest of §15 is unchanged: the wiring gaps (BRIDGE-007, PROTO-007) and the design-open questions (§17) are untouched by these fixes.
+
+---
+
 ## 1. Scope
 
 This specification covers the system described by `docs/00`–`docs/06` and implemented in the Cargo workspace at the audited commit:
@@ -1124,11 +1143,11 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
 | COLLUSION-003 | sparse data | — | NOT IMPLEMENTED | — | AT-COL-03 |
-| COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5) | INV-14 VIOLATED | — | AT-COL-04 |
+| COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5); `anti_collusion.rs` (AT-COL-04) | RESOLVED @289aae3 (was INV-14 VIOLATED) — see §0-bis | — | — |
 | COLLUSION-005 | chaining/griefing | — | UNSOLVED | analysis | AT-COL-05 |
 | ID-001 | dedup same anchor | `identity/tests/*` | TESTED (registry logic) | authenticated anchor | G-02 |
 | ID-002 | obliviousness | `voprf_oracle.rs` (primitive) | primitive TESTED; interface NOT IMPLEMENTED | split API | G-02 |
-| ID-003 | t−1 cannot compute | `oprf.rs` tests | TESTED (functional, in-process) | DKG, transport, duplicate-index guard, external review | AT-ID-04; §7.4 |
+| ID-003 | t−1 cannot compute | `oprf.rs` tests (incl. AT-ID-04) | TESTED (functional, in-process); duplicate-index guard RESOLVED @289aae3 | DKG, transport, external review | §7.4 |
 | ID-004 | input bound to eID | — | NOT ESTABLISHED (design) | — | G-02 |
 | ID-005 | label authenticity/custody | — | CONTRADICTORY / NOT IMPLEMENTED | — | G-02 |
 | ID-006 | key lifecycle | — | NOT ESTABLISHED | — | G-17 |
@@ -1146,9 +1165,9 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PRIV-003 | stat. deanonymization mitigations | — | NOT IMPLEMENTED | — | roadmap |
 | PRIV-004 | repro vs secrecy | — | UNRESOLVED | decision | G-20 |
 | PRIV-005 | small-crowd bound | — | HYPOTHESIS | model | research |
-| NET-001 | CID | `integrity.rs` | TESTED | Draft prefix fix | G-18 |
+| NET-001 | CID | `integrity.rs` | TESTED; Draft prefix fix RESOLVED @289aae3 (PROTO-011) | — | — |
 | NET-002 | Merkle inclusion | proptest | TESTED | — | — |
-| NET-003 | root commits to leaves | auditor probe (collision) | DEFECT | — | RFC 6962 |
+| NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |
 | NET-004 | log tamper-evident | `log.rs`, `integrity.rs` | TESTED (inconsistent edit only) | consistency proofs; signatures | G-14 |
 | NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
 | NET-006 | replay/equivocation/net id | — | NOT IMPLEMENTED | — | §9.4 |
@@ -1166,7 +1185,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-008 | supplementary review | — | NOT SPECIFIED | — | G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
-| PROTO-011 | Draft CID unambiguous | — | DEFECT | — | G-18 |
+| PROTO-011 | Draft CID unambiguous | `lifecycle.rs` (AT-PRO-04) | RESOLVED @289aae3 (was DEFECT) — see §0-bis | — | — |
 
 No claim in this matrix is at INDEPENDENTLY_REVIEWED, SCIENTIFICALLY_CHARACTERIZED, PRODUCTION_CANDIDATE, or PRODUCTION_READY. The auditor's re-execution of the Python simulations counts as REPRODUCED for DIF-004 and BRIDGE-002 *at the simulation level only*, and explicitly *fails* REPRODUCED for REPRO-003.
 
