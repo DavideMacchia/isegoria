@@ -158,6 +158,7 @@ steps are seeded for reproducibility.
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
 | `lottery` | [3] | `admit` | — |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal` | `identity::nym` |
+| `aggregate` | [4]/[5], §C.2 | `review_weights`, `aggregate_pass_probability`, `resolve_band` | `scoring::collusion`, `probation` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `settle_appeal` | (scoring outputs) |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif` | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
@@ -258,10 +259,12 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- A single end-to-end review-aggregation flow that composes the existing bricks:
-  `governance` sortition feeding the honeypot committee / blueprint committee /
-  consortium; `probation` + anti-collusion weights in the review aggregation;
-  `revalidation` → `exposure` retirement on a schedule.
+- The review aggregation itself is **done** (`protocol::aggregate`: `probation` +
+  anti-collusion weights over reviewer judgments, resolving the gate band — see its
+  scenario/edge/property tests). Still open in the composition: `governance` sortition
+  feeding the honeypot / blueprint committees; wiring `aggregate` into the fixture
+  `end_to_end` epoch to resolve the band; `revalidation` → `exposure` retirement on a
+  schedule; deduplicating reviewer votes via the M3 ZK nullifier.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple

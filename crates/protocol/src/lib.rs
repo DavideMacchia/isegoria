@@ -5,6 +5,7 @@
 //! stage names the attack it neutralizes; the deterministic pieces (lottery,
 //! reviewer assignment) are seeded for reproducibility.
 
+pub mod aggregate;
 pub mod blueprint;
 pub mod deposit;
 pub mod exposure;
