@@ -28,9 +28,12 @@ Four rules shape every crate:
 2. **Determinism is a security property, not an optimization.** Given identical
    input, the engine produces identical output, bit-for-bit (pinned toolchain,
    seeded RNGs, fixed iteration order). See [Reproducibility](#reproducibility).
-3. **Never roll our own crypto.** Heavy primitives enter behind traits with
-   non-production reference implementations; production wires them to mature
-   libraries.
+3. **Prefer mature crypto; roll our own only with a high bar.** Heavy primitives
+   enter behind traits; production wires them to mature, audited libraries. Bespoke
+   cryptography is allowed when it genuinely serves the design (no suitable library,
+   or a needed variant such as a threshold scheme built on a vetted single-party one),
+   kept small, built on audited building blocks, and pinned down with known-answer and
+   property tests. It is a considered exception, not the default.
 4. **The docs are the source of truth for the logic.** Code comments are minimal
    and point back to the relevant `docs/` section; they do not restate the maths.
 
@@ -42,8 +45,9 @@ protocol ──► scoring
         └──► network
 
 scoring   (no internal deps; only rand, rand_chacha)
-identity  (sha2)
-network   (sha2, ed25519-dalek, reed-solomon-erasure)
+identity  (sha2, voprf, curve25519-dalek, bbs_plus, schnorr_pok, arkworks,
+           oblivious_transfer_protocols, secret_sharing_and_dkg, dock_crypto_utils)
+network   (sha2, ed25519-dalek, reed-solomon-erasure, opentimestamps)
 ```
 
 `scoring` sits at the bottom on purpose. `protocol` is the only crate that composes
@@ -83,17 +87,41 @@ The state authenticates but does not issue (`docs/03`).
 
 | Module | Spec | Key items |
 |---|---|---|
-| `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` |
+| `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` (lightweight address) |
+| `nullifier` | §M3 | `NullifierProof`, `prove`, `verify` (ZK nullifier bound to the BBS+ credential) |
 | `ratelimit` | §Cost of proposing | `rln_token`, `within_quota`, `SlotLedger` |
-| `enrollment` | §M1–M2 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (+ `ReferenceOracle`), `EnrollmentRegistry` |
-| `credential` | §M2 | `Credential`, `BlindIssuer` (+ `ReferenceIssuer`) |
+| `enrollment` | §M1 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (`VoprfOracle` real + `ReferenceOracle` test-only), `EnrollmentRegistry` |
+| `oprf` | §M1 | `ThresholdOprfOracle` (Shamir + DLEQ), `KeyShare`, `PublicShare`, `PartialEval`, `DleqProof` |
+| `credential` | §M2 | `Credential`, `Issuer`, `ThresholdIssuer`, `IssuerPublic`, `IssuanceRequest`, `AnonymousCredential` |
 | `hash` (private) | — | domain-separated SHA-256 |
 
-**Real:** role nullifiers (deterministic → not rotatable → no whitewashing; distinct
-per role → unlinkable) and rate-limiting tokens (reuse collides and is detected).
-**Plug points:** `UniquenessOracle` (threshold OPRF over the anchor) and
-`BlindIssuer` (BBS+ blind, t-of-n issuance) — the reference impls exist only to
-exercise the pipeline and provide no security on their own.
+**Real:** role pseudonyms (deterministic → not rotatable → no whitewashing; distinct
+per role → unlinkable) with, on top, a Semaphore-style **ZK nullifier** (`nullifier`):
+`N = x·H_role` plus a proof that binds it, in zero knowledge, to a valid BBS+
+credential over the same secret `x` — a bespoke sigma-protocol composition (the BBS+
+proof of knowledge sharing its message blinding with the nullifier's Schnorr proof
+under one Fiat–Shamir challenge), so no circom/Groth16 stack is needed. Also real:
+rate-limiting tokens (reuse collides and is detected), the uniqueness label, and
+credential issuance. The label has two real backends: a
+single-server **VOPRF** (`VoprfOracle`, RFC 9497 via `voprf` — oblivious and
+verifiable) and a real **threshold** t-of-n OPRF (`oprf::ThresholdOprfOracle`) that
+closes the single-holder gap — the key is Shamir-shared, each member proves its
+partial evaluation with a Chaum–Pedersen **DLEQ**, and any `t` Lagrange-combine to the
+label, so `t-1` members cannot compute it and none can brute-force the codice-fiscale
+space alone. It is a bespoke DH-OPRF on the vetted `curve25519-dalek` group (a tested
+exception, see the crypto-rule note). Credential issuance is a real **BBS+** blind
+signature (via `bbs_plus`, BLS12-381): the holder commits to its secret and proves
+knowledge of it (`schnorr_pok`), the issuer verifies that proof and blind-signs
+`(secret, label)` learning only the label, and the holder unblinds a verifiable
+signature. This too has both a single-issuer backend (`Issuer`) and a real **threshold**
+t-of-n one (`ThresholdIssuer`): the signing key is Shamir-shared and a signature is
+produced by the DKLS-based MPC of `bbs_plus::threshold` (DKG + base OT + a
+multiplication phase), so `t-1` members cannot sign; the aggregate is an ordinary BBS+
+signature, so the holder's request and unblinding are unchanged.
+**Still modeled:** a real distributed key-generation ceremony and network transport for
+both threshold committees (here trusted-dealer keygen + an in-process committee running
+every protocol message locally); and selective-disclosure *presentation* of the
+credential (the `PoKOfSignature` reveal, tied to the M3 nullifier).
 
 ## `network` — tamper-evident storage
 
@@ -105,13 +133,18 @@ Integrity without permissionless consensus (`docs/04`).
 | `merkle` | §Merkle tree | `leaf_hash`, `merkle_root`, `merkle_proof`, `verify_proof` |
 | `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering) |
 | `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint`, `Consortium::verify` (t-of-n) |
-| `anchoring` | §Anchoring | `Anchor` trait (+ `ReferenceAnchor`) |
+| `anchoring` | §Anchoring | `Anchor` trait, `OtsAnchor`, `Receipt`, `AnchorState` |
 | `erasure` | §Durability | `encode`, `reconstruct` (real Reed–Solomon) |
 
 **Real:** content addressing, Merkle trees, the hash-chained append-only log,
-ed25519 consortium checkpoints, and erasure coding. **Plug points:** `Anchor`
-(OpenTimestamps), and — documented but not yet implemented — gossip/DHT transport
-(libp2p) and CRDT convergence.
+ed25519 consortium checkpoints, erasure coding, and the anchoring proof format —
+`OtsAnchor` builds, serialises and verifies real **OpenTimestamps** `.ots` proofs (via
+`opentimestamps`): `verify` runs the actual OTS walk (`Op::execute` over the step tree)
+and checks a Bitcoin attestation against a block Merkle root. **Still modeled** for
+anchoring: the live network parts — POSTing to a calendar server and reading block
+roots from a Bitcoin node/SPV; here an injected block source stands in and
+`OtsAnchor::upgrade` models the calendar's confirm-and-upgrade with one hashing step.
+**Not yet implemented:** gossip/DHT transport (libp2p) and CRDT convergence.
 
 ## `protocol` — lifecycle orchestration
 
@@ -211,11 +244,12 @@ cargo clippy --workspace --all-targets
 | Concern | Status | Production backend |
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
-| Role nullifiers, rate-limiting tokens | **Real** (hash-based) | Semaphore (ZK nullifiers) |
+| Role pseudonyms, rate-limiting tokens | **Real** (hash-based) | — |
+| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol) | (circom Semaphore avoided) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
-| Uniqueness label | Trait + reference | Threshold OPRF |
-| Credential issuance | Trait + reference | BBS+, t-of-n blind |
-| Public-chain anchoring | Trait + reference | OpenTimestamps |
+| Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
+| Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |
+| Public-chain anchoring | **Real** (OpenTimestamps proof format + verification) | Live calendar POST + Bitcoin node/SPV block source |
 | Gossip/DHT transport, CRDT | Documented, not implemented | libp2p, Automerge/Yjs |
 
 Reference implementations are clearly marked and provide **no** security; they exist

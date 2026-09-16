@@ -1,0 +1,39 @@
+//! Blind BBS+ credential issuance (`docs/03` §M2) through the public API: the
+//! committee certifies a unique label without learning the holder's secret and
+//! without being able to recognise the credential later. Blindness and proof-of-
+//! knowledge soundness are asserted with internal access in `credential.rs`'s unit
+//! tests; here we pin the end-to-end round-trip and the issuer-key binding.
+
+use identity::credential::{Credential, Issuer};
+use identity::enrollment::Label;
+
+fn label(byte: u8) -> Label {
+    Label([byte; 32])
+}
+
+#[test]
+fn issued_credential_verifies() {
+    let issuer = Issuer::new([1u8; 32]);
+    let holder = Credential::from_secret([9u8; 32]);
+
+    let (request, pending) = holder.request_issuance(&label(7), &issuer.public());
+    let blind = issuer.issue(&request).expect("valid request is signed");
+    let credential = pending.finalize(blind);
+
+    assert!(credential.verify(&issuer.public()));
+}
+
+#[test]
+fn a_credential_does_not_verify_under_a_different_issuer() {
+    let issuer = Issuer::new([1u8; 32]);
+    let other = Issuer::new([2u8; 32]);
+    let holder = Credential::from_secret([9u8; 32]);
+
+    let (request, pending) = holder.request_issuance(&label(7), &issuer.public());
+    let blind = issuer.issue(&request).unwrap();
+    let credential = pending.finalize(blind);
+
+    // Right key accepts, wrong key rejects: the signature is bound to the issuer.
+    assert!(credential.verify(&issuer.public()));
+    assert!(!credential.verify(&other.public()));
+}

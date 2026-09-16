@@ -1,7 +1,7 @@
 //! Storage-layer guarantees (`docs/04`): content addressing, tamper-evident log,
 //! Merkle inclusion, consortium threshold checkpoints, anchoring, erasure recovery.
 
-use network::anchoring::{Anchor, ReferenceAnchor};
+use network::anchoring::{Anchor, AnchorState, OtsAnchor};
 use network::cid::cid;
 use network::consortium::{Checkpoint, Consortium, Member};
 use network::erasure::{encode, reconstruct};
@@ -108,17 +108,39 @@ fn duplicate_and_wrong_signatures_do_not_count() {
 }
 
 #[test]
-fn anchoring_round_trip() {
-    let mut anchor = ReferenceAnchor::new();
+fn anchoring_lifecycle() {
+    let mut anchor = OtsAnchor::new("https://alice.btc.calendar.opentimestamps.org");
     let root = [9u8; 32];
-    let receipt = anchor.submit(root);
-    assert!(anchor.verify(&receipt));
 
-    let never = network::anchoring::Receipt {
+    // A fresh submission is a real, well-formed OTS proof, but only pending.
+    let pending = anchor.submit(root);
+    assert_eq!(anchor.verify(&pending), AnchorState::Pending);
+
+    // Once the calendar confirms, the upgraded proof carries a Bitcoin attestation
+    // that matches the (injected) block Merkle root, so it verifies as confirmed.
+    let confirmed = anchor.upgrade(&pending);
+    assert_eq!(confirmed.root, root);
+    assert_eq!(
+        anchor.verify(&confirmed),
+        AnchorState::Confirmed { height: 0 }
+    );
+
+    // The same confirmed proof is worthless to a verifier that has not seen that
+    // block: the Bitcoin attestation does not match its (empty) chain view.
+    let bystander = OtsAnchor::new("https://bob.calendar.example");
+    assert_eq!(bystander.verify(&confirmed), AnchorState::Invalid);
+
+    // Garbage or a root/proof mismatch does not parse or does not commit to the root.
+    let garbage = network::anchoring::Receipt {
         root: [0u8; 32],
-        proof: vec![],
+        proof: vec![1, 2, 3],
     };
-    assert!(!anchor.verify(&never));
+    assert_eq!(anchor.verify(&garbage), AnchorState::Invalid);
+    let mismatched = network::anchoring::Receipt {
+        root: [7u8; 32],
+        proof: pending.proof.clone(),
+    };
+    assert_eq!(anchor.verify(&mismatched), AnchorState::Invalid);
 }
 
 #[test]
