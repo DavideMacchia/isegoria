@@ -743,6 +743,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "bbs_plus",
+ "curve25519-dalek",
  "rand_core 0.6.4",
  "schnorr_pok",
  "sha2",

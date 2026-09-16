@@ -224,16 +224,19 @@ dependency on identity or network** — it runs offline and is reproducible
 | Crate | Role | Status |
 |---|---|---|
 | [`scoring`](crates/scoring) | Deterministic engine: bridging (A), IRT/DIF (B), reputation (C), anti-collusion | **Complete**, validated against `sim/` |
-| [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real mechanisms (VOPRF uniqueness label, BBS+ blind credential, hash nullifiers) |
+| [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real mechanisms (single-server + threshold OPRF label, BBS+ blind credential, hash nullifiers) |
 | [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, erasure coding, anchoring | Scaffold + real integrity primitives (incl. OpenTimestamps proofs) |
 | [`protocol`](crates/protocol) | Lifecycle orchestration: deposit, lottery, blind review, gate + appeal, pilot, honeypot | Scaffold, wires the three layers together |
 
-The uniqueness label already runs on a real single-server **VOPRF** (RFC 9497, via
-`voprf`), the anonymous credential on real **BBS+** blind issuance (via `bbs_plus`),
-and anchoring on the real **OpenTimestamps** proof format (via `opentimestamps`); what
-remains is the *threshold* t-of-n split of the identity keys across the committee, the
-live network side of anchoring (a calendar server and a Bitcoin block source), plus
-Semaphore ZK nullifiers, peer-to-peer transport (libp2p) and convergent state (CRDT).
+The uniqueness label runs on a real single-server **VOPRF** (RFC 9497, via `voprf`)
+*and* on a real **threshold** t-of-n OPRF (Shamir shares + per-share DLEQ over
+Ristretto255), so no sub-threshold coalition can compute it; the anonymous credential
+runs on real **BBS+** blind issuance (via `bbs_plus`); and anchoring on the real
+**OpenTimestamps** proof format (via `opentimestamps`). What remains is the *threshold*
+split of the BBS+ issuing key, a real key-generation ceremony and transport for the
+OPRF committee, the live network side of anchoring (a calendar server and a Bitcoin
+block source), plus Semaphore ZK nullifiers, peer-to-peer transport (libp2p) and
+convergent state (CRDT).
 The rule throughout is *prefer mature,
 audited libraries* behind clean traits; bespoke cryptography is a considered exception
 — allowed when it serves the design, kept small, built on vetted primitives, and
@@ -284,8 +287,8 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Complete, reproducible bit-for-bit, validated against the sims |
-| Identity, network, protocol | Working scaffolds; deterministic mechanisms + VOPRF uniqueness label + BBS+ blind credential + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
-| Real crypto/transport integration (Semaphore, *threshold* OPRF + BBS+, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
+| Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + BBS+ blind credential + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
+| Real crypto/transport integration (Semaphore, *threshold* BBS+, OPRF DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
 
 This is a research/specification-stage project. Nothing here is production-ready
