@@ -196,3 +196,15 @@ fn mixture_misses_a_single_biased_item() {
         "single biased item should stay invisible, axis = {axis:.3}"
     );
 }
+
+/// A NaN in the caller-supplied θ used to panic `mantel_haenszel` via
+/// `partial_cmp().unwrap()`. Bad data must degrade the stratification, not crash.
+#[test]
+fn mantel_haenszel_tolerates_a_nan_theta() {
+    let item = vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
+    let theta = vec![0.5, f64::NAN, -0.3, 1.2, f64::NAN, -1.0];
+    let group = vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
+    let r = mantel_haenszel(&item, &theta, &group, 3); // must not panic
+                                                       // The classification is still one of the ETS classes.
+    assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
+}

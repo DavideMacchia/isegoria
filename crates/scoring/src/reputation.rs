@@ -56,6 +56,12 @@ pub fn brier_skill_score(p: &[f64], o: &[f64], baseline: &[f64]) -> f64 {
         num += (p[i] - o[i]).powi(2);
         den += (baseline[i] - o[i]).powi(2);
     }
+    // A zero-variance baseline (e.g. every outcome identical, so the base rate equals
+    // every outcome) has no error to improve on: skill is undefined. Report it as a
+    // finite, neutral 0.0 rather than dividing by zero into NaN/−∞.
+    if den == 0.0 {
+        return 0.0;
+    }
     1.0 - num / den
 }
 

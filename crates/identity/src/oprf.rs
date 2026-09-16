@@ -227,6 +227,15 @@ impl ThresholdOprfOracle {
         if quorum.len() < self.threshold {
             return None;
         }
+        // Lagrange interpolation requires distinct x-coordinates. A duplicate index
+        // double-counts one share and, via `Scalar::invert(0) = 0` in the `x_i − x_j`
+        // denominator, silently yields a wrong label; reject it instead.
+        let mut distinct = quorum.to_vec();
+        distinct.sort_unstable();
+        distinct.dedup();
+        if distinct.len() != quorum.len() {
+            return None;
+        }
         let h = hash_to_group(input);
         let r = random_scalar();
         let blinded = r * h; // B = r·H(x)
@@ -302,6 +311,19 @@ mod tests {
             threshold: 2,
         };
         assert_ne!(two.label_with_quorum(input, &[1, 2]).unwrap(), correct);
+    }
+
+    #[test]
+    fn a_quorum_with_duplicate_indices_is_refused() {
+        // ID-003(ii) / AT-ID-04: Lagrange interpolation needs distinct x-coordinates.
+        // A repeated index double-counts a share and (via `Scalar::invert(0) = 0`)
+        // would otherwise return a wrong label silently rather than error.
+        let oracle = ThresholdOprfOracle::new([7u8; 32], 5, 3);
+        let input = b"RSSMRA80A01H501U";
+        assert!(oracle.label_with_quorum(input, &[1, 1, 2]).is_none());
+        assert!(oracle.label_with_quorum(input, &[2, 2, 2]).is_none());
+        // A distinct quorum of the same size still works.
+        assert!(oracle.label_with_quorum(input, &[1, 2, 3]).is_some());
     }
 
     #[test]

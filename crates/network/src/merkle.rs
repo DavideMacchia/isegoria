@@ -12,19 +12,30 @@ fn node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     tagged("isegoria/merkle/node", &[left, right])
 }
 
-/// Root over leaf hashes. An odd node is paired with itself.
+/// Hashes one level into the next, RFC 6962 style: pairs are hashed, and a lone
+/// odd node is *promoted* (carried up unchanged) rather than paired with itself.
+/// Self-pairing (`node(z, z)`) makes `[x, y, z]` and `[x, y, z, z]` share a root
+/// (CVE-2012-2459): the root fails to commit to the leaf count. Promotion avoids it.
+fn next_level(level: &[[u8; 32]]) -> Vec<[u8; 32]> {
+    let mut next = Vec::with_capacity(level.len().div_ceil(2));
+    for pair in level.chunks(2) {
+        next.push(if pair.len() == 2 {
+            node_hash(&pair[0], &pair[1])
+        } else {
+            pair[0] // promote the odd node unchanged
+        });
+    }
+    next
+}
+
+/// Root over leaf hashes. An odd node is promoted (see [`next_level`]).
 pub fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     if leaves.is_empty() {
         return tagged("isegoria/merkle/empty", &[]);
     }
     let mut level = leaves.to_vec();
     while level.len() > 1 {
-        let mut next = Vec::with_capacity(level.len().div_ceil(2));
-        for pair in level.chunks(2) {
-            let right = if pair.len() == 2 { &pair[1] } else { &pair[0] };
-            next.push(node_hash(&pair[0], right));
-        }
-        level = next;
+        level = next_level(&level);
     }
     level[0]
 }
@@ -39,24 +50,19 @@ pub fn merkle_proof(leaves: &[[u8; 32]], mut index: usize) -> MerkleProof {
     let mut siblings = Vec::new();
     let mut level = leaves.to_vec();
     while level.len() > 1 {
-        let sibling_is_right = index % 2 == 0;
-        let sib = if sibling_is_right {
-            if index + 1 < level.len() {
+        // A promoted odd node has no sibling at this level: it is carried straight
+        // up, so we record nothing and let `index /= 2` place it in the next level.
+        let is_promoted = index == level.len() - 1 && level.len() % 2 == 1;
+        if !is_promoted {
+            let sibling_is_right = index % 2 == 0;
+            let sib = if sibling_is_right {
                 index + 1
             } else {
-                index // odd node paired with itself
-            }
-        } else {
-            index - 1
-        };
-        siblings.push((sibling_is_right, level[sib]));
-
-        let mut next = Vec::with_capacity(level.len().div_ceil(2));
-        for pair in level.chunks(2) {
-            let right = if pair.len() == 2 { &pair[1] } else { &pair[0] };
-            next.push(node_hash(&pair[0], right));
+                index - 1
+            };
+            siblings.push((sibling_is_right, level[sib]));
         }
-        level = next;
+        level = next_level(&level);
         index /= 2;
     }
     MerkleProof { siblings }

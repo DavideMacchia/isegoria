@@ -81,3 +81,38 @@ fn cartel_total_influence_matches_independents() {
         "500 coordinated ({cartel_influence:.2}) should ≈ 22 independent ({indep_influence:.2})"
     );
 }
+
+/// COLLUSION-004 / INV-14 / AT-COL-04: the discount is a discount, never a boost.
+/// With real evaluator weights `E_u ∈ (0,1)` a cluster's total is below 1, where the
+/// raw multiplier `s^{α−1} > 1` would *inflate* a node (a `0.25` singleton became
+/// `0.5`). No discounted weight may exceed its input, at any weight scale.
+#[test]
+fn discount_never_increases_a_weight() {
+    // Singletons across the whole sub-unit range, plus a small honest cluster.
+    let weights = vec![0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.3, 0.3];
+    let clusters = vec![0, 1, 2, 3, 4, 5, 6, 6]; // last two share a cluster (s = 0.6 < 1)
+    let discounted = discount_weights(&weights, &clusters, ALPHA);
+    for (i, (&w, &d)) in weights.iter().zip(&discounted).enumerate() {
+        assert!(d <= w + 1e-12, "node {i}: discounted {d} exceeds input {w}");
+        assert!(d >= 0.0);
+    }
+    // The specific regression: a sub-unit singleton is left untouched, not boosted.
+    assert!(
+        (discounted[2] - 0.25).abs() < 1e-12,
+        "0.25 singleton must stay 0.25"
+    );
+}
+
+/// A cluster whose members carry `E_u < 1` must not contribute more than its raw
+/// total: `sublinear_group_weight` is capped at `Σ w`.
+#[test]
+fn group_weight_is_capped_at_its_raw_total() {
+    for group in [vec![0.25], vec![0.1, 0.2], vec![0.4, 0.5]] {
+        let raw: f64 = group.iter().sum();
+        let g = sublinear_group_weight(&group, ALPHA);
+        assert!(g <= raw + 1e-12, "group {group:?}: {g} exceeds raw {raw}");
+    }
+    // Above 1 the discount still bites: a big cartel is sublinear as before.
+    let big = vec![1.0; 400];
+    assert!((sublinear_group_weight(&big, ALPHA) - 400f64.sqrt()).abs() < 1e-9);
+}

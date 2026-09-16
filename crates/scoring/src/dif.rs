@@ -64,7 +64,13 @@ pub struct MhResult {
 pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usize) -> MhResult {
     let n = item.len();
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| theta[a].partial_cmp(&theta[b]).unwrap());
+    // `unwrap()` here panics on a NaN θ; treat incomparable values as equal so a
+    // caller's bad datum degrades the stratification instead of crashing scoring.
+    order.sort_by(|&a, &b| {
+        theta[a]
+            .partial_cmp(&theta[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut num = 0.0; // Σ A_s D_s / N_s
     let mut den = 0.0; // Σ B_s C_s / N_s

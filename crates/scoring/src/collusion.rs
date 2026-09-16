@@ -38,14 +38,19 @@ pub fn cluster_by_correlation(corr: &[Vec<f64>], threshold: f64) -> Vec<usize> {
     (0..n).map(|i| find(&mut parent, i)).collect()
 }
 
-/// Total weight a group contributes: `(Σ w)^α`.
+/// Total weight a group contributes: `min(Σ w, (Σ w)^α)`. The `min` enforces
+/// INV-14 — the transform is a *discount*, never a boost: when `Σ w < 1` the raw
+/// power `(Σ w)^α` exceeds `Σ w` (e.g. `0.25^0.5 = 0.5`), so it is capped at `Σ w`.
 pub fn sublinear_group_weight(group_weights: &[f64], alpha: f64) -> f64 {
-    group_weights.iter().sum::<f64>().powf(alpha)
+    let sum = group_weights.iter().sum::<f64>();
+    sum.powf(alpha).min(sum)
 }
 
 /// Per-node discounted weights: each cluster's total is shrunk to `(Σ w)^α` and
-/// split back across its members in proportion to their raw weight. A unit-weight
-/// singleton is unchanged (`1^α = 1`).
+/// split back across its members in proportion to their raw weight. The per-node
+/// multiplier `s^{α−1}` is capped at 1 (INV-14): the discount MUST NOT increase any
+/// node's weight, so a cluster whose total weight is below 1 — a singleton honest
+/// node with `E_u ∈ (0,1)`, in particular — is left untouched instead of boosted.
 pub fn discount_weights(weights: &[f64], cluster_ids: &[usize], alpha: f64) -> Vec<f64> {
     let n = weights.len();
     let max_id = cluster_ids.iter().copied().max().map_or(0, |m| m + 1);
@@ -57,7 +62,9 @@ pub fn discount_weights(weights: &[f64], cluster_ids: &[usize], alpha: f64) -> V
         .map(|i| {
             let s = group_sum[cluster_ids[i]];
             if s > 0.0 {
-                weights[i] * s.powf(alpha) / s
+                // s^{α−1} is the fraction of its raw weight each member keeps; capped
+                // at 1 so `s < 1` clusters are never inflated (INV-14).
+                weights[i] * (s.powf(alpha) / s).min(1.0)
             } else {
                 0.0
             }

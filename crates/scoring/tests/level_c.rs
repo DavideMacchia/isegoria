@@ -142,3 +142,21 @@ fn peer_prediction_rewards_informative_agreement() {
     // Agreement everywhere → 0: the shared agreement is only baseline agreement.
     assert!(dasgupta_ghosh(true, true, true, true).abs() < 1e-9);
 }
+
+/// REPUTATION-003 / AT-REP-03: a zero-variance baseline (every outcome identical, so
+/// the base rate equals every outcome) leaves `brier_skill_score` dividing by zero.
+/// The result MUST be finite and defined — reported as a neutral 0.0, not NaN/−∞.
+#[test]
+fn brier_skill_score_is_finite_when_the_baseline_is_perfect() {
+    let o = vec![1.0, 1.0, 1.0, 1.0];
+    let baseline = base_rate_baseline(&o); // = [1,1,1,1], zero error
+                                           // A predictor that also nails it, and one that is wrong: both must stay finite.
+    for p in [vec![1.0; 4], vec![0.2, 0.9, 0.5, 0.7]] {
+        let bss = brier_skill_score(&p, &o, &baseline);
+        assert!(bss.is_finite(), "BSS must be finite, got {bss}");
+        assert_eq!(
+            bss, 0.0,
+            "no skill is measurable against a perfect baseline"
+        );
+    }
+}

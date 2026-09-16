@@ -62,6 +62,38 @@ fn changing_a_leaf_changes_the_root() {
     assert_ne!(merkle_root(&a), merkle_root(&b));
 }
 
+/// NET-003 / AT-NET-02: duplicating the last leaf MUST change the root. A
+/// duplicate-last-node tree hashes the odd node with itself, so `[x, y, z]` and
+/// `[x, y, z, z]` collide (CVE-2012-2459); RFC 6962 promotion prevents it. Checked
+/// across several odd sizes so the collision cannot survive at any level boundary.
+#[test]
+fn root_commits_to_the_leaf_count() {
+    for n in [1usize, 3, 5, 7, 9, 13] {
+        let base: Vec<[u8; 32]> = (0..n as u8).map(|i| leaf_hash(&[i])).collect();
+        let mut duped = base.clone();
+        duped.push(base[n - 1]); // append a copy of the last leaf
+        assert_ne!(
+            merkle_root(&base),
+            merkle_root(&duped),
+            "root must distinguish {n} leaves from {n} + a duplicated last leaf"
+        );
+    }
+}
+
+/// Inclusion proofs stay consistent under promotion at every tree size, including
+/// the promoted odd node at the far right (which has no sibling at some levels).
+#[test]
+fn inclusion_proofs_verify_at_every_size() {
+    for n in 1..=17usize {
+        let leaves: Vec<[u8; 32]> = (0..n as u8).map(|i| leaf_hash(&[i])).collect();
+        let root = merkle_root(&leaves);
+        for i in 0..n {
+            let proof = merkle_proof(&leaves, i);
+            assert!(verify_proof(leaves[i], &proof, root), "n={n} leaf={i}");
+        }
+    }
+}
+
 fn consortium(n: usize, threshold: usize) -> (Vec<Member>, Consortium) {
     let members: Vec<Member> = (0..n).map(|i| Member::from_seed([i as u8; 32])).collect();
     let pubs = members.iter().map(|m| m.public()).collect();

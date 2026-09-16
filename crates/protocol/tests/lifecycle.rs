@@ -41,6 +41,32 @@ fn deposit_requires_a_primary_source_and_records_on_the_log() {
     assert_eq!(log.len(), 1);
 }
 
+/// PROTO-011 / G-18 / AT-PRO-04: the content id MUST commit to the field boundary.
+/// Plain concatenation hashes `item ‖ primary_source`, so moving a byte across the
+/// boundary — `("ab", "c")` vs `("a", "bc")` — leaves the same bytes and collides.
+#[test]
+fn content_id_is_unambiguous_across_the_field_boundary() {
+    let a = Draft {
+        item: b"ab".to_vec(),
+        primary_source: b"c".to_vec(),
+    };
+    let b = Draft {
+        item: b"a".to_vec(),
+        primary_source: b"bc".to_vec(),
+    };
+    assert_ne!(
+        a.content_id(),
+        b.content_id(),
+        "drafts differing only in where the item/source boundary falls must not collide"
+    );
+    // A genuinely equal draft still yields the same id (deposit remains deterministic).
+    let a2 = Draft {
+        item: b"ab".to_vec(),
+        primary_source: b"c".to_vec(),
+    };
+    assert_eq!(a.content_id(), a2.content_id());
+}
+
 #[test]
 fn lottery_is_bounded_deterministic_and_epoch_varying() {
     let deposited: Vec<u32> = (0..1000).collect();
