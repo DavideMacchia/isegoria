@@ -2,10 +2,8 @@
 //! and no whitewashing (P2, M3), unlinkability (P3), cross-source dedup (M1), and
 //! the rate-limiting nullifier.
 
-use identity::credential::{BlindIssuer, Credential, ReferenceIssuer};
-use identity::enrollment::{
-    Cie, DuplicateEnrollment, EnrollmentRegistry, Label, Spid, VoprfOracle,
-};
+use identity::credential::Credential;
+use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
 use identity::nym::Role;
 use identity::ratelimit::{rln_token, within_quota, DoubleSpend, SlotLedger};
 
@@ -150,10 +148,4 @@ fn rate_limit_tokens_differ_across_epoch_role_and_person() {
     );
 }
 
-#[test]
-fn reference_issuer_is_deterministic() {
-    let issuer = ReferenceIssuer;
-    let label = Label([3u8; 32]);
-    let cred = Credential::from_secret([4u8; 32]);
-    assert_eq!(issuer.issue(&label, &cred), issuer.issue(&label, &cred));
-}
+// Blind BBS+ issuance is exercised in `tests/bbs_credential.rs`.

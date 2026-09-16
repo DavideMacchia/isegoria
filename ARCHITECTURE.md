@@ -42,7 +42,7 @@ protocol ──► scoring
         └──► network
 
 scoring   (no internal deps; only rand, rand_chacha)
-identity  (sha2, voprf)
+identity  (sha2, voprf, bbs_plus, schnorr_pok, arkworks)
 network   (sha2, ed25519-dalek, reed-solomon-erasure)
 ```
 
@@ -86,19 +86,24 @@ The state authenticates but does not issue (`docs/03`).
 | `nym` | §M3 | `Role`, `Nym`, `derive_nym` = `H(secret, role)` |
 | `ratelimit` | §Cost of proposing | `rln_token`, `within_quota`, `SlotLedger` |
 | `enrollment` | §M1–M2 | `IdentityDocument` (+ `Cie`, `Spid`), `UniquenessOracle` (`VoprfOracle` real + `ReferenceOracle` test-only), `EnrollmentRegistry` |
-| `credential` | §M2 | `Credential`, `BlindIssuer` (+ `ReferenceIssuer`) |
+| `credential` | §M2 | `Credential`, `Issuer`, `IssuerPublic`, `IssuanceRequest`, `AnonymousCredential` |
 | `hash` (private) | — | domain-separated SHA-256 |
 
 **Real:** role nullifiers (deterministic → not rotatable → no whitewashing; distinct
-per role → unlinkable), rate-limiting tokens (reuse collides and is detected), and the
+per role → unlinkable), rate-limiting tokens (reuse collides and is detected), the
 uniqueness label — `VoprfOracle` is a real single-server **VOPRF** (RFC 9497,
 Ristretto255-SHA512, via `voprf`): the anchor is evaluated obliviously (the server
-never sees it in the clear) and verifiably (the client checks the committed key).
-**Still modeled:** the *threshold* split of that OPRF key t-of-n across the committee
-(a single key-holder can still brute-force the enumerable codice-fiscale space; the
-single-server step neither regresses on nor overclaims that). **Plug point:**
-`BlindIssuer` (BBS+ blind, t-of-n issuance) — its reference impl exists only to
-exercise the pipeline and provides no security on its own.
+never sees it in the clear) and verifiably (the client checks the committed key) — and
+credential issuance — `Issuer` is a real **BBS+** blind signature (via `bbs_plus`,
+BLS12-381): the holder commits to its secret and proves knowledge of it (`schnorr_pok`),
+the issuer verifies that proof and blind-signs `(secret, label)` learning only the
+label, and the holder unblinds a verifiable signature.
+**Still modeled:** the *threshold* t-of-n split of both keys across the committee — the
+OPRF key (a single holder can still brute-force the enumerable codice-fiscale space)
+and the BBS+ issuing key (a single `Issuer` issues alone) — plus selective-disclosure
+*presentation* of the credential (the `PoKOfSignature` reveal, tied to the M3 nullifier).
+Each real backend is single-party and neither regresses on nor overclaims the threshold
+property `bbs_plus`'s `threshold` module and a threshold OPRF will supply.
 
 ## `network` — tamper-evident storage
 
@@ -219,7 +224,7 @@ cargo clippy --workspace --all-targets
 | Role nullifiers, rate-limiting tokens | **Real** (hash-based) | Semaphore (ZK nullifiers) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF, RFC 9497) | Threshold OPRF (key split t-of-n) |
-| Credential issuance | Trait + reference | BBS+, t-of-n blind |
+| Credential issuance | **Real** (BBS+ blind, single-issuer) | Threshold t-of-n issuing key; selective-disclosure presentation |
 | Public-chain anchoring | Trait + reference | OpenTimestamps |
 | Gossip/DHT transport, CRDT | Documented, not implemented | libp2p, Automerge/Yjs |
 
