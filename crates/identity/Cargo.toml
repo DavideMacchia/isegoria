@@ -6,8 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 description = "Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers. See docs/03."
 
-# Use mature crypto libraries; never roll our own (docs/CLAUDE.md). Real backends are
-# single-party; the threshold t-of-n split across the committee is future work.
+# Prefer mature crypto libraries; bespoke crypto only as a tested exception (docs/CLAUDE.md).
+# Real backends are single-party; the threshold t-of-n split across the committee is future work.
 [dependencies]
 sha2 = "0.10"
 # RFC 9497 (V)OPRF, Ristretto255-SHA512. MIT/Apache-2.0, MSRV 1.85. See docs/03 §M1.

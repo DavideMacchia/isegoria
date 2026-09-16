@@ -75,9 +75,13 @@ Build in this order — each phase is verifiable before the next:
 - **Scoring engine**: Python with NumPy/SciPy for the prototype (the sims already
   are); consider Rust for the production version when bit-for-bit reproducibility and
   performance matter.
-- **Identity cryptography**: mature existing libraries — Semaphore for nullifiers,
-  BBS+ schemes for credentials, a threshold OPRF for anchoring. Do not implement
-  cryptography from scratch.
+- **Identity cryptography**: prefer mature, audited libraries — Semaphore for
+  nullifiers, BBS+ schemes for credentials, a threshold OPRF for anchoring. Rolling
+  our own is permitted when it genuinely serves the design — no suitable library
+  exists, or we need a variant a library does not provide (e.g. a threshold scheme
+  built from a vetted single-party one). When we do, keep it small, build it on
+  audited primitives (not from first principles), pin it down with known-answer and
+  property tests, and mark it clearly as bespoke. The bar is high, not absolute.
 - **P2P layer**: consider libp2p (gossipsub + Kademlia DHT). CRDTs with Automerge or
   Yjs where converging state is needed.
 - **Anchoring**: OpenTimestamps or equivalent to publish the Merkle root on a public

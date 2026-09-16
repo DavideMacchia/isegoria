@@ -28,9 +28,12 @@ Four rules shape every crate:
 2. **Determinism is a security property, not an optimization.** Given identical
    input, the engine produces identical output, bit-for-bit (pinned toolchain,
    seeded RNGs, fixed iteration order). See [Reproducibility](#reproducibility).
-3. **Never roll our own crypto.** Heavy primitives enter behind traits with
-   non-production reference implementations; production wires them to mature
-   libraries.
+3. **Prefer mature crypto; roll our own only with a high bar.** Heavy primitives
+   enter behind traits; production wires them to mature, audited libraries. Bespoke
+   cryptography is allowed when it genuinely serves the design (no suitable library,
+   or a needed variant such as a threshold scheme built on a vetted single-party one),
+   kept small, built on audited building blocks, and pinned down with known-answer and
+   property tests. It is a considered exception, not the default.
 4. **The docs are the source of truth for the logic.** Code comments are minimal
    and point back to the relevant `docs/` section; they do not restate the maths.
 
@@ -43,7 +46,7 @@ protocol ──► scoring
 
 scoring   (no internal deps; only rand, rand_chacha)
 identity  (sha2, voprf, bbs_plus, schnorr_pok, arkworks)
-network   (sha2, ed25519-dalek, reed-solomon-erasure)
+network   (sha2, ed25519-dalek, reed-solomon-erasure, opentimestamps)
 ```
 
 `scoring` sits at the bottom on purpose. `protocol` is the only crate that composes
@@ -115,13 +118,18 @@ Integrity without permissionless consensus (`docs/04`).
 | `merkle` | §Merkle tree | `leaf_hash`, `merkle_root`, `merkle_proof`, `verify_proof` |
 | `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering) |
 | `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint`, `Consortium::verify` (t-of-n) |
-| `anchoring` | §Anchoring | `Anchor` trait (+ `ReferenceAnchor`) |
+| `anchoring` | §Anchoring | `Anchor` trait, `OtsAnchor`, `Receipt`, `AnchorState` |
 | `erasure` | §Durability | `encode`, `reconstruct` (real Reed–Solomon) |
 
 **Real:** content addressing, Merkle trees, the hash-chained append-only log,
-ed25519 consortium checkpoints, and erasure coding. **Plug points:** `Anchor`
-(OpenTimestamps), and — documented but not yet implemented — gossip/DHT transport
-(libp2p) and CRDT convergence.
+ed25519 consortium checkpoints, erasure coding, and the anchoring proof format —
+`OtsAnchor` builds, serialises and verifies real **OpenTimestamps** `.ots` proofs (via
+`opentimestamps`): `verify` runs the actual OTS walk (`Op::execute` over the step tree)
+and checks a Bitcoin attestation against a block Merkle root. **Still modeled** for
+anchoring: the live network parts — POSTing to a calendar server and reading block
+roots from a Bitcoin node/SPV; here an injected block source stands in and
+`OtsAnchor::upgrade` models the calendar's confirm-and-upgrade with one hashing step.
+**Not yet implemented:** gossip/DHT transport (libp2p) and CRDT convergence.
 
 ## `protocol` — lifecycle orchestration
 
@@ -225,7 +233,7 @@ cargo clippy --workspace --all-targets
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF, RFC 9497) | Threshold OPRF (key split t-of-n) |
 | Credential issuance | **Real** (BBS+ blind, single-issuer) | Threshold t-of-n issuing key; selective-disclosure presentation |
-| Public-chain anchoring | Trait + reference | OpenTimestamps |
+| Public-chain anchoring | **Real** (OpenTimestamps proof format + verification) | Live calendar POST + Bitcoin node/SPV block source |
 | Gossip/DHT transport, CRDT | Documented, not implemented | libp2p, Automerge/Yjs |
 
 Reference implementations are clearly marked and provide **no** security; they exist

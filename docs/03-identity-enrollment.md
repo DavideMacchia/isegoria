@@ -179,9 +179,11 @@ quota is not the real brake on spam — see the lottery in `05` and `01` D10.
 
 ## Implementation notes
 
-- Do not implement cryptography from scratch. Mature building blocks: Semaphore for
-  group nullifiers; BBS+ schemes for credentials with selective disclosure; a
-  threshold OPRF for anchoring.
+- Prefer mature, audited building blocks: Semaphore for group nullifiers; BBS+
+  schemes for credentials with selective disclosure; a threshold OPRF for anchoring.
+  Bespoke cryptography is allowed when it serves the design (e.g. composing a
+  threshold scheme from a vetted single-party one), but only kept small, built on
+  audited primitives, and tested against known answers — not invented from scratch.
 - eIDAS 2.0 mandates every EU state a digital identity wallet by the end of 2026, with
   selective disclosure: it is the infrastructure to lean on in steady state.
 - Document verifiers (adapters): CIE via NFC (CieID / chip reading), SPID via

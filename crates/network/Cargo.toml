@@ -8,11 +8,13 @@ description = "Signed append-only logs, content addressing, Merkle anchoring, co
 
 # Self-contained integrity primitives are real. Transport (gossip/DHT via libp2p),
 # convergent state (CRDT), and external anchoring (OpenTimestamps) enter behind
-# traits; we never roll our own crypto.
+# traits; prefer mature libraries, bespoke crypto only as a tested, documented exception.
 [dependencies]
 sha2 = "0.10"
 ed25519-dalek = "2"
 reed-solomon-erasure = "6"
+# OpenTimestamps proof format (parse/build/verify). MIT/Apache-2.0. See docs/04.
+opentimestamps = "0.2"
 
 [dev-dependencies]
 proptest = "1"

@@ -225,15 +225,19 @@ dependency on identity or network** — it runs offline and is reproducible
 |---|---|---|
 | [`scoring`](crates/scoring) | Deterministic engine: bridging (A), IRT/DIF (B), reputation (C), anti-collusion | **Complete**, validated against `sim/` |
 | [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real mechanisms (VOPRF uniqueness label, BBS+ blind credential, hash nullifiers) |
-| [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, erasure coding | Scaffold + real integrity primitives |
+| [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, erasure coding, anchoring | Scaffold + real integrity primitives (incl. OpenTimestamps proofs) |
 | [`protocol`](crates/protocol) | Lifecycle orchestration: deposit, lottery, blind review, gate + appeal, pilot, honeypot | Scaffold, wires the three layers together |
 
 The uniqueness label already runs on a real single-server **VOPRF** (RFC 9497, via
-`voprf`) and the anonymous credential on real **BBS+** blind issuance (via `bbs_plus`);
-what remains is the *threshold* t-of-n split of both keys across the committee, plus
-Semaphore ZK nullifiers, peer-to-peer transport (libp2p), convergent state (CRDT) and
-public-chain anchoring (OpenTimestamps). The specification's rule throughout is *never
-roll your own crypto*: heavy primitives come from mature libraries behind clean traits.
+`voprf`), the anonymous credential on real **BBS+** blind issuance (via `bbs_plus`),
+and anchoring on the real **OpenTimestamps** proof format (via `opentimestamps`); what
+remains is the *threshold* t-of-n split of the identity keys across the committee, the
+live network side of anchoring (a calendar server and a Bitcoin block source), plus
+Semaphore ZK nullifiers, peer-to-peer transport (libp2p) and convergent state (CRDT).
+The rule throughout is *prefer mature,
+audited libraries* behind clean traits; bespoke cryptography is a considered exception
+— allowed when it serves the design, kept small, built on vetted primitives, and
+tested — not the default.
 
 For how the design maps onto the code, module by module, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -280,8 +284,8 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Complete, reproducible bit-for-bit, validated against the sims |
-| Identity, network, protocol | Working scaffolds; deterministic mechanisms + the VOPRF uniqueness label + BBS+ blind credential real, remaining heavy crypto/transport behind traits |
-| Real crypto/transport integration (Semaphore, *threshold* OPRF + BBS+, libp2p, OpenTimestamps) | Future work |
+| Identity, network, protocol | Working scaffolds; deterministic mechanisms + VOPRF uniqueness label + BBS+ blind credential + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
+| Real crypto/transport integration (Semaphore, *threshold* OPRF + BBS+, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
 
 This is a research/specification-stage project. Nothing here is production-ready
