@@ -62,6 +62,13 @@ fn column(m: &[Vec<f64>], j: usize) -> Vec<f64> {
 
 /// Cluster only near-identical raters (a real cartel), not honest reviewers who merely
 /// share a side of the latent axis.
+///
+/// Fixture artefact (docs/08 COLLUSION-003): the judgment vectors handed to the
+/// correlation step below are the *dense* rows of `R.csv`, which the sim generates for
+/// every cell, observed or not — the `mask` is applied to the probabilities but not to
+/// the vectors. Real ratings are sparse (~9 per reviewer, `k` per item), where Pearson
+/// correlation between two reviewers is undefined or meaningless; nothing here shows
+/// the discount works in that regime.
 const SUPP_CORR: f64 = 0.95;
 
 /// Resolve a bridging-band item `j` with the reviewers who actually rated it: their
@@ -336,4 +343,26 @@ fn pool_revalidation_flags_latent_bias() {
         flagged[3..].iter().filter(|&&f| f).count() <= 1,
         "clean items should be mostly unflagged: {flagged:?}"
     );
+}
+
+#[test]
+fn documents_limitation_the_band_tie_break_has_no_cross_axis_requirement() {
+    // docs/08 PROTO-012. The tie-break is a weighted mean of the same ratings, not a
+    // bridging score. Applied to the items bridging *rejects* for polarization (08, 09)
+    // it advances them (unit-weight means 0.59 and 0.71 ≥ 0.5): it carries no
+    // cross-axis requirement. It is only ever reached for band items, but for those it
+    // is the deciding rule — which is why docs/01 D26 replaces it (roadmap T10/T30).
+    let r_dense = read_matrix("R.csv");
+    let mask = read_matrix("mask.csv");
+    for j in [7usize, 8] {
+        assert!(
+            resolve_supplementary(&r_dense, &mask, j),
+            "partisan item {j} would be advanced by the tie-break"
+        );
+    }
+    // And every band item advances too: on these fixtures "resolved by review" and
+    // "passed by default" are not distinguishable (all band means are ≥ 0.83).
+    for j in [1usize, 5, 6] {
+        assert!(resolve_supplementary(&r_dense, &mask, j), "band item {j}");
+    }
 }

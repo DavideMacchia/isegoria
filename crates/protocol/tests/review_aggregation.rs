@@ -334,3 +334,50 @@ proptest! {
         );
     }
 }
+
+// ------------------- (d) documented limitations (docs/08 PROTO-012) -------------------
+//
+// These tests pin what the band resolution *is*, so that nobody mistakes it for the
+// bridging property. They are not guarantees; when the D26 mechanism (more reviewers,
+// clean re-decision of the bridging score) replaces this tie-break, they should fail
+// and be deleted.
+
+#[test]
+fn documents_limitation_a_polarized_band_item_is_resolved_by_the_larger_camp() {
+    // 120 established, independent, unit-E_u reviewers from the majority camp say 0.9;
+    // 80 from the minority camp say 0.3. There is no cartel (every vector distinct),
+    // so no discount applies, and the weighted mean is 0.66 ≥ 0.5: the larger camp
+    // decides. Bridging would explain this pattern by the axis; the tie-break cannot.
+    let (maj, min_) = (120usize, 80usize);
+    let n = maj + min_;
+    let vectors: Vec<Vec<f64>> = (0..n).map(|u| onehot(u, n)).collect();
+    let probs: Vec<f64> = (0..n).map(|u| if u < maj { 0.9 } else { 0.3 }).collect();
+    let w = review_weights(
+        &vec![false; n],
+        &vec![N_PROBATION; n],
+        &vec![1.0; n],
+        1.0,
+        &vectors,
+        CORR,
+    );
+    let p = aggregate_pass_probability(&probs, &w).unwrap();
+    assert!((p - 0.66).abs() < 1e-9, "p = {p}");
+    assert!(
+        resolve_band(p, DECISION_THRESHOLD),
+        "the larger camp alone resolves the band in favour (weighted majority)"
+    );
+}
+
+#[test]
+fn documents_limitation_sqrt_k_holds_the_line_only_up_to_a_bounded_cartel() {
+    // With √k, 40 honest reviewers at 0.2 outweigh an exact-copy cartel at 1.0 only
+    // while (8 + √k)/(40 + √k) < 0.5, i.e. √k < 24, k < 576. At k = 576 the weighted
+    // mean reaches exactly 0.5 and the verdict flips. "Never flips" in the scenario
+    // tests above is a statement about k ≤ 400 — and about exact copies: a cartel that
+    // jitters its votes (σ ≈ 0.05) is not clustered at all (docs/08 COLLUSION-002) and
+    // flips the same panel with k ≈ 65.
+    let p_575 = honest_vs_cartel(40, 575, 0.2, 1.0).unwrap();
+    let p_576 = honest_vs_cartel(40, 576, 0.2, 1.0).unwrap();
+    assert!(!resolve_band(p_575, DECISION_THRESHOLD), "p = {p_575}");
+    assert!(resolve_band(p_576, DECISION_THRESHOLD), "p = {p_576}");
+}
