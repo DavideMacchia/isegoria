@@ -97,7 +97,8 @@ pub fn capped_weight(e_u: f64, w_max: f64) -> f64 {
 
 fn median(values: &[f64]) -> f64 {
     let mut v = values.to_vec();
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // `total_cmp`: NaN weights sort last instead of panicking (docs/08 IQ-2).
+    v.sort_by(|a, b| a.total_cmp(b));
     let n = v.len();
     if n == 0 {
         0.0

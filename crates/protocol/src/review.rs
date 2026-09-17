@@ -25,7 +25,8 @@ pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec
     }
     let k = k.min(n);
     let mut sorted: Vec<Reviewer> = reviewers.to_vec();
-    sorted.sort_by(|a, b| a.f_u.partial_cmp(&b.f_u).unwrap());
+    // `total_cmp`: a NaN position sorts last instead of panicking (docs/08 IQ-2).
+    sorted.sort_by(|a, b| a.f_u.total_cmp(&b.f_u));
 
     let mut rng = ChaCha8Rng::seed_from_u64(item_seed);
     let mut chosen = Vec::with_capacity(k);

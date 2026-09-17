@@ -46,7 +46,8 @@ impl<D: Clone + PartialEq> Blueprint<D> {
         order.sort_by(|&a, &b| {
             let fa = exact[a] - exact[a].floor();
             let fb = exact[b] - exact[b].floor();
-            fb.partial_cmp(&fa).unwrap().then(a.cmp(&b))
+            // `total_cmp` (docs/08 IQ-2): a NaN share cannot panic the apportionment.
+            fb.total_cmp(&fa).then(a.cmp(&b))
         });
         for &i in &order {
             if remainder == 0 {

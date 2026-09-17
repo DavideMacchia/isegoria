@@ -38,7 +38,8 @@ pub fn stratified_sortition<Id: Clone>(
     let strata = n_strata.clamp(1, seats);
 
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| candidates[a].f_u.partial_cmp(&candidates[b].f_u).unwrap());
+    // `total_cmp`: a NaN position sorts last instead of panicking (docs/08 IQ-2).
+    order.sort_by(|&a, &b| candidates[a].f_u.total_cmp(&candidates[b].f_u));
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut picked = vec![false; n];
