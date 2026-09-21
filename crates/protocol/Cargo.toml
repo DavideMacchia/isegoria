@@ -7,9 +7,7 @@ rust-version.workspace = true
 description = "Question lifecycle orchestration: deposit, lottery, blind review, bridging gate, appeal, two-stage pilot, honeypot. See docs/05."
 
 [features]
-# Attribute-based (Variant-1) DIF on the production path — `pilot::stage2_dif` and
-# `revalidation::revalidate_pool` — is calibration-only (docs/01 D20). Enabling it pulls
-# in scoring's gated Variant-1 API. Off by default; the production epoch uses Variant 2.
+# Variant-1 DIF (`stage2_dif`, `revalidate_pool`): calibration-only (docs/01 D20).
 calibration = ["scoring/calibration"]
 
 [dependencies]

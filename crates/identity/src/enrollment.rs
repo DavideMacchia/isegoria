@@ -18,8 +18,7 @@ use voprf::{Ristretto255, VoprfClient, VoprfServer};
 pub struct Anchor(pub String);
 
 impl fmt::Debug for Anchor {
-    /// Redacts the canonical anchor: it is the codice fiscale, personal data that must
-    /// never enter the system in the clear, logs included (invariant #1, PV-4).
+    /// Redacted: the anchor is the codice fiscale — PII (invariant #1, PV-4).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Anchor(..)")
     }
@@ -57,8 +56,7 @@ impl IdentityDocument for Spid {
 pub struct Label(pub [u8; 32]);
 
 impl fmt::Debug for Label {
-    /// Redacts the uniqueness label (PV-4, docs/08 §8.3): it is a stable per-person
-    /// identifier and must not reach a log.
+    /// Redacted: the uniqueness label is a per-person id (PV-4, docs/08 §8.3).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Label(..)")
     }

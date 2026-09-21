@@ -12,14 +12,11 @@ use scoring::LogisticFit;
 #[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DifVerdict {
-    /// No uniform DIF beyond the threshold — the item passes.
+    /// No uniform DIF beyond the threshold.
     Pass,
-    /// Uniform DIF beyond the threshold — the item is rejected.
+    /// Uniform DIF beyond the threshold.
     Reject,
-    /// The logistic fit is separated (θ perfectly predicts the item), so `β₂` is not a
-    /// real DIF value and the screen has no verdict (docs/08 AT-DIF-06, OPT-001). The
-    /// caller must not silently pass or reject — the item needs a larger/rebalanced
-    /// sample.
+    /// The fit is separated, so `β₂` is undetermined (docs/08 AT-DIF-06).
     Undetermined,
 }
 
@@ -36,13 +33,9 @@ pub fn stage1_screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
         .collect()
 }
 
-/// Stage 2 (~1500 respondents), run on the surviving batch: reject items with
-/// uniform DIF against the axis.
-///
-/// Variant 1 (attribute-based): reads a per-respondent `group`, so it is
-/// **calibration-only** (`docs/01` D20) and absent from a production build. The
-/// production epoch relies on the anonymity-compatible latent re-validation
-/// ([`crate::revalidation::revalidate_pool_latent`], Variant 2) instead.
+/// Stage 2 (~1500 respondents), run on the surviving batch: reject items with uniform
+/// DIF against the axis. Variant 1, calibration-only (`docs/01` D20); production uses
+/// [`crate::revalidation::revalidate_pool_latent`] (Variant 2).
 #[cfg(feature = "calibration")]
 pub fn stage2_dif(theta: &[f64], group: &[f64], item_responses: &[Vec<f64>]) -> Vec<DifVerdict> {
     item_responses
@@ -50,8 +43,6 @@ pub fn stage2_dif(theta: &[f64], group: &[f64], item_responses: &[Vec<f64>]) -> 
         .map(|item| {
             let c = logistic_dif(item, theta, group);
             match c.status {
-                // Separated: θ perfectly predicts the item, so β₂ is at infinity —
-                // there is no DIF verdict to give (AT-DIF-06).
                 LogisticFit::Separated => DifVerdict::Undetermined,
                 _ if c.beta2.abs() <= BETA2_MAX => DifVerdict::Pass,
                 _ => DifVerdict::Reject,

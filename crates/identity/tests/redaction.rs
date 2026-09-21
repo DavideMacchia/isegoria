@@ -1,7 +1,5 @@
-//! PV-4 / docs/08 §8.3: no `Debug` output may print a secret, a uniqueness label, or
-//! the personal anchor. A derived `Debug` on any of these would drop a credential
-//! secret or a person's identifier straight into a log line; these types carry a
-//! hand-written, redacting `Debug` instead. This test pins that.
+//! PV-4 / docs/08 §8.3: no `Debug` output prints a secret, a uniqueness label, or the
+//! personal anchor. These types carry a hand-written, redacting `Debug`; this pins it.
 
 use identity::credential::{Credential, Issuer};
 use identity::enrollment::{Anchor, Label};

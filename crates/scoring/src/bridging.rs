@@ -24,8 +24,7 @@ pub struct Ratings {
 }
 
 impl Ratings {
-    /// Builds observations in canonical `(u, j)` order (the loop order), so a matrix
-    /// built this way already satisfies [`Ratings::canonical`].
+    /// Builds observations in canonical `(u, j)` order (see [`Ratings::canonical`]).
     pub fn from_dense(r: &[Vec<f64>], mask: &[Vec<bool>]) -> Self {
         let n = r.len();
         let m = if n > 0 { r[0].len() } else { 0 };
@@ -40,11 +39,8 @@ impl Ratings {
         Ratings { n, m, obs }
     }
 
-    /// A copy with the observations in the canonical order — sorted by `(u, j)`, then by
-    /// the rating's bit pattern so even a duplicated cell orders deterministically. The
-    /// fit sums over `obs` in this order and the bootstrap draws its keep/drop decisions
-    /// in this order, so permuting the supplied observations cannot change `b_j`
-    /// (INV-13, REPRO-002; the reproducibility claim is stated relative to this order).
+    /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so
+    /// the fit is invariant to input order (docs/08 INV-13, REPRO-002).
     pub fn canonical(&self) -> Ratings {
         let mut obs = self.obs.clone();
         obs.sort_by(|a, b| (a.u, a.j, a.r.to_bits()).cmp(&(b.u, b.j, b.r.to_bits())));
@@ -86,9 +82,7 @@ pub struct Fit {
     pub b_j: Vec<f64>,
     pub f_u: Vec<f64>,
     pub f_j: Vec<f64>,
-    /// Whether the L-BFGS fit reached its gradient tolerance (docs/08 OPT-001). The
-    /// bilinear objective is non-convex, so a caller can observe a non-converged fit
-    /// rather than trust a stationary point reached by a starved history.
+    /// Convergence of the L-BFGS fit (docs/08 OPT-001).
     pub status: Convergence,
 }
 
@@ -121,8 +115,7 @@ impl Layout {
 }
 
 pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
-    // Canonicalize first: both the mean used to seed the init and the cost/grad sums
-    // depend on the observation order in floating point (INV-13, REPRO-002).
+    // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
     let data = data.canonical();
     let x0 = random_init(&data, p.seed);
     fit_with_init(&data, p, x0)
@@ -234,9 +227,7 @@ pub fn bridge_scores(
     n_bootstrap: usize,
     keep_frac: f64,
 ) -> Vec<f64> {
-    // Canonicalize once: the bootstrap draws its keep/drop decision per observation in
-    // `data.obs` order, so a permuted input would otherwise select different subsamples
-    // and change the result (INV-13, REPRO-002).
+    // Canonicalize: the bootstrap subsampling walks `obs` in order (INV-13, REPRO-002).
     let data = data.canonical();
 
     // Warm-start each subsample from the full fit: the bilinear term makes the

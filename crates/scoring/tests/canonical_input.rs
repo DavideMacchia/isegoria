@@ -1,7 +1,5 @@
-//! INV-13 / REPRO-002 / AT-BR-03: the bridge score does not depend on the order in
-//! which observations are supplied. The engine canonicalizes `obs` (sorted by `(u, j)`)
-//! before it sums over them or draws bootstrap subsamples, so any permutation of the
-//! input yields bit-identical scores.
+//! INV-13 / REPRO-002 / AT-BR-03: the bridge score is invariant to the order of the
+//! input observations, because the engine canonicalizes `obs` before using it.
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 

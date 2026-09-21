@@ -5,24 +5,21 @@ use crate::optim::{lbfgs, Convergence};
 /// Whether a logistic fit's coefficients can be trusted (docs/08 OPT-001, IQ-1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogisticFit {
-    /// The MLE converged; the weights are usable.
+    /// Converged; the weights are usable.
     Converged,
-    /// (Quasi-)complete separation: the predictor (nearly) perfectly splits the two
-    /// classes, so the MLE is at infinity and the coefficients diverge. Any statistic
-    /// read off them (a DIF β₂, a 2PL discrimination) is *undetermined*, not a value.
+    /// (Quasi-)complete separation: the MLE is at infinity, so any statistic read off
+    /// the coefficients (a DIF β₂, a 2PL discrimination) is undetermined.
     Separated,
-    /// Did not converge within the iteration budget for some other reason.
+    /// Did not converge within the iteration budget.
     NotConverged,
 }
 
-/// Weights of a logistic fit, together with whether they can be trusted.
 pub struct LogisticResult {
     pub weights: Vec<f64>,
     pub status: LogisticFit,
 }
 
-/// Logit past which a fitted probability sits within ~1e-13 of 0/1: a linear predictor
-/// this large on some row is the hallmark of (quasi-)separation.
+/// Logit past which a fitted probability saturates: the hallmark of separation.
 const SEPARATION_LOGIT: f64 = 30.0;
 
 #[inline]
@@ -45,9 +42,8 @@ fn softplus(z: f64) -> f64 {
 }
 
 /// Fits weights `w` for `logit P(y=1) = x·w`. Each row of `x` includes its own
-/// intercept column when needed. No regularization (matches the prototype). The
-/// returned [`LogisticResult::status`] flags a non-converged or separated fit so a
-/// caller does not read a real statistic off diverging coefficients (OPT-001, IQ-1).
+/// intercept column when needed. No regularization (matches the prototype).
+/// `status` flags a non-converged or separated fit (docs/08 OPT-001, IQ-1).
 pub fn fit_logistic(x: &[Vec<f64>], y: &[f64], max_iters: usize) -> LogisticResult {
     let p = if x.is_empty() { 0 } else { x[0].len() };
 
@@ -72,9 +68,7 @@ pub fn fit_logistic(x: &[Vec<f64>], y: &[f64], max_iters: usize) -> LogisticResu
 
     let m = lbfgs(vec![0.0; p], cost, grad, 10, max_iters, 1e-8);
 
-    // Separation shows in the fitted logits: the likelihood keeps rewarding larger |w|,
-    // so at least one row saturates. Judge it from the predictor, not from the raw
-    // convergence flag (a separable fit can also stall with finite-looking numbers).
+    // Separation shows as a saturated predictor on some row (docs/08 OPT-001).
     let max_z = x
         .iter()
         .map(|row| dot(row, &m.x).abs())
@@ -134,9 +128,7 @@ mod tests {
 
     #[test]
     fn flags_perfect_separation() {
-        // y is a step function of x (y = 1 iff x > 0): the classes are perfectly
-        // separable, so the MLE is at infinity and the fit must report Separated
-        // rather than hand back diverged coefficients as if they meant something.
+        // y = 1 iff x > 0: perfectly separable, so the fit must report Separated.
         let mut x = Vec::new();
         let mut y = Vec::new();
         for i in 0..100 {

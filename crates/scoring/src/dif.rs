@@ -1,12 +1,11 @@
 //! Level B — Differential Item Functioning. See `docs/02`, §B.3.
 //!
 //! Variant 1: logistic regression on a group axis (`|β₂| > 0.40` → reject), plus
-//! Mantel–Haenszel with ETS A/B/C classification. It reads a per-respondent `group`,
-//! which the live system cannot hold without breaking anonymity, so it is gated behind
-//! the **`calibration`** feature and is admissible only in closed pilots (`docs/01` D20).
+//! Mantel–Haenszel with ETS A/B/C classification. Calibration-only: it needs a
+//! per-respondent `group` (`docs/01` D20), so it is gated behind the `calibration` feature.
 //! Variant 2: latent-class mixture IRT, the anonymity-compatible detector
-//! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item. It is
-//! the only variant on the production path. Reference prototype: `sim/latent_dif_and_capacity.py`.
+//! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item — the
+//! only variant on the production path. Reference prototype: `sim/latent_dif_and_capacity.py`.
 
 use crate::glm::sigmoid;
 #[cfg(feature = "calibration")]
@@ -32,15 +31,12 @@ pub struct DifCoefs {
     pub beta1: f64,
     pub beta2: f64,
     pub beta3: f64,
-    /// Convergence of the underlying logistic fit. When the item is (nearly) perfectly
-    /// predicted, this is [`LogisticFit::Separated`] and `beta2` is not a real DIF
-    /// value — the verdict is *undetermined* (docs/08 AT-DIF-06, OPT-001).
+    /// Logistic fit status; `Separated` means `beta2` is undetermined (docs/08 AT-DIF-06).
     pub status: LogisticFit,
 }
 
-/// Variant 1 (attribute-based DIF): `logit P = β₀ + β₁θ + β₂g + β₃(θ·g)`. `β₂` is
-/// uniform DIF, `β₃` is non-uniform DIF. Needs a per-respondent `group`, so it is
-/// **calibration-only** (`docs/01` D20): it never compiles into a production build.
+/// Variant 1: `logit P = β₀ + β₁θ + β₂g + β₃(θ·g)`. `β₂` uniform DIF, `β₃` non-uniform.
+/// Calibration-only: needs a per-respondent `group` (`docs/01` D20).
 #[cfg(feature = "calibration")]
 pub fn logistic_dif(item: &[f64], theta: &[f64], group: &[f64]) -> DifCoefs {
     let x: Vec<Vec<f64>> = (0..item.len())
@@ -79,8 +75,7 @@ pub struct MhResult {
 
 /// Mantel–Haenszel DIF (Variant 1): matches respondents on ability (θ split into
 /// `n_strata` equal-frequency strata) and compares the two `group` values (−1 reference,
-/// +1 focal) within each stratum. Needs a per-respondent `group`, so it is
-/// **calibration-only** (`docs/01` D20) and never compiles into a production build.
+/// +1 focal) within each stratum. Calibration-only (`docs/01` D20).
 #[cfg(feature = "calibration")]
 pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usize) -> MhResult {
     let n = item.len();
@@ -142,8 +137,7 @@ pub struct MixtureDif {
     pub lr: f64,
     /// `lr − K·ln(NT)`: > 0 favors the two-class model
     pub bic: f64,
-    /// convergence of the free (two-class) fit (docs/08 OPT-001): a non-converged fit
-    /// means `delta` and `bic` are not to be trusted.
+    /// convergence of the free (two-class) fit (docs/08 OPT-001).
     pub status: Convergence,
 }
 
