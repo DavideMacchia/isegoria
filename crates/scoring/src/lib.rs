@@ -10,4 +10,6 @@ mod glm;
 pub mod irt;
 mod optim;
 pub mod reputation;
+// Iterative θ purification is attribute-based DIF (Variant 1): calibration-only (D20).
+#[cfg(feature = "calibration")]
 pub mod validation;

@@ -13,9 +13,13 @@ use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
 use protocol::lottery::admit;
-use protocol::pilot::{stage1_screen, stage2_dif};
+use protocol::pilot::stage1_screen;
+#[cfg(feature = "calibration")]
+use protocol::pilot::stage2_dif;
 use protocol::probation::{effective_review_weight, status, FounderSet, Status, N_PROBATION};
-use protocol::revalidation::{items_to_retire, revalidate_pool};
+use protocol::revalidation::items_to_retire;
+#[cfg(feature = "calibration")]
+use protocol::revalidation::revalidate_pool;
 use protocol::review::{assign_reviewers, commit, reveal, Reviewer};
 
 const TAU: f64 = 0.08;
@@ -219,6 +223,7 @@ fn pilot_stage1_drops_non_discriminating_items() {
     assert!(!keep[1], "a non-discriminating item should be killed");
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn pilot_stage2_drops_dif_items() {
     let (theta, group) = synthetic();
@@ -446,6 +451,7 @@ fn rotation_picks_the_least_exposed_variant() {
     assert_eq!(id, template.variant(b"c"));
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn revalidation_catches_dif_on_any_axis_including_the_blind_spot() {
     let (theta, axis_pol) = synthetic();

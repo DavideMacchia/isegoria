@@ -42,7 +42,7 @@ and real-world pilots for every empirical parameter (`docs/08` §19).
 | T1 | Stop printing the credential secret / label in debug logs (custom `Debug`) | PV-4, §8.3 | a test asserts the secret bytes never appear in `{:?}` output | S |
 | T2 | The optimizer and the logistic fit report whether they converged; a "cannot separate" case returns *undetermined* instead of garbage numbers | OPT-001, IQ-1, §6.2–6.3 | callers propagate the status; `AT-DIF-06` passes | M |
 | T3 | Fix a canonical order for the engine input, so re-ordering votes cannot change the result | INV-13, REPRO-002 | `AT-BR-03` (permutation invariance) passes | M |
-| T4 | Record the exact numpy/scipy/OS used to generate the fixtures; re-enable the drift check in CI under a pinned environment. *Evidence:* the guard already fails under numpy 2.4.4 / scipy 1.17.1 (`fixtures/PROVENANCE.md`, docs/08 §0-ter) | REPRO-003/004 | `AT-PRO-06` runs on every push; `fixture_drift` no longer ignored | S |
+| T4 | Record the exact numpy/scipy/OS used to generate the fixtures; re-enable the drift check in CI under a pinned environment. **Done (2026-09-21):** env pinned in `sim/requirements.txt` (numpy 2.4.4 / scipy 1.17.1, CPython 3.13); `expected_levelA.csv` / `expected_meta.csv` regenerated under it; `fixture_drift` de-ignored (self-skips only without the env) and run for real by CI after `pip install -r sim/requirements.txt` (`fixtures/PROVENANCE.md`, docs/08 §0-ter) | REPRO-003/004 | `AT-PRO-06` runs on every push; `fixture_drift` no longer ignored | S |
 
 ### P1.2 · Wiring (audit block 2) — connect pieces that already exist; **highest value**
 

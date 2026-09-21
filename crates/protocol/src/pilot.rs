@@ -2,6 +2,7 @@
 //! resource: a cheap first stage kills broken and non-discriminating items; only
 //! survivors reach the large second stage, which runs DIF in batches (`docs/02` §B).
 
+#[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
 use scoring::irt::{fit_2pl_item, point_biserial, A_MIN, R_PBIS_MIN};
 
@@ -20,6 +21,12 @@ pub fn stage1_screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
 
 /// Stage 2 (~1500 respondents), run on the surviving batch: reject items with
 /// uniform DIF against the axis.
+///
+/// Variant 1 (attribute-based): reads a per-respondent `group`, so it is
+/// **calibration-only** (`docs/01` D20) and absent from a production build. The
+/// production epoch relies on the anonymity-compatible latent re-validation
+/// ([`crate::revalidation::revalidate_pool_latent`], Variant 2) instead.
+#[cfg(feature = "calibration")]
 pub fn stage2_dif(theta: &[f64], group: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
     item_responses
         .iter()

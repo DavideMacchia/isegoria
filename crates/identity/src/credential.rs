@@ -52,6 +52,7 @@ use sha2::Sha256;
 use sha3::Shake256;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::fmt;
 
 type E = Bls12_381;
 
@@ -64,9 +65,17 @@ const IDX_LABEL: usize = 1;
 
 /// The root secret a node holds. The three role nyms derive from it; it never
 /// leaves the holder.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Credential {
     secret: [u8; 32],
+}
+
+impl fmt::Debug for Credential {
+    /// Never print the root secret (PV-4, docs/08 §8.3): a derived `Debug` would put
+    /// the credential secret straight into a log line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Credential").finish_non_exhaustive()
+    }
 }
 
 impl Credential {
@@ -164,11 +173,19 @@ pub struct IssuanceRequest {
 pub struct BlindSignature(SignatureG1<E>);
 
 /// Holder-side state kept between requesting and finalising issuance.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PendingIssuance {
     blinding: Fr,
     secret: Fr,
     label_scalar: Fr,
+}
+
+impl fmt::Debug for PendingIssuance {
+    /// Redacts the committed secret, its blinding, and the label scalar (PV-4,
+    /// docs/08 §8.3).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PendingIssuance").finish_non_exhaustive()
+    }
 }
 
 impl PendingIssuance {
@@ -183,11 +200,20 @@ impl PendingIssuance {
 }
 
 /// A finished BBS+ credential: a signature over `(secret, label)`.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AnonymousCredential {
     signature: SignatureG1<E>,
     secret: Fr,
     label_scalar: Fr,
+}
+
+impl fmt::Debug for AnonymousCredential {
+    /// Redacts the secret and the label scalar it signs (PV-4, docs/08 §8.3); the
+    /// signature is over both, so the whole struct stays out of logs.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AnonymousCredential")
+            .finish_non_exhaustive()
+    }
 }
 
 impl AnonymousCredential {
