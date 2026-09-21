@@ -208,3 +208,26 @@ fn mantel_haenszel_tolerates_a_nan_theta() {
                                                        // The classification is still one of the ETS classes.
     assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
 }
+
+#[test]
+fn mantel_haenszel_tolerates_nan_theta_at_sort_detection_sizes() {
+    // docs/08 IQ-2 / DIF-003 guard: a comparator that treats NaN as equal to everything
+    // is not a total order, which Rust's sort (≥ 1.81) may detect on longer slices and
+    // panic on. `total_cmp` cannot. 200 respondents, every 13th θ is NaN.
+    let n = 200;
+    let item: Vec<f64> = (0..n).map(|i| ((i * 7) % 3 == 0) as u8 as f64).collect();
+    let theta: Vec<f64> = (0..n)
+        .map(|i| {
+            if i % 13 == 0 {
+                f64::NAN
+            } else {
+                (i as f64 / n as f64) * 4.0 - 2.0
+            }
+        })
+        .collect();
+    let group: Vec<f64> = (0..n)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+    let r = mantel_haenszel(&item, &theta, &group, 5);
+    assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
+}

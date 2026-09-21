@@ -41,6 +41,23 @@ Fixes landed on branch `fix/audit-concrete-bugs`, commit `289aae3` — six concr
 
 Everything else in §14 (gaps), §16 (acceptance gate) and the rest of §15 is unchanged: the wiring gaps (BRIDGE-007, PROTO-007) and the design-open questions (§17) are untouched by these fixes.
 
+## 0-ter. Post-remediation re-check (auditor, 2026-09-17)
+
+Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust suite **was executed** (rustc 1.89.0 from the Ubuntu archive — the pinned 1.86.0 was not reachable; results are functional, not bit-level): at `e43f1bf`, 149 passed / 2 ignored; on this branch, 154 passed / 2 ignored, `cargo fmt --check` and `clippy --all-targets -D warnings` clean under clippy 1.89 (which adds one lint, `cloned_ref_to_slice_refs`, that 1.86 does not have; fixed in `lifecycle.rs:478`).
+
+**The six fixes of §0-bis are confirmed**, with independent replication of the Merkle and discount corrections (promotion construction: proofs verify for n = 1…39 and `root(L) ≠ root(L ++ [last])`; `discount_weights([0.25]) = 0.25`, 400 clones → 20). Two caveats:
+
+- **DIF-003 guard.** `partial_cmp().unwrap_or(Equal)` avoids the panic but is not a total order (NaN "equals" everything), and Rust ≥ 1.81 sorts are permitted to detect a non-total comparator and panic; the 6-element regression test cannot exercise that path. Replaced on this branch by `f64::total_cmp` (NaN sorts last, deterministically) at all five float-sort sites — `dif.rs`, `governance.rs`, `review.rs`, `reputation.rs::median`, `blueprint.rs` — closing IQ-2. Tests: `level_b.rs::mantel_haenszel_tolerates_nan_theta_at_sort_detection_sizes` (n = 200), `lifecycle.rs::float_sorts_tolerate_nan_positions_without_panicking`.
+- **REPRO-003, now with the repository's own guard.** `cargo test -p scoring --test fixture_drift -- --ignored` **fails** in a numpy 2.4.4 / scipy 1.17.1 environment (`expected_levelA.csv` token 10: `0.107583` vs `0.107804`). Recorded in `crates/scoring/tests/fixtures/PROVENANCE.md`; roadmap T4 stands.
+
+**New finding — PROTO-012 (`protocol::aggregate`, merged in `b139acf`, not covered by §0-bis).** `resolve_band(aggregate_pass_probability(p, w), 0.5)` is a weighted arithmetic mean of the *same* ratings the bridging model already consumed, compared to 0.5. That is the "simple average" `docs/01` D2 rejects, applied as the deciding rule for the one class of items (the band) where bridging is undecided; it carries no cross-axis requirement. Evidence, now pinned by `documents_limitation_*` tests: on the oracle fixtures the rule advances **every** item, including 08 and 09 that bridging rejects for polarization (unit-weight means 0.593 and 0.708); a 120-vs-80 polarized panel at 0.9/0.3 with no cartel resolves in favour (0.66); the "√k never flips" scenario holds only for exact-copy cartels with k < 576 (flip at k = 576), and a jittered cartel (σ ≈ 0.05) is not clustered at all (COLLUSION-002), flipping the same panel at k ≈ 65. On the fixtures all three band items (1, 5, 6) have mean ≥ 0.83, so "resolved by review" and "passed by default" are not distinguishable by the e2e test. The module also does **not** address BRIDGE-007: `bridging::fit` remains unweighted, so the discount changes this tie-break and nothing else. Finally, the mechanism contradicts `docs/01` D26 (decided the same day): "more reviewers, then a clean re-decision against the plain threshold". `ARCHITECTURE.md`'s "the review aggregation is **done** and **wired into the epoch**" has been corrected on this branch to "provisional tie-break"; roadmap T5 and T10 correctly remain open, and T30 is added. Status: **IMPLEMENTED (tie-break); INV-2 substantively not provided for band items; D26 NOT IMPLEMENTED.**
+
+**Decisions D17–D31 vs. code.** Consistent with §17 (Q-15, D15's "preferred" separation, remains undecided). Three are *decided but not implemented* and should be tracked as such: D20 (`pilot::stage2_dif` is still on the production e2e path with no calibration gate — T32), D23 (`base_rate_baseline` is still the only baseline, and `composed_gate.rs` derives its `E_u` from it — T31), D26 (above — T30).
+
+**Matrix deltas (§15).** Added PROTO-012; IQ-2 closed; REPRO-003 now carries repository-native failing evidence; ID-003 unchanged beyond §0-bis; everything else as in §0-bis.
+
+---
+
 ---
 
 ## 1. Scope
@@ -1110,7 +1127,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 |---|---|---|---|---|---|
 | REPRO-001 | bit-for-bit within platform | `scoring/tests/reproducibility.rs` | TESTED (one process) | cross-platform run; release-profile run | AT-BR-04 |
 | REPRO-002 | order-independent input | none | NOT ESTABLISHED | permutation test | INV-13, AT-BR-03 |
-| REPRO-003 | engine = sims | `level_{a,b,c}.rs`, fixtures | TESTED (statistic level); REPRODUCED: NO | pinned-env regeneration; verdict agreement | G-10 |
+| REPRO-003 | engine = sims | `level_{a,b,c}.rs`, fixtures; `fixture_drift.rs` **fails** under numpy 2.4.4/scipy 1.17.1 (§0-ter, `fixtures/PROVENANCE.md`) | TESTED (statistic level); REPRODUCED: NO (repository guard fails) | pinned-env regeneration; verdict agreement | G-10, T4 |
 | REPRO-004 | fixture provenance | `sim/export_fixtures.py` | IMPLEMENTED | versions recorded, CI regen | AT-PRO-06 |
 | BRIDGE-001 | model = spec (d=1) | `bridging.rs`, `level_a.rs` | TESTED | d=2, n_min | implement or descope in docs |
 | BRIDGE-002 | axis recovery | `level_a.rs`, sim | TESTED (1 seed) | seed/parameter sweeps | bridging_sweeps.py |
@@ -1125,7 +1142,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | IRT-003 | 2PL screen | `level_b.rs`, `end_to_end.rs` | TESTED (2 items) | threshold validity; 3PL | G-07 |
 | DIF-001 | logistic numerics | `level_b.rs` | TESTED | SE/LRT/multiplicity | §6.5 |
 | DIF-002 | Variant 1 admissible input | — | NOT ESTABLISHED | — | G-01 |
-| DIF-003 | MH classification | `level_b.rs` | TESTED (2 items) | significance; tertile spec | §6.5 |
+| DIF-003 | MH classification | `level_b.rs` (incl. NaN at n = 200) | TESTED (2 items); NaN policy RESOLVED via `total_cmp` (§0-ter) | significance; tertile spec | §6.5 |
 | DIF-004 | mixture detects ≥2/8 @3000 | `level_b.rs`, `end_to_end.rs`, sim (auditor re-run) | TESTED, REPRODUCED (sim) | FP rate, power surface | AT-DIF-01/02 |
 | DIF-005 | 1/8 invisible | `level_b.rs`, sim | TESTED (limitation) | — | relabel as documentation |
 | DIF-006 | threshold consistent | — | INCONSISTENT | — | G-08 |
@@ -1186,6 +1203,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
 | PROTO-011 | Draft CID unambiguous | `lifecycle.rs` (AT-PRO-04) | RESOLVED @289aae3 (was DEFECT) — see §0-bis | — | — |
+| PROTO-012 | band resolution is a bridging decision (INV-2/D2/D26) | `aggregate.rs`; `review_aggregation.rs`, `end_to_end.rs` `documents_limitation_*` (auditor, §0-ter) | IMPLEMENTED as a weighted-mean tie-break; INV-2 substantively NOT PROVIDED for band items; D26 NOT IMPLEMENTED | — | roadmap T30 (D26), T5 (BRIDGE-007) |
 
 No claim in this matrix is at INDEPENDENTLY_REVIEWED, SCIENTIFICALLY_CHARACTERIZED, PRODUCTION_CANDIDATE, or PRODUCTION_READY. The auditor's re-execution of the Python simulations counts as REPRODUCED for DIF-004 and BRIDGE-002 *at the simulation level only*, and explicitly *fails* REPRODUCED for REPRO-003.
 

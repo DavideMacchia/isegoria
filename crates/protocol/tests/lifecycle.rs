@@ -475,7 +475,7 @@ fn revalidation_catches_dif_on_any_axis_including_the_blind_spot() {
         .collect();
 
     // Looking only at the political axis misses the education-biased item (blind spot).
-    let single = revalidate_pool(&theta, &[axis_pol.clone()], &responses);
+    let single = revalidate_pool(&theta, std::slice::from_ref(&axis_pol), &responses);
     assert!(
         !single[2].emerging_dif,
         "single-axis review should miss the edu-biased item"
@@ -538,4 +538,35 @@ fn meta_level_change_needs_supermajority_and_delay() {
         !change_approved(1, 0, 60),
         "no eligible voters → not approved"
     );
+}
+
+#[test]
+fn float_sorts_tolerate_nan_positions_without_panicking() {
+    // docs/08 IQ-2: the protocol sorts caller-supplied f64 positions. With `total_cmp`
+    // a NaN position is a defined input (sorts last) rather than a panic — including
+    // at sizes where Rust's sort (≥ 1.81) may detect and reject a non-total comparator.
+    let mut rs = reviewers(300);
+    for r in rs.iter_mut().step_by(37) {
+        r.f_u = f64::NAN;
+    }
+    let panel = assign_reviewers(&rs, 9, 7);
+    assert_eq!(panel.len(), 9);
+
+    let candidates: Vec<Candidate<usize>> = (0..300)
+        .map(|i| Candidate {
+            id: i,
+            f_u: if i % 41 == 0 {
+                f64::NAN
+            } else {
+                i as f64 / 300.0 - 0.5
+            },
+        })
+        .collect();
+    let drawn = stratified_sortition(&candidates, 9, 3, 11);
+    assert_eq!(drawn.len(), 9);
+
+    // NaN sorts last: with `total_cmp`, the top stratum is where NaN candidates land.
+    let mut xs = [0.3, f64::NAN, -1.0, 2.0];
+    xs.sort_by(|a, b| a.total_cmp(b));
+    assert!(xs[3].is_nan());
 }

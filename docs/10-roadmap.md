@@ -42,7 +42,7 @@ and real-world pilots for every empirical parameter (`docs/08` §19).
 | T1 | Stop printing the credential secret / label in debug logs (custom `Debug`) | PV-4, §8.3 | a test asserts the secret bytes never appear in `{:?}` output | S |
 | T2 | The optimizer and the logistic fit report whether they converged; a "cannot separate" case returns *undetermined* instead of garbage numbers | OPT-001, IQ-1, §6.2–6.3 | callers propagate the status; `AT-DIF-06` passes | M |
 | T3 | Fix a canonical order for the engine input, so re-ordering votes cannot change the result | INV-13, REPRO-002 | `AT-BR-03` (permutation invariance) passes | M |
-| T4 | Record the exact numpy/scipy/OS used to generate the fixtures; re-enable the drift check in CI under a pinned environment | REPRO-003/004 | `AT-PRO-06` runs on every push; `fixture_drift` no longer ignored | S |
+| T4 | Record the exact numpy/scipy/OS used to generate the fixtures; re-enable the drift check in CI under a pinned environment. *Evidence:* the guard already fails under numpy 2.4.4 / scipy 1.17.1 (`fixtures/PROVENANCE.md`, docs/08 §0-ter) | REPRO-003/004 | `AT-PRO-06` runs on every push; `fixture_drift` no longer ignored | S |
 
 ### P1.2 · Wiring (audit block 2) — connect pieces that already exist; **highest value**
 
@@ -57,6 +57,9 @@ complete" honest.
 | T8 | The "luck" (lottery, reviewer assignment, honeypot, sortition) comes from the signed checkpoint, so nobody can pick their own reviewers | D29 / INV-10 / G-05 | `AT-BR-05` (seed grinding blocked) passes | M |
 | T9 | Enforce the batch minimum and the pilot sample-size gates (never validate a single item) | INV-8, PROTO-006, G-15 | `AT-PRO-02` (batch of one rejected) passes | S |
 | T10 | Borderline items get extra reviewers then a clean re-decision; a failed appeal is a pseudo-observation with escrow | D26, D27, G-15 | `AT-PRO-03` (defined outcome) passes | M |
+| T30 | **Retire the band tie-break.** `protocol::aggregate::resolve_band` (a weighted mean of the same ratings vs 0.5) is replaced by the D26 mechanism: add reviewers, re-run bridging, re-decide `b_j` against the plain threshold. Until then it stays documented as provisional (docs/08 PROTO-012) | PROTO-012, D26, D2 | the `documents_limitation_*` tests in `review_aggregation.rs` / `end_to_end.rs` are deleted because the mechanism they pin no longer exists; a polarized 120-vs-80 panel is *not* resolved by the larger camp | M |
+| T31 | **Crowd baseline in code.** Implement the D23 baseline (`p̄_j` = weight-adjusted mean of the reviewers' own predictions) and use it for `E_u` everywhere the base rate is used today (`reputation::base_rate_baseline`, `honeypot::reviewer_skill`, `composed_gate.rs`) | D23, G-09, REPUTATION-003 | `AT-REP-02` (consensus follower ≈ 0) passes | M |
+| T32 | **Gate Variant-1 DIF behind a calibration flag.** `pilot::stage2_dif`, `revalidation::revalidate_pool`, `logistic_dif`/`mantel_haenszel`/`purify_theta` callers in the production path require a `calibration` feature; the e2e epoch uses Variant 2 | D20, G-01, DIF-002 | production build has no code path that accepts a per-respondent `group` | S |
 | T11 | Structural rate-limit and one-credential-per-label enforcement (the in-process form; the cryptographic-grade version is T20) | ID-007, ID-008 | `AT-ID-02/03` pass; over-quota rejected | M |
 
 ### P1.3 · Network and runtime layer (audit block 4) — build what is missing
@@ -75,8 +78,10 @@ complete" honest.
 
 Run after P1.1–P1.3, before Phase 2.
 
-- **Cleanup:** a stated NaN policy on all caller-supplied data (IQ-2); keep `clippy
-  -D warnings` and `fmt` green (IQ-4).
+- **Cleanup:** NaN policy on caller-supplied floats is `f64::total_cmp` (NaN sorts
+  last) at every sort site — done (IQ-2, docs/08 §0-ter); keep `clippy -D warnings`
+  and `fmt` green (IQ-4), including under newer clippy (1.89 adds
+  `cloned_ref_to_slice_refs`, already addressed).
 - **Tests:** assemble the adversarial suite added along the way into `docs/08` §13's
   tree; report a coverage figure with the command and date (IQ-5); add the
   cross-platform reproducibility check (`AT-BR-04`, RP-2).
@@ -128,6 +133,8 @@ the *external* tasks (T23, T26, T27) are complete.
 
 - T5 (weights) and T6 (identity proofs) are the backbone of Phase 1; T7–T11 build on
   T6, and T14–T18 give T5’s weighting a durable place to live.
+- T30 depends on T5 (a clean re-decision needs the weighted bridging fit) and T10;
+  T31 and T32 are independent and small.
 - T20 supersedes T11’s in-process rate limiting with the cryptographic form.
 - Nothing in Phase 1 requires the *external* gates; but the README/docs MUST keep
   calling the system a reference/testnet until T23, T26 and T27 are done.

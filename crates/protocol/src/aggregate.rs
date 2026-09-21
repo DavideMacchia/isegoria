@@ -1,18 +1,29 @@
 //! [4]/[5] Review aggregation (`docs/05` [4]/[5], `docs/02` §C.2).
 //!
-//! Composes the existing bricks into the actual decision: reviewers' revealed
-//! pass-probabilities are combined into a single signal that resolves the bridging
-//! gate's uncertainty band — **weighted by the evaluator score `E_u`** (probation-
-//! gated and capped) and **discounted for collusion** so a coordinated block of `k`
-//! reviewers counts like `√k` independents.
+//! Composes the existing bricks into one signal that resolves the bridging gate's
+//! uncertainty band: reviewers' revealed pass-probabilities, **weighted by the
+//! evaluator score `E_u`** (probation-gated and capped) and **discounted for
+//! collusion** so a coordinated block of `k` reviewers counts like `√k` independents.
 //!
-//! Two invariants are load-bearing here and are respected by construction:
-//! - **#2 — quality is never a majority vote.** The output is a *weighted mean of
-//!   probabilities* (weights are `E_u`, not head-counts) with the cartel discount
-//!   applied; there is no `positive > negative` anywhere. It only resolves the
-//!   uncertainty band the bridging model already flags.
-//! - **#4 — the two reputation scores are never merged.** This module uses only the
-//!   evaluator score `E_u`. It never takes or imports the author score `C_a`.
+//! **What this is, precisely (docs/08 PROTO-012).** [`aggregate_pass_probability`] is a
+//! weighted arithmetic mean of probabilities and [`resolve_band`] compares it to a
+//! threshold. That is a weighted average of the *same* ratings the bridging model
+//! already saw — the "simple average" that `docs/01` D2 rejects as the primary decision
+//! rule — with no requirement that approval come from across the latent axis. It is
+//! therefore a **provisional tie-break for band items only**, not the mechanism
+//! `docs/01` D26 decided for borderline items (more reviewers, then a clean re-decision
+//! of the bridging score against the plain threshold; roadmap T10/T30). On the oracle
+//! fixtures it advances every item, including the partisan ones bridging rejects
+//! (`review_aggregation.rs::documents_limitation_*`).
+//!
+//! What it does respect by construction:
+//! - **#2 (literal form).** No `positive > negative` head-count exists; weights are
+//!   `E_u`, not counts. But with near-binary probabilities and equal weights the mean
+//!   reduces to a weighted majority, so the *substance* of #2/D2 is not provided here.
+//! - **#4.** Only the evaluator score `E_u` is used; the author score `C_a` is never
+//!   taken or imported.
+//! - **Weights are not consumed by `bridging::fit`** (docs/08 BRIDGE-007, roadmap T5):
+//!   the discount computed here changes this tie-break, not `b_j`.
 
 use scoring::collusion::{cluster_by_correlation, correlation_matrix, discount_weights, ALPHA};
 

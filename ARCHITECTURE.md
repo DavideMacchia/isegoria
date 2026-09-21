@@ -203,7 +203,7 @@ Rust — SciPy and the in-house optimizer differ. The Python sims are an oracle 
 
 ## Testing strategy
 
-Six kinds of test, 141 in total:
+Six kinds of test, 156 in total (2 `#[ignore]`d):
 
 1. **Oracle acceptance tests** run the Rust engine on the *same dataset* as the
    Python sims (exported by `sim/export_fixtures.py` into
@@ -223,12 +223,19 @@ Six kinds of test, 141 in total:
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
    item by the pilot screen; a true-but-divisive item recovered via the appeal). The
-   bridging uncertainty band is resolved by the weighted, anti-collusion-discounted
-   review aggregation (`protocol::aggregate`), not passed by default; `composed_gate`
-   stress-tests that `bridging_gate → aggregate → resolve_band` path (skilled reviewer
-   carries it, a cartel is √k-discounted and cannot flip it, probationers do not count,
-   an all-probation panel stays undecided) with reviewer skill grounded in the real
-   Level-C oracle profiles.
+   bridging uncertainty band is resolved by `protocol::aggregate` — a *provisional*
+   tie-break: a weighted, anti-collusion-discounted mean of the same ratings, compared
+   to 0.5 (docs/08 PROTO-012). `composed_gate` stress-tests that
+   `bridging_gate → aggregate → resolve_band` path (skilled reviewer carries it, an
+   exact-copy cartel ≤ 400 is √k-discounted and cannot flip it, probationers do not
+   count, an all-probation panel stays undecided) with reviewer skill grounded in the
+   real Level-C oracle profiles. The `documents_limitation_*` tests in
+   `review_aggregation.rs` and `end_to_end.rs` pin what the tie-break is *not*: it has
+   no cross-axis requirement (it advances the partisan fixture items 08/09), a polarized
+   panel is resolved by the larger camp, and the √k line holds only up to k = 576 exact
+   copies (a jittered cartel is not clustered at all). On the fixtures every band item
+   advances, so "resolved by review" and "passed by default" are not distinguishable
+   there.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
    majority; a long-con's reputation rises slowly, falls fast, and is capped;
@@ -265,15 +272,15 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- The review aggregation is **done** (`protocol::aggregate`: `probation` +
-  anti-collusion weights over reviewer judgments) and **wired into the epoch**: the
-  fixture `end_to_end` resolves the bridging uncertainty band with it (items 1/5/6 fall
-  in the band; item 6 advances on the weighted merit of its reviewers, not by default),
-  and `composed_gate` exercises the `bridging_gate → aggregate → resolve_band` path
-  against cartels, probationers, and an undecided panel. Still open in the composition:
-  `governance` sortition feeding the honeypot / blueprint committees; `revalidation` →
-  `exposure` retirement on a schedule; deduplicating reviewer votes via the M3 ZK
-  nullifier.
+- `protocol::aggregate` composes `probation` + anti-collusion weights into a
+  **provisional tie-break for band items** (a weighted mean of pass-probabilities vs
+  0.5). It is **not** the review-weighting the design specifies: the weights still do
+  not enter `bridging::fit`, so a cartel's discount changes this tie-break and nothing
+  else (docs/08 BRIDGE-007, roadmap T5); and it is not the borderline mechanism
+  `docs/01` D26 decided (more reviewers, then a clean re-decision of the bridging score
+  — roadmap T10/T30). Still open in the composition: `governance` sortition feeding the
+  honeypot / blueprint committees; `revalidation` → `exposure` retirement on a
+  schedule; deduplicating reviewer votes via the M3 ZK nullifier.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple
