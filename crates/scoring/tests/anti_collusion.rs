@@ -1,5 +1,6 @@
 //! Anti-collusion acceptance tests. See `docs/02`, §Anti-collusion.
 
+use scoring::bridging::{fit, BridgingParams, Ratings};
 use scoring::collusion::{
     cluster_by_correlation, correlation_matrix, discount_weights, sublinear_group_weight, ALPHA,
 };
@@ -79,6 +80,98 @@ fn cartel_total_influence_matches_independents() {
     assert!(
         (cartel_influence - indep_influence).abs() < 0.5,
         "500 coordinated ({cartel_influence:.2}) should ≈ 22 independent ({indep_influence:.2})"
+    );
+}
+
+/// Honest reviewers: two polarized camps on the axis items, both rating the target `t`
+/// low, plus a small per-reviewer jitter so they stay distinct (singletons, not a
+/// cluster).
+fn honest_rows(honest: usize, m: usize, t: usize) -> Vec<Vec<f64>> {
+    (0..honest)
+        .map(|u| {
+            let camp = if u % 2 == 0 { 1.0 } else { 0.0 };
+            (0..m)
+                .map(|j| {
+                    if j == t {
+                        0.2
+                    } else {
+                        let base = if j % 2 == 0 { camp } else { 1.0 - camp };
+                        let jit = (((u * 31 + j * 17) % 7) as f64 - 3.0) * 0.02;
+                        (base + jit).clamp(0.0, 1.0)
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Near-neutral, cross-cutting endorsers of `t`: `t = 1.0`, other items ≈ 0.5 with a
+/// per-reviewer jitter. `distinct` makes each row different (independents) or identical
+/// (a cartel).
+fn endorsers_of(count: usize, m: usize, t: usize, distinct: bool) -> Vec<Vec<f64>> {
+    (0..count)
+        .map(|i| {
+            let seed = if distinct { i } else { 0 };
+            (0..m)
+                .map(|j| {
+                    if j == t {
+                        1.0
+                    } else {
+                        0.5 + (((seed * 29 + j * 13) % 7) as f64 - 3.0) * 0.03
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// AT-COL-06 / BRIDGE-007 / G-03: weights are consumed by bridging, so a discounted
+/// cartel of `k` moves the target's `b_j` less than `k` genuine independents would
+/// (√k ≈ 20 for k = 400).
+#[test]
+fn at_col_06_cartel_moves_the_bridge_score_less_than_independents() {
+    let m = 9;
+    let t = m - 1;
+    let (honest, k) = (120usize, 400usize);
+    let params = BridgingParams::default();
+    let honest_only = honest_rows(honest, m, t);
+
+    let bj_t = |rows: &[Vec<f64>], weights: Vec<f64>| {
+        let mask = vec![vec![true; m]; rows.len()];
+        fit(
+            &Ratings::from_dense(rows, &mask).with_weights(weights),
+            &params,
+        )
+        .b_j[t]
+    };
+
+    let b_base = bj_t(&honest_only, vec![1.0; honest]);
+
+    // k genuine independents endorsing t at face value: distinct rows → singletons.
+    let mut with_indep = honest_only.clone();
+    with_indep.extend(endorsers_of(k, m, t, true));
+    let b_independents = bj_t(&with_indep, vec![1.0; with_indep.len()]);
+
+    // k identical colluders endorsing t, anti-collusion discounted.
+    let mut with_cartel = honest_only.clone();
+    with_cartel.extend(endorsers_of(k, m, t, false));
+    let clusters = cluster_by_correlation(&correlation_matrix(&with_cartel), 0.99);
+    assert!(
+        clusters[honest..].iter().all(|&c| c == clusters[honest]),
+        "the cartel should form one cluster"
+    );
+    let discounted = discount_weights(&vec![1.0; with_cartel.len()], &clusters, ALPHA);
+    let b_cartel = bj_t(&with_cartel, discounted);
+
+    // Both push the target up from the honest baseline, but the discounted cartel moves
+    // it less than the same number of independents.
+    assert!(
+        b_independents > b_base,
+        "independents should raise b_j: {b_independents:.4} vs {b_base:.4}"
+    );
+    assert!(
+        b_cartel < b_independents,
+        "base={b_base:.4} cartel={b_cartel:.4} independents={b_independents:.4}"
     );
 }
 

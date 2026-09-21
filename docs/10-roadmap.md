@@ -51,7 +51,7 @@ complete" honest.
 
 | Task | What it means (plain) | Audit refs / decision | Done when | Size |
 |---|---|---|---|---|
-| T5 | **Reputation actually counts.** The score computation consumes per-reviewer weights (reputation, anti-collusion discount, probation = 0), computed from the previous epoch | BRIDGE-007 / G-03, D23 | `AT-COL-06`: a cartel moves a score less than the same number of independents | L |
+| T5 | **Reputation actually counts.** The score computation consumes per-reviewer weights (reputation, anti-collusion discount, probation = 0), computed from the previous epoch. **Core done:** `bridging::fit` minimizes the weighted objective `Σ w_u (r−r̂)²` over `Ratings.weights`; `AT-COL-06` passes (a discounted cartel moves `b_j` less than the same number of independents). *Remaining:* recomputing `w_u` from the previous epoch inside a real orchestrator (T12) | BRIDGE-007 / G-03, D23 | `AT-COL-06`: a cartel moves a score less than the same number of independents | L |
 | T6 | **The protocol stops trusting bare pseudonyms.** Every entry point requires a verified identity proof (nullifier); reputation and rate limits are keyed on it | PROTO-007 / G-04, INV-9 | `AT-PRO-01`, `AT-ID-05` pass | L |
 | T7 | A blind review commits to *who* cast it and *which* item, and only that person can reveal it | CRYPTO-007 / INV-12 | `AT-BR-06` (commitment-copying blocked) passes | S |
 | T8 | The "luck" (lottery, reviewer assignment, honeypot, sortition) comes from the signed checkpoint, so nobody can pick their own reviewers | D29 / INV-10 / G-05 | `AT-BR-05` (seed grinding blocked) passes | M |
