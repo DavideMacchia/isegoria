@@ -6,6 +6,14 @@ license.workspace = true
 rust-version.workspace = true
 description = "Deterministic, reproducible scoring engine: Level A (bridging), Level B (IRT/DIF), Level C (reputation). No dependency on identity or network."
 
+[features]
+# Attribute-based (Variant-1) DIF — logistic/Mantel–Haenszel and iterative purification
+# — needs a per-respondent `group` axis, so it is admissible only in closed calibration
+# pilots, never in production (docs/01 D20, docs/08 G-01/DIF-002). Off by default: the
+# production build compiles no code path that accepts a per-respondent `group`. The
+# anonymity-compatible latent detector (Variant 2, `mixture_dif`) is always available.
+calibration = []
+
 # Offline crate (CLAUDE.md #7): do not add dependencies on identity/network/protocol
 # or on I/O or network libraries here. Deterministic math only.
 [dependencies]

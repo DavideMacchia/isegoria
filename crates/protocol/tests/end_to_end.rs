@@ -9,20 +9,30 @@
 //! - a true-but-divisive item, wrongly rejected by bridging for polarization, is
 //!   recovered through the appeal channel because the evidence vindicates it.
 
+// Identity enrollment, the transparency log and deposit are exercised only by the
+// full-epoch walk, which is calibration-only (its DIF stage is Variant 1, docs/01 D20).
+#[cfg(feature = "calibration")]
 use identity::credential::Credential;
+#[cfg(feature = "calibration")]
 use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
+#[cfg(feature = "calibration")]
 use identity::nym::Role;
+#[cfg(feature = "calibration")]
 use network::log::TransparencyLog;
 use protocol::aggregate::{
     aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
 };
+#[cfg(feature = "calibration")]
 use protocol::deposit::{deposit, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
-use protocol::pilot::{stage1_screen, stage2_dif};
+use protocol::pilot::stage1_screen;
+#[cfg(feature = "calibration")]
+use protocol::pilot::stage2_dif;
 use protocol::probation::N_PROBATION;
 use protocol::revalidation::revalidate_pool_latent;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
+#[cfg(feature = "calibration")]
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
@@ -33,11 +43,18 @@ const APPEAL_THRESHOLD: f64 = 0.5;
 
 // Items that reach the pool under the docs-faithful retention criteria (both
 // r_pbis >= 0.20 AND 2PL a >= 0.6): 01 and 07 (0-indexed 0 and 6).
+// The full-epoch expectations below are exercised only by the calibration-mode tests
+// (the attribute-DIF stage is Variant 1, docs/01 D20), so they are gated with them.
+#[cfg(feature = "calibration")]
 const EXPECTED_POOL: [usize; 2] = [0, 6];
+#[cfg(feature = "calibration")]
 const ESM: usize = 3; // DIF, must be stopped in Level B (not A)
 const CAPITAL: usize = 4; // no discrimination, dies in pilot stage 1
+#[cfg(feature = "calibration")]
 const WRONG_KEY: usize = 5; // negative point-biserial, dies in the pilot
+#[cfg(feature = "calibration")]
 const REAL_HEALTH: usize = 2; // true-but-divisive: rejected by bridging, saved by appeal
+#[cfg(feature = "calibration")]
 const CONSTITUTIONAL: usize = 1; // hard item with a guessing floor; see the pool test
 
 fn fixtures_dir() -> PathBuf {
@@ -110,6 +127,12 @@ fn load_ratings() -> Ratings {
 
 /// Runs the pipeline; `appeals` is the set of item indices whose author appeals a
 /// polarization rejection to the evidence filter. Returns the pool (item indices).
+///
+/// Calibration-only: the DIF stage is `stage2_dif` (Variant 1, docs/01 D20), which a
+/// production build does not compile. In production the pilot has no attribute-DIF
+/// stage; a lone ESM item like this fixture's is caught only by the batched latent
+/// re-validation (`revalidate_pool_latent`, exercised by `pool_revalidation_flags_latent_bias`).
+#[cfg(feature = "calibration")]
 fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let m = 10;
 
@@ -239,6 +262,7 @@ fn the_bridging_band_is_resolved_by_weighted_review_not_by_default() {
     );
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn full_epoch_filters_each_item_at_the_right_stage() {
     let pool = run_epoch(&BTreeSet::new());
@@ -264,6 +288,7 @@ fn full_epoch_filters_each_item_at_the_right_stage() {
     assert_eq!(pool, EXPECTED_POOL.into_iter().collect::<BTreeSet<_>>());
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn esm_passes_bridging_and_is_stopped_by_dif_not_review() {
     // The ESM item is exactly the scenario the evidence filter exists for: human
@@ -297,6 +322,7 @@ fn non_discriminating_item_dies_in_the_pilot_screen() {
     );
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn appeal_recovers_a_true_but_divisive_item() {
     // Bridging rejects the real-health item for polarization; without appeal it is

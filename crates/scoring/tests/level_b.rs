@@ -2,8 +2,13 @@
 //! `sim/export_fixtures.py`). They cover point-biserial + logistic DIF against the
 //! oracle, and the latent-class mixture detector (`sim/latent_dif_and_capacity.py`).
 
-use scoring::dif::{logistic_dif, mantel_haenszel, mixture_dif, EtsClass, BETA2_MAX};
-use scoring::irt::{fit_2pl_item, point_biserial, theta_from_anchors, R_PBIS_MIN};
+use scoring::dif::mixture_dif;
+#[cfg(feature = "calibration")]
+use scoring::dif::{logistic_dif, mantel_haenszel, EtsClass, BETA2_MAX};
+use scoring::irt::{fit_2pl_item, theta_from_anchors};
+#[cfg(feature = "calibration")]
+use scoring::irt::{point_biserial, R_PBIS_MIN};
+#[cfg(feature = "calibration")]
 use scoring::validation::purify_theta;
 use std::fs;
 use std::path::PathBuf;
@@ -29,6 +34,7 @@ fn read_vector(name: &str) -> Vec<f64> {
     read_matrix(name).into_iter().map(|row| row[0]).collect()
 }
 
+#[cfg(feature = "calibration")]
 fn read_csv_skip_header(name: &str) -> Vec<Vec<f64>> {
     let path = fixtures_dir().join(name);
     let text = fs::read_to_string(&path).unwrap();
@@ -60,6 +66,7 @@ fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
     (cov / (va.sqrt() * vb.sqrt())).abs()
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn point_biserial_and_logistic_dif_reproduce_oracle() {
     let xa = read_matrix("levelb_XA.csv");
@@ -87,6 +94,7 @@ fn point_biserial_and_logistic_dif_reproduce_oracle() {
     }
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn verdicts_match_the_oracle() {
     let xa = read_matrix("levelb_XA.csv");
@@ -119,6 +127,7 @@ fn irt_2pl_discrimination_ranks_items() {
     );
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_classifies_dif() {
     let xa = read_matrix("levelb_XA.csv");
@@ -134,6 +143,7 @@ fn mantel_haenszel_classifies_dif() {
     assert_eq!(clean.class, EtsClass::A, "clean Δ_MH = {:.2}", clean.delta);
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn purification_reaches_a_stable_flagged_set() {
     // docs/02 §B.4: iterate until the flagged set is a fixed point. Only the DIF
@@ -199,6 +209,7 @@ fn mixture_misses_a_single_biased_item() {
 
 /// A NaN in the caller-supplied θ used to panic `mantel_haenszel` via
 /// `partial_cmp().unwrap()`. Bad data must degrade the stratification, not crash.
+#[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_tolerates_a_nan_theta() {
     let item = vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
@@ -209,6 +220,7 @@ fn mantel_haenszel_tolerates_a_nan_theta() {
     assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
 }
 
+#[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_tolerates_nan_theta_at_sort_detection_sizes() {
     // docs/08 IQ-2 / DIF-003 guard: a comparator that treats NaN as equal to everything

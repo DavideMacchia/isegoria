@@ -7,8 +7,11 @@
 
 use crate::exposure::{should_retire, ExposureLedger, ItemHealth, RetirementReason};
 use network::cid::Cid;
-use scoring::dif::{logistic_dif, mixture_dif, BETA2_MAX, MIXTURE_DIF_MAX};
+#[cfg(feature = "calibration")]
+use scoring::dif::{logistic_dif, BETA2_MAX};
+use scoring::dif::{mixture_dif, MIXTURE_DIF_MAX};
 
+#[cfg(feature = "calibration")]
 fn column(responses: &[Vec<f64>], j: usize) -> Vec<f64> {
     responses.iter().map(|row| row[j]).collect()
 }
@@ -17,6 +20,11 @@ fn column(responses: &[Vec<f64>], j: usize) -> Vec<f64> {
 /// is ability (from anchors); `axes` is one grouping vector per latent axis. An item
 /// is flagged with emerging DIF if it shows uniform DIF on ANY axis — this is what
 /// catches the elite blind spot (neutral on the political axis, biased on another).
+///
+/// Variant 1 (attribute-based): each `axis` is a per-respondent group, so this is
+/// **calibration-only** (`docs/01` D20) and absent from a production build. Production
+/// re-validation uses [`revalidate_pool_latent`] (Variant 2), which needs no axis.
+#[cfg(feature = "calibration")]
 pub fn revalidate_pool(
     theta: &[f64],
     axes: &[Vec<f64>],

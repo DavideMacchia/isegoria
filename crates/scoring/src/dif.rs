@@ -1,22 +1,31 @@
 //! Level B — Differential Item Functioning. See `docs/02`, §B.3.
 //!
 //! Variant 1: logistic regression on a group axis (`|β₂| > 0.40` → reject), plus
-//! Mantel–Haenszel with ETS A/B/C classification.
+//! Mantel–Haenszel with ETS A/B/C classification. It reads a per-respondent `group`,
+//! which the live system cannot hold without breaking anonymity, so it is gated behind
+//! the **`calibration`** feature and is admissible only in closed pilots (`docs/01` D20).
 //! Variant 2: latent-class mixture IRT, the anonymity-compatible detector
-//! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item.
-//! Reference prototype: `sim/latent_dif_and_capacity.py`.
+//! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item. It is
+//! the only variant on the production path. Reference prototype: `sim/latent_dif_and_capacity.py`.
 
-use crate::glm::{fit_logistic, sigmoid};
+#[cfg(feature = "calibration")]
+use crate::glm::fit_logistic;
+use crate::glm::sigmoid;
 use crate::optim::{lbfgs, numerical_gradient};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
+/// Variant-1 rejection threshold; calibration-only (see `mantel_haenszel`).
+#[cfg(feature = "calibration")]
 pub const BETA2_MAX: f64 = 0.40;
 pub const MIXTURE_DIF_MAX: f64 = 0.5;
+#[cfg(feature = "calibration")]
 pub const MH_DELTA_B: f64 = 1.0;
+#[cfg(feature = "calibration")]
 pub const MH_DELTA_C: f64 = 1.5;
 
+#[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug)]
 pub struct DifCoefs {
     pub beta0: f64,
@@ -25,8 +34,10 @@ pub struct DifCoefs {
     pub beta3: f64,
 }
 
-/// Variant 1: `logit P = β₀ + β₁θ + β₂g + β₃(θ·g)`. `β₂` is uniform DIF,
-/// `β₃` is non-uniform DIF.
+/// Variant 1 (attribute-based DIF): `logit P = β₀ + β₁θ + β₂g + β₃(θ·g)`. `β₂` is
+/// uniform DIF, `β₃` is non-uniform DIF. Needs a per-respondent `group`, so it is
+/// **calibration-only** (`docs/01` D20): it never compiles into a production build.
+#[cfg(feature = "calibration")]
 pub fn logistic_dif(item: &[f64], theta: &[f64], group: &[f64]) -> DifCoefs {
     let x: Vec<Vec<f64>> = (0..item.len())
         .map(|i| vec![1.0, theta[i], group[i], theta[i] * group[i]])
@@ -42,6 +53,7 @@ pub fn logistic_dif(item: &[f64], theta: &[f64], group: &[f64]) -> DifCoefs {
 
 /// ETS DIF severity classes (`docs/02`, §B.3): A negligible, B moderate
 /// (accepted with monitoring), C large (rejected).
+#[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EtsClass {
     A,
@@ -49,6 +61,7 @@ pub enum EtsClass {
     C,
 }
 
+#[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug)]
 pub struct MhResult {
     /// common odds ratio α_MH
@@ -58,9 +71,11 @@ pub struct MhResult {
     pub class: EtsClass,
 }
 
-/// Mantel–Haenszel DIF: matches respondents on ability (θ split into `n_strata`
-/// equal-frequency strata) and compares the two `group` values (−1 reference,
-/// +1 focal) within each stratum.
+/// Mantel–Haenszel DIF (Variant 1): matches respondents on ability (θ split into
+/// `n_strata` equal-frequency strata) and compares the two `group` values (−1 reference,
+/// +1 focal) within each stratum. Needs a per-respondent `group`, so it is
+/// **calibration-only** (`docs/01` D20) and never compiles into a production build.
+#[cfg(feature = "calibration")]
 pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usize) -> MhResult {
     let n = item.len();
     let mut order: Vec<usize> = (0..n).collect();
