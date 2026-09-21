@@ -18,12 +18,24 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+      # Pinned Python env so the fixture-drift guard regenerates the oracle and
+      # compares it for real on every push (T4 / REPRO-003; see sim/requirements.txt).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install sim dependencies
+        run: pip install -r sim/requirements.txt
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # Calibration-only, attribute-based DIF (Variant 1, D20/T32) must also stay green.
+      - name: Clippy (calibration)
+        run: cargo clippy --workspace --all-targets --features calibration -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: Test (calibration)
+        run: cargo test --workspace --features calibration
 
   coverage:
     name: coverage

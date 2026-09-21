@@ -1,0 +1,12 @@
+# Pinned Python environment for the simulations and, above all, for regenerating the
+# oracle fixtures and running the drift guard (crates/scoring/tests/fixture_drift.rs).
+# See crates/scoring/tests/fixtures/PROVENANCE.md and docs/08 §0-ter (REPRO-003, T4).
+#
+# The scipy pin is load-bearing: scipy.optimize.minimize(method="L-BFGS-B")'s stopping
+# point changed when L-BFGS-B was ported from Fortran to C in scipy 1.15, which shifts
+# the Level-A oracle (b_j) by ~1e-3. Do not bump these without regenerating
+# expected_levelA.csv / expected_meta.csv and updating PROVENANCE.md.
+#
+# Recorded generating interpreter: CPython 3.13.
+numpy==2.4.4
+scipy==1.17.1
