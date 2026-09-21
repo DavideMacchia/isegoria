@@ -10,11 +10,20 @@
 use crate::hash::tagged;
 use rand_core::OsRng;
 use std::collections::HashSet;
+use std::fmt;
 use voprf::{Ristretto255, VoprfClient, VoprfServer};
 
 /// Canonical per-person anchor. In Italy both CIE and SPID bind to the codice fiscale.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Anchor(pub String);
+
+impl fmt::Debug for Anchor {
+    /// Redacts the canonical anchor: it is the codice fiscale, personal data that must
+    /// never enter the system in the clear, logs included (invariant #1, PV-4).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Anchor(..)")
+    }
+}
 
 /// An enrollment source. Each real verifier (CIE via NFC, SPID IdP, e-passport)
 /// is an adapter that extracts the same canonical anchor.
@@ -44,8 +53,16 @@ impl IdentityDocument for Spid {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Label(pub [u8; 32]);
+
+impl fmt::Debug for Label {
+    /// Redacts the uniqueness label (PV-4, docs/08 §8.3): it is a stable per-person
+    /// identifier and must not reach a log.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Label(..)")
+    }
+}
 
 /// Oblivious PRF over the anchor (`docs/03`, §M1). The anchor space is small and
 /// brute-forceable, so the label is computed obliviously: the server never sees the
