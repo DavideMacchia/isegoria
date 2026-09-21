@@ -4,7 +4,7 @@
 //! regularization (`λ_b ≫ λ_f`). The bridge score is the item intercept `b_j`.
 //! This module covers the `d = 1` case. Reference prototype: `sim/bridging_irt_dif.py`.
 
-use crate::optim::lbfgs;
+use crate::optim::{lbfgs, Convergence};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -69,6 +69,10 @@ pub struct Fit {
     pub b_j: Vec<f64>,
     pub f_u: Vec<f64>,
     pub f_j: Vec<f64>,
+    /// Whether the L-BFGS fit reached its gradient tolerance (docs/08 OPT-001). The
+    /// bilinear objective is non-convex, so a caller can observe a non-converged fit
+    /// rather than trust a stationary point reached by a starved history.
+    pub status: Convergence,
 }
 
 // Parameter vector layout: [ μ | b_u(n) | b_j(m) | f_u(n) | f_j(m) ].
@@ -189,7 +193,8 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         g
     };
 
-    let x = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
+    let m = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
+    let x = m.x;
 
     Fit {
         mu: lay.mu(&x),
@@ -197,6 +202,7 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         b_j: lay.bj(&x).to_vec(),
         f_u: lay.fu(&x).to_vec(),
         f_j: lay.fj(&x).to_vec(),
+        status: m.status,
     }
 }
 

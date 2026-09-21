@@ -27,7 +27,7 @@ use protocol::deposit::{deposit, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
-use protocol::pilot::stage2_dif;
+use protocol::pilot::{stage2_dif, DifVerdict};
 use protocol::probation::N_PROBATION;
 use protocol::revalidation::revalidate_pool_latent;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
@@ -226,10 +226,11 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
 
     let cols2: Vec<Vec<f64>> = after1.iter().map(|&j| column(&x, j)).collect();
     let keep2 = stage2_dif(&theta, &grp, &cols2);
+    // Only a clean Pass advances; a Reject or an Undetermined (separated) fit does not.
     after1
         .iter()
         .zip(keep2.iter())
-        .filter_map(|(&j, &k)| k.then_some(j))
+        .filter_map(|(&j, &k)| (k == DifVerdict::Pass).then_some(j))
         .collect()
 }
 
@@ -308,8 +309,11 @@ fn esm_passes_bridging_and_is_stopped_by_dif_not_review() {
     let x = read_matrix("levelb_X.csv");
     // survives the discrimination screen …
     assert!(stage1_screen(&theta, &[column(&x, ESM)])[0]);
-    // … but is caught by the DIF stage.
-    assert!(!stage2_dif(&theta, &grp, &[column(&x, ESM)])[0]);
+    // … but is caught by the DIF stage (a real DIF rejection, not a separated fit).
+    assert_eq!(
+        stage2_dif(&theta, &grp, &[column(&x, ESM)])[0],
+        DifVerdict::Reject
+    );
 }
 
 #[test]

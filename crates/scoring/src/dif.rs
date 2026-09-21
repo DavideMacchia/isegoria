@@ -8,10 +8,10 @@
 //! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item. It is
 //! the only variant on the production path. Reference prototype: `sim/latent_dif_and_capacity.py`.
 
-#[cfg(feature = "calibration")]
-use crate::glm::fit_logistic;
 use crate::glm::sigmoid;
-use crate::optim::{lbfgs, numerical_gradient};
+#[cfg(feature = "calibration")]
+use crate::glm::{fit_logistic, LogisticFit};
+use crate::optim::{lbfgs, numerical_gradient, Convergence};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -32,6 +32,10 @@ pub struct DifCoefs {
     pub beta1: f64,
     pub beta2: f64,
     pub beta3: f64,
+    /// Convergence of the underlying logistic fit. When the item is (nearly) perfectly
+    /// predicted, this is [`LogisticFit::Separated`] and `beta2` is not a real DIF
+    /// value — the verdict is *undetermined* (docs/08 AT-DIF-06, OPT-001).
+    pub status: LogisticFit,
 }
 
 /// Variant 1 (attribute-based DIF): `logit P = β₀ + β₁θ + β₂g + β₃(θ·g)`. `β₂` is
@@ -42,12 +46,14 @@ pub fn logistic_dif(item: &[f64], theta: &[f64], group: &[f64]) -> DifCoefs {
     let x: Vec<Vec<f64>> = (0..item.len())
         .map(|i| vec![1.0, theta[i], group[i], theta[i] * group[i]])
         .collect();
-    let w = fit_logistic(&x, item, 400);
+    let fit = fit_logistic(&x, item, 400);
+    let w = &fit.weights;
     DifCoefs {
         beta0: w[0],
         beta1: w[1],
         beta2: w[2],
         beta3: w[3],
+        status: fit.status,
     }
 }
 
@@ -136,6 +142,9 @@ pub struct MixtureDif {
     pub lr: f64,
     /// `lr − K·ln(NT)`: > 0 favors the two-class model
     pub bic: f64,
+    /// convergence of the free (two-class) fit (docs/08 OPT-001): a non-converged fit
+    /// means `delta` and `bic` are not to be trusted.
+    pub status: Convergence,
 }
 
 // Marginal negative log-likelihood over two latent classes z ∈ {−1, +1}, which
@@ -183,7 +192,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
         full0[1 + j] = 1.0; // a
         full0[1 + 2 * k + j] = normal(&mut rng) * 0.3; // δ
     }
-    let full = lbfgs(
+    let full_min = lbfgs(
         full0,
         |p| mixture_nll(p, theta, x, k, true),
         |p| numerical_gradient(&|q| mixture_nll(q, theta, x, k, true), p, 1e-5),
@@ -191,6 +200,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
         3000,
         1e-6,
     );
+    let full = full_min.x;
 
     let mut null0 = vec![0.0; 1 + 2 * k];
     for j in 0..k {
@@ -203,7 +213,8 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
         10,
         3000,
         1e-6,
-    );
+    )
+    .x;
 
     let full_fun = mixture_nll(&full, theta, x, k, true);
     let null_fun = mixture_nll(&null, theta, x, k, false);
@@ -244,6 +255,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
         class_posterior,
         lr,
         bic,
+        status: full_min.status,
     }
 }
 

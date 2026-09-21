@@ -44,7 +44,7 @@ pub fn point_biserial(item: &[f64], total: &[f64]) -> f64 {
 /// regression on `[1, θ]` with `a = slope`, `b = −intercept / slope`.
 pub fn fit_2pl_item(theta: &[f64], responses: &[f64]) -> (f64, f64) {
     let x: Vec<Vec<f64>> = theta.iter().map(|&t| vec![1.0, t]).collect();
-    let w = fit_logistic(&x, responses, 200);
+    let w = fit_logistic(&x, responses, 200).weights;
     let a = w[1];
     let b = -w[0] / w[1];
     (a, b)
