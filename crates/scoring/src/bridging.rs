@@ -21,10 +21,15 @@ pub struct Ratings {
     pub n: usize,
     pub m: usize,
     pub obs: Vec<Obs>,
+    /// Per-reviewer weight `w_u`, length `n`; uniform (1.0) by default. The fit
+    /// minimizes `Σ w_u (r_uj − r̂_uj)²` (docs/08 BRIDGE-007, G-03): `w_u` is the
+    /// reviewer's `discount(cap(E_u))` (probation = 0) from the *previous* epoch.
+    pub weights: Vec<f64>,
 }
 
 impl Ratings {
-    /// Builds observations in canonical `(u, j)` order (see [`Ratings::canonical`]).
+    /// Builds observations in canonical `(u, j)` order (see [`Ratings::canonical`]),
+    /// with uniform reviewer weights (call [`Ratings::with_weights`] to set them).
     pub fn from_dense(r: &[Vec<f64>], mask: &[Vec<bool>]) -> Self {
         let n = r.len();
         let m = if n > 0 { r[0].len() } else { 0 };
@@ -36,11 +41,24 @@ impl Ratings {
                 }
             }
         }
-        Ratings { n, m, obs }
+        Ratings {
+            n,
+            m,
+            obs,
+            weights: vec![1.0; n],
+        }
+    }
+
+    /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007).
+    pub fn with_weights(mut self, weights: Vec<f64>) -> Self {
+        assert_eq!(weights.len(), self.n, "one weight per reviewer");
+        self.weights = weights;
+        self
     }
 
     /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so
-    /// the fit is invariant to input order (docs/08 INV-13, REPRO-002).
+    /// the fit is invariant to input order (docs/08 INV-13, REPRO-002). Weights are
+    /// indexed by reviewer, so they are unaffected by the observation order.
     pub fn canonical(&self) -> Ratings {
         let mut obs = self.obs.clone();
         obs.sort_by(|a, b| (a.u, a.j, a.r.to_bits()).cmp(&(b.u, b.j, b.r.to_bits())));
@@ -48,6 +66,7 @@ impl Ratings {
             n: self.n,
             m: self.m,
             obs,
+            weights: self.weights.clone(),
         }
     }
 }
@@ -162,6 +181,8 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
     let m = data.m;
     let lay = Layout { n, m };
     let obs = &data.obs;
+    // Per-reviewer weights: the data term is `Σ w_u (r − r̂)²` (docs/08 BRIDGE-007).
+    let w = &data.weights;
 
     let lam_b = p.lam_b;
     let lam_f = p.lam_f;
@@ -173,7 +194,7 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         for o in obs {
             let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
             let e = pred - o.r;
-            se += e * e;
+            se += w[o.u] * e * e;
         }
         let reg_b: f64 =
             bu.iter().map(|v| v * v).sum::<f64>() + bj.iter().map(|v| v * v).sum::<f64>();
@@ -188,7 +209,7 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         let mut g = vec![0.0_f64; x.len()];
         for o in obs {
             let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
-            let e = 2.0 * (pred - o.r);
+            let e = 2.0 * w[o.u] * (pred - o.r);
             g[0] += e;
             g[1 + o.u] += e;
             g[1 + n + o.j] += e;
@@ -249,6 +270,7 @@ pub fn bridge_scores(
             n: data.n,
             m: data.m,
             obs: sub_obs,
+            weights: data.weights.clone(),
         };
         let mut x0 = anchor.clone();
         for v in x0.iter_mut() {

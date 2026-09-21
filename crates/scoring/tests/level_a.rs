@@ -167,6 +167,7 @@ fn corner_case_bipartisan_corruption_cost() {
             n: base.n,
             m: base.m,
             obs,
+            weights: base.weights.clone(),
         };
         fit(&data, &BridgingParams::default()).b_j[item]
     };

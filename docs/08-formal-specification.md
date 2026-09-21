@@ -273,7 +273,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### BRIDGE-007 — Reviewer weights enter the aggregation
 - **Claim (docs/02 §C.2, §Anti-collusion, docs/05 §Cold start).** `E_u` weights the review vote; the cartel discount reduces a cartel's influence on `b_j`; probation nodes have weight 0.
 - **Evidence.** `bridging::fit` has no weight parameter. `discount_weights`, `capped_weight`, `review_weight` produce numbers no consumer uses. `ARCHITECTURE.md` §Future work acknowledges this.
-- **Evidence status.** NOT IMPLEMENTED. Consequently **every anti-collusion and reputation-weighting claim about *influence on scores* is currently a HYPOTHESIS**, and the `README.md` status "scoring engine … Complete" is not accurate for the design as specified.
+- **Evidence status.** IMPLEMENTED (T5). `bridging::fit` minimizes the weighted objective `Σ w_u (r−r̂)²` over `Ratings.weights = discount(cap(E_u))` (probation = 0); `anti_collusion.rs::at_col_06_cartel_moves_the_bridge_score_less_than_independents` shows a discounted cartel moves `b_j` less than the same number of independents. Still to wire: per-epoch recomputation from the *previous* epoch's outcomes in a real orchestrator (T12).
 
 #### OPT-001 — Optimizer convergence is observable
 - **Claim.** A caller can tell whether `optim::lbfgs` converged.
@@ -1030,6 +1030,7 @@ Only gaps supported by evidence in the repository are listed. Each gives: locati
 *Why.* Every claim of the form "E_u weights the vote", "500 coordinated count as 22", "probation = weight 0" is currently about numbers nobody reads. `README.md` calls the engine "Complete".
 *Minimum spec.* Weighted objective `Σ w_u (r_uj − r̂_uj)²` with `w_u = discount(cap(E_u))` recomputed per epoch from the *previous* epoch's outcomes (state the lag), plus the honeypot contribution rule.
 *Test.* AT-COL-06.
+*Status.* RESOLVED (T5) — `bridging::fit` consumes `Ratings.weights`; AT-COL-06 passes. The per-epoch, previous-epoch-lag recomputation belongs to the real orchestrator (T12).
 
 **G-04 — Protocol accepts unproven pseudonyms and no rate limit is enforced.**
 *Location.* `crates/protocol/src/{review,probation}.rs` (`Nym`), `crates/identity/src/{nym,ratelimit}.rs`, `identity/src/lib.rs` ("unifying … future work").
@@ -1135,7 +1136,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-004 | bootstrap-min pessimistic & stable | `level_a.rs` (tautological) | IMPLEMENTED | warm vs cold comparison | new test |
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` | IMPLEMENTED (label) | semantics | G-15 |
-| BRIDGE-007 | weights consumed | none | NOT IMPLEMENTED | — | G-03 |
+| BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; a discounted cartel moves `b_j` less than the same number of independents | previous-epoch lag wiring in a real epoch (T12) | G-03 |
 | OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |
