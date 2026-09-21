@@ -1126,7 +1126,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | ID | Claim | Evidence (files) | Current status | Missing evidence | Required action |
 |---|---|---|---|---|---|
 | REPRO-001 | bit-for-bit within platform | `scoring/tests/reproducibility.rs` | TESTED (one process) | cross-platform run; release-profile run | AT-BR-04 |
-| REPRO-002 | order-independent input | none | NOT ESTABLISHED | permutation test | INV-13, AT-BR-03 |
+| REPRO-002 | order-independent input | `bridging.rs` (`Ratings::canonical`), `canonical_input.rs` | TESTED (T3) — canonical `(u,j)` order; a permutation gives bit-equal `b_j` (AT-BR-03) | — | INV-13 |
 | REPRO-003 | engine = sims | `level_{a,b,c}.rs`, fixtures; `fixture_drift.rs` **fails** under numpy 2.4.4/scipy 1.17.1 (§0-ter, `fixtures/PROVENANCE.md`) | TESTED (statistic level); REPRODUCED: NO (repository guard fails) | pinned-env regeneration; verdict agreement | G-10, T4 |
 | REPRO-004 | fixture provenance | `sim/export_fixtures.py` | IMPLEMENTED | versions recorded, CI regen | AT-PRO-06 |
 | BRIDGE-001 | model = spec (d=1) | `bridging.rs`, `level_a.rs` | TESTED | d=2, n_min | implement or descope in docs |
@@ -1136,12 +1136,12 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` | IMPLEMENTED (label) | semantics | G-15 |
 | BRIDGE-007 | weights consumed | none | NOT IMPLEMENTED | — | G-03 |
-| OPT-001 | convergence observable | none | NOT IMPLEMENTED | — | return status |
+| OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |
 | IRT-003 | 2PL screen | `level_b.rs`, `end_to_end.rs` | TESTED (2 items) | threshold validity; 3PL | G-07 |
 | DIF-001 | logistic numerics | `level_b.rs` | TESTED | SE/LRT/multiplicity | §6.5 |
-| DIF-002 | Variant 1 admissible input | — | NOT ESTABLISHED | — | G-01 |
+| DIF-002 | Variant 1 admissible input | `dif.rs`, `pilot.rs` (`calibration` feature) | RESOLVED (T32) — Variant 1 is calibration-only; production compiles no per-respondent `group` (D20) | — | G-01 |
 | DIF-003 | MH classification | `level_b.rs` (incl. NaN at n = 200) | TESTED (2 items); NaN policy RESOLVED via `total_cmp` (§0-ter) | significance; tertile spec | §6.5 |
 | DIF-004 | mixture detects ≥2/8 @3000 | `level_b.rs`, `end_to_end.rs`, sim (auditor re-run) | TESTED, REPRODUCED (sim) | FP rate, power surface | AT-DIF-01/02 |
 | DIF-005 | 1/8 invisible | `level_b.rs`, sim | TESTED (limitation) | — | relabel as documentation |
