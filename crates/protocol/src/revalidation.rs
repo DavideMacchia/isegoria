@@ -20,10 +20,7 @@ fn column(responses: &[Vec<f64>], j: usize) -> Vec<f64> {
 /// is ability (from anchors); `axes` is one grouping vector per latent axis. An item
 /// is flagged with emerging DIF if it shows uniform DIF on ANY axis — this is what
 /// catches the elite blind spot (neutral on the political axis, biased on another).
-///
-/// Variant 1 (attribute-based): each `axis` is a per-respondent group, so this is
-/// **calibration-only** (`docs/01` D20) and absent from a production build. Production
-/// re-validation uses [`revalidate_pool_latent`] (Variant 2), which needs no axis.
+/// Variant 1, calibration-only (`docs/01` D20); production uses [`revalidate_pool_latent`].
 #[cfg(feature = "calibration")]
 pub fn revalidate_pool(
     theta: &[f64],

@@ -71,8 +71,7 @@ pub struct Credential {
 }
 
 impl fmt::Debug for Credential {
-    /// Never print the root secret (PV-4, docs/08 §8.3): a derived `Debug` would put
-    /// the credential secret straight into a log line.
+    /// Redacted: never log the root secret (PV-4, docs/08 §8.3).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Credential").finish_non_exhaustive()
     }
@@ -181,8 +180,7 @@ pub struct PendingIssuance {
 }
 
 impl fmt::Debug for PendingIssuance {
-    /// Redacts the committed secret, its blinding, and the label scalar (PV-4,
-    /// docs/08 §8.3).
+    /// Redacted: secret, blinding and label scalar (PV-4, docs/08 §8.3).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PendingIssuance").finish_non_exhaustive()
     }
@@ -208,8 +206,7 @@ pub struct AnonymousCredential {
 }
 
 impl fmt::Debug for AnonymousCredential {
-    /// Redacts the secret and the label scalar it signs (PV-4, docs/08 §8.3); the
-    /// signature is over both, so the whole struct stays out of logs.
+    /// Redacted: secret and label scalar (PV-4, docs/08 §8.3).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AnonymousCredential")
             .finish_non_exhaustive()

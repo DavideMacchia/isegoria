@@ -1,6 +1,26 @@
 //! Logistic regression by maximum likelihood, shared by IRT item fits and DIF.
 
-use crate::optim::lbfgs;
+use crate::optim::{lbfgs, Convergence};
+
+/// Whether a logistic fit's coefficients can be trusted (docs/08 OPT-001, IQ-1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogisticFit {
+    /// Converged; the weights are usable.
+    Converged,
+    /// (Quasi-)complete separation: the MLE is at infinity, so any statistic read off
+    /// the coefficients (a DIF β₂, a 2PL discrimination) is undetermined.
+    Separated,
+    /// Did not converge within the iteration budget.
+    NotConverged,
+}
+
+pub struct LogisticResult {
+    pub weights: Vec<f64>,
+    pub status: LogisticFit,
+}
+
+/// Logit past which a fitted probability saturates: the hallmark of separation.
+const SEPARATION_LOGIT: f64 = 30.0;
 
 #[inline]
 pub fn sigmoid(z: f64) -> f64 {
@@ -23,7 +43,8 @@ fn softplus(z: f64) -> f64 {
 
 /// Fits weights `w` for `logit P(y=1) = x·w`. Each row of `x` includes its own
 /// intercept column when needed. No regularization (matches the prototype).
-pub fn fit_logistic(x: &[Vec<f64>], y: &[f64], max_iters: usize) -> Vec<f64> {
+/// `status` flags a non-converged or separated fit (docs/08 OPT-001, IQ-1).
+pub fn fit_logistic(x: &[Vec<f64>], y: &[f64], max_iters: usize) -> LogisticResult {
     let p = if x.is_empty() { 0 } else { x[0].len() };
 
     let cost = |w: &[f64]| -> f64 {
@@ -45,7 +66,24 @@ pub fn fit_logistic(x: &[Vec<f64>], y: &[f64], max_iters: usize) -> Vec<f64> {
         g
     };
 
-    lbfgs(vec![0.0; p], cost, grad, 10, max_iters, 1e-8)
+    let m = lbfgs(vec![0.0; p], cost, grad, 10, max_iters, 1e-8);
+
+    // Separation shows as a saturated predictor on some row (docs/08 OPT-001).
+    let max_z = x
+        .iter()
+        .map(|row| dot(row, &m.x).abs())
+        .fold(0.0_f64, f64::max);
+    let status = if max_z > SEPARATION_LOGIT {
+        LogisticFit::Separated
+    } else if m.status == Convergence::Converged {
+        LogisticFit::Converged
+    } else {
+        LogisticFit::NotConverged
+    };
+    LogisticResult {
+        weights: m.x,
+        status,
+    }
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -81,8 +119,29 @@ mod tests {
             x.push(vec![1.0, xi]);
             y.push(if frac < p { 1.0 } else { 0.0 });
         }
-        let w = fit_logistic(&x, &y, 500);
+        let fit = fit_logistic(&x, &y, 500);
+        assert_eq!(fit.status, LogisticFit::Converged);
+        let w = fit.weights;
         assert!((w[0] - w0).abs() < 0.2, "intercept = {:.3}", w[0]);
         assert!((w[1] - w1).abs() < 0.2, "slope = {:.3}", w[1]);
+    }
+
+    #[test]
+    fn flags_perfect_separation() {
+        // y = 1 iff x > 0: perfectly separable, so the fit must report Separated.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..100 {
+            let xi = -3.0 + 6.0 * (i as f64) / 99.0;
+            x.push(vec![1.0, xi]);
+            y.push(if xi > 0.0 { 1.0 } else { 0.0 });
+        }
+        let fit = fit_logistic(&x, &y, 500);
+        assert_eq!(
+            fit.status,
+            LogisticFit::Separated,
+            "weights = {:?}",
+            fit.weights
+        );
     }
 }

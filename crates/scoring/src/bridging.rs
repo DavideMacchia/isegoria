@@ -4,7 +4,7 @@
 //! regularization (`λ_b ≫ λ_f`). The bridge score is the item intercept `b_j`.
 //! This module covers the `d = 1` case. Reference prototype: `sim/bridging_irt_dif.py`.
 
-use crate::optim::lbfgs;
+use crate::optim::{lbfgs, Convergence};
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -24,6 +24,7 @@ pub struct Ratings {
 }
 
 impl Ratings {
+    /// Builds observations in canonical `(u, j)` order (see [`Ratings::canonical`]).
     pub fn from_dense(r: &[Vec<f64>], mask: &[Vec<bool>]) -> Self {
         let n = r.len();
         let m = if n > 0 { r[0].len() } else { 0 };
@@ -36,6 +37,18 @@ impl Ratings {
             }
         }
         Ratings { n, m, obs }
+    }
+
+    /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so
+    /// the fit is invariant to input order (docs/08 INV-13, REPRO-002).
+    pub fn canonical(&self) -> Ratings {
+        let mut obs = self.obs.clone();
+        obs.sort_by(|a, b| (a.u, a.j, a.r.to_bits()).cmp(&(b.u, b.j, b.r.to_bits())));
+        Ratings {
+            n: self.n,
+            m: self.m,
+            obs,
+        }
     }
 }
 
@@ -69,6 +82,8 @@ pub struct Fit {
     pub b_j: Vec<f64>,
     pub f_u: Vec<f64>,
     pub f_j: Vec<f64>,
+    /// Convergence of the L-BFGS fit (docs/08 OPT-001).
+    pub status: Convergence,
 }
 
 // Parameter vector layout: [ μ | b_u(n) | b_j(m) | f_u(n) | f_j(m) ].
@@ -100,8 +115,10 @@ impl Layout {
 }
 
 pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
-    let x0 = random_init(data, p.seed);
-    fit_with_init(data, p, x0)
+    // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
+    let data = data.canonical();
+    let x0 = random_init(&data, p.seed);
+    fit_with_init(&data, p, x0)
 }
 
 // RNG consumption order is part of the reproducibility contract.
@@ -189,7 +206,8 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         g
     };
 
-    let x = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
+    let m = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
+    let x = m.x;
 
     Fit {
         mu: lay.mu(&x),
@@ -197,6 +215,7 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         b_j: lay.bj(&x).to_vec(),
         f_u: lay.fu(&x).to_vec(),
         f_j: lay.fj(&x).to_vec(),
+        status: m.status,
     }
 }
 
@@ -208,10 +227,13 @@ pub fn bridge_scores(
     n_bootstrap: usize,
     keep_frac: f64,
 ) -> Vec<f64> {
+    // Canonicalize: the bootstrap subsampling walks `obs` in order (INV-13, REPRO-002).
+    let data = data.canonical();
+
     // Warm-start each subsample from the full fit: the bilinear term makes the
     // objective non-convex, so independent random inits would let some subsamples
     // land in a different minimum, polluting the min with optimizer noise.
-    let full = fit(data, p);
+    let full = fit(&data, p);
     let anchor = pack(&full);
 
     let mut best = full.b_j.clone();

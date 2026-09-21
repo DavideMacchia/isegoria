@@ -98,3 +98,12 @@ Build in this order — each phase is verifiable before the next:
   majority). It is the opposite of what is needed: see the evaluator score in `02`.
 - Do not treat an LLM's output as a source of truth in the scoring engine. The
   engine is deterministic and mathematical.
+
+## Code style and docs
+
+- **Comments are minimal** and point back to the relevant `docs/` section; they do not
+  restate the maths (see `ARCHITECTURE.md` principle #4). The design docs are the source
+  of truth for the logic, not the code comments.
+- **Keep the docs in step with the code.** When a change implements or alters behaviour
+  the docs describe, update the relevant section in the same change (e.g. the `docs/08`
+  §15 status matrix, the `docs/10` roadmap) rather than letting them drift.

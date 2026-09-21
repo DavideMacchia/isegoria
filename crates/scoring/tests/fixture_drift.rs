@@ -1,12 +1,7 @@
 //! Guard against drift between the Python sims and the committed oracle fixtures:
-//! regenerate the fixtures and compare them to what is checked in. Catches editing a
-//! sim without regenerating fixtures, or vice versa.
-//!
-//! It needs `python3` with numpy/scipy pinned to `sim/requirements.txt` (recorded in
-//! `fixtures/PROVENANCE.md`, docs/08 §0-ter, T4). When that environment is absent (no
-//! `python3`, or numpy/scipy missing) the test prints a notice and returns rather than
-//! failing, so `cargo test` stays green without a Python toolchain; CI pins the
-//! environment and runs the comparison for real on every push.
+//! regenerate and compare (catches editing a sim without regenerating, or vice versa).
+//! Needs `python3` + numpy/scipy (`sim/requirements.txt`, `fixtures/PROVENANCE.md`);
+//! self-skips when that environment is absent so `cargo test` stays green without it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,8 +24,7 @@ fn python() -> String {
     }
 }
 
-/// Whether `python3` (or the repo `.venv`) can import numpy and scipy — i.e. whether
-/// the drift guard can actually regenerate the fixtures.
+/// Whether `python3` (or the repo `.venv`) can import numpy and scipy.
 fn sim_env_available() -> bool {
     Command::new(python())
         .args(["-c", "import numpy, scipy"])
@@ -60,8 +54,7 @@ fn committed_fixtures_match_the_sims() {
         .expect("could not run export_fixtures.py — is numpy/scipy installed? see sim/");
     assert!(status.success(), "export_fixtures.py exited with failure");
 
-    // Compare only the CSV oracle files; non-CSV files in the fixtures directory
-    // (e.g. PROVENANCE.md) are documentation, not sim output.
+    // Compare only the CSV oracle files (PROVENANCE.md is docs, not sim output).
     for entry in fs::read_dir(committed_dir()).unwrap() {
         let name = entry.unwrap().file_name();
         if Path::new(&name).extension().and_then(|e| e.to_str()) != Some("csv") {

@@ -15,7 +15,7 @@ use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
 use protocol::lottery::admit;
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
-use protocol::pilot::stage2_dif;
+use protocol::pilot::{stage2_dif, DifVerdict};
 use protocol::probation::{effective_review_weight, status, FounderSet, Status, N_PROBATION};
 use protocol::revalidation::items_to_retire;
 #[cfg(feature = "calibration")]
@@ -239,8 +239,24 @@ fn pilot_stage2_drops_dif_items() {
         .collect();
 
     let keep = stage2_dif(&theta, &group, &[clean, biased]);
-    assert!(keep[0], "a neutral item should pass DIF");
-    assert!(!keep[1], "an item favoring one group should be rejected");
+    assert_eq!(keep[0], DifVerdict::Pass, "a neutral item should pass DIF");
+    assert_eq!(
+        keep[1],
+        DifVerdict::Reject,
+        "an item favoring one group should be rejected"
+    );
+}
+
+#[cfg(feature = "calibration")]
+#[test]
+fn pilot_stage2_reports_undetermined_on_a_separated_item() {
+    // docs/08 AT-DIF-06: an item perfectly predicted by θ separates the logistic fit,
+    // so β₂ is at infinity — the screen returns Undetermined rather than a spurious
+    // pass or reject.
+    let (theta, group) = synthetic();
+    let perfect: Vec<f64> = theta.iter().map(|&t| (t > 0.0) as u8 as f64).collect();
+    let v = stage2_dif(&theta, &group, &[perfect]);
+    assert_eq!(v[0], DifVerdict::Undetermined);
 }
 
 #[test]

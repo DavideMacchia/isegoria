@@ -10,6 +10,11 @@ mod glm;
 pub mod irt;
 mod optim;
 pub mod reputation;
+
+// Status types on public results (`bridging::Fit`, `dif::*`), re-exported from the
+// private engine modules (docs/08 OPT-001).
+pub use glm::{LogisticFit, LogisticResult};
+pub use optim::Convergence;
 // Iterative θ purification is attribute-based DIF (Variant 1): calibration-only (D20).
 #[cfg(feature = "calibration")]
 pub mod validation;
