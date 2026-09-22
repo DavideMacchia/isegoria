@@ -365,7 +365,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### REPUTATION-003 — "Following the consensus scores ≈ 0"
 - **Claim (docs/02 §C.2, docs/01 D6).** BSS is normalized against the crowd baseline `p̄_j`; someone who replicates the consensus gets `BSS ≈ 0`.
 - **Analysis.** The sim and `reputation::base_rate_baseline` normalize against the **outcome base rate `mean(o)`** — a constant known only after outcomes, not the crowd's declared probabilities. Under this baseline the "follows the peer average" profile scores **−1.33**, not ≈ 0, and the "always predicts the base rate" profile scores exactly 0. The documented property refers to a baseline that is not implemented; the implemented property ("guessing the base rate scores 0") is different and depends on hindsight.
-- **Evidence status.** INCONSISTENT between docs and code. The specification MUST choose: (a) crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (matches D6's incentive argument; requires all predictions to be revealed), or (b) base-rate baseline (what exists; the incentive argument must then be re-derived). Also: `brier_skill_score` divides by `Σ(baseline − o)²`, which is 0 when all outcomes coincide (→ NaN/−∞); not guarded.
+- **Evidence status.** RESOLVED (T31). Chose (a) the crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (D23), matching D6's incentive argument: `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`, `composed_gate`) normalizes BSS against it. `level_c.rs::at_rep_02_a_consensus_follower_scores_zero` (AT-REP-02) pins `BSS = 0` for a follower. The zero-denominator guard is separately RESOLVED (AT-REP-03, §0-ter). Residual: the sim's `levelc_bss` reference still uses the base rate — it reproduces the BSS *function*, not the E_u policy.
 
 #### REPUTATION-004 — Temporal asymmetry
 - **Evidence.** `asymmetric_ema` with caller-supplied `(up, down)`; tests use (0.1, 0.8) and (0.05, 0.5). No rates are specified in `docs/02` §C.4 ("rises slowly, falls quickly"). The "long-con is unprofitable" test (`scoring/tests/adversarial.rs::a_long_con_is_unprofitable`) checks arithmetic consequences of chosen rates, not a game-theoretic property.
@@ -1062,6 +1062,7 @@ Only gaps supported by evidence in the repository are listed. Each gives: locati
 *Location.* `docs/02` §C.2, `reputation.rs::base_rate_baseline`, `sim/bridging_irt_dif.py` (`base = out.mean()`), `levelc_bss.csv`.
 *Minimum spec.* Choose; if base rate, re-derive the "correct dissenter is rewarded" argument and specify how `E_u` is computed *before* an epoch's outcomes are known (the base rate is hindsight).
 *Test.* AT-REP-02, AT-REP-03.
+*Status.* RESOLVED (T31) — chose the crowd baseline (D23): `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`, `composed_gate`) normalizes BSS against `p̄_j`; AT-REP-02 passes. The sim's reference `levelc_bss` still uses the base rate (it reproduces the BSS *function*, not the E_u policy).
 
 **G-10 — Oracle precision, acceptance tolerance, and verdict divergence.**
 *Location.* `level_a.rs` (tol 0.03), `fixture_drift.rs` (tol 1e-4, ignored), `end_to_end.rs::EXPECTED_POOL`, auditor regeneration (drift ≤ 1e-3).
@@ -1153,7 +1154,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
 | REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED | — | — |
-| REPUTATION-003 | consensus ≈ 0 | — | INCONSISTENT | — | G-09 |
+| REPUTATION-003 | consensus ≈ 0 | `reputation::crowd_baseline`; `level_c.rs` (AT-REP-02) | RESOLVED (T31) — E_u normalizes BSS against the crowd baseline `p̄_j` (D23); a consensus follower scores BSS 0. Sim's `levelc_bss` reference still base-rate | sim BSS → crowd | G-09 |
 | REPUTATION-004 | asymmetry deters long-con | `scoring/tests/adversarial.rs` | IMPLEMENTED; claim HYPOTHESIS | rates; game analysis | AT-REP-01 |
 | REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
 | REPUTATION-006 | probation | `lifecycle.rs` | TESTED, NOT WIRED | — | G-03 |

@@ -7,7 +7,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use scoring::reputation::{base_rate_baseline, brier_skill_score};
+use scoring::reputation::{brier_skill_score, crowd_baseline};
 
 pub const HONEYPOT_RATE: f64 = 0.05;
 
@@ -26,10 +26,18 @@ pub fn inject<T: Clone>(queue: &[T], golden: &[T], rate: f64, seed: u64) -> Vec<
     out
 }
 
-/// Reviewer skill on golden items: Brier Skill Score of their predictions against
-/// the known outcomes, over the crowd base-rate baseline. Random or block voting
-/// scores at or below zero.
-pub fn reviewer_skill(predictions: &[f64], known_outcomes: &[f64]) -> f64 {
-    let baseline = base_rate_baseline(known_outcomes);
-    brier_skill_score(predictions, known_outcomes, &baseline)
+/// Skill of each panel reviewer on the golden items: BSS of their predictions against
+/// the known outcomes, over the crowd baseline (`docs/01` D23 — the weight-adjusted mean
+/// of the panel's own predictions). A consensus follower scores ≈ 0; random or block
+/// voting scores at or below zero. `predictions[u][j]`.
+pub fn reviewer_skills(
+    predictions: &[Vec<f64>],
+    weights: &[f64],
+    known_outcomes: &[f64],
+) -> Vec<f64> {
+    let baseline = crowd_baseline(predictions, weights);
+    predictions
+        .iter()
+        .map(|p| brier_skill_score(p, known_outcomes, &baseline))
+        .collect()
 }

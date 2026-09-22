@@ -10,7 +10,7 @@ use protocol::aggregate::{
 };
 use protocol::gate::{bridging_gate, GateOutcome};
 use protocol::probation::N_PROBATION;
-use scoring::reputation::{base_rate_baseline, brier_skill_score, evaluator_score};
+use scoring::reputation::{brier_skill_score, crowd_baseline, evaluator_score};
 use std::fs;
 use std::path::PathBuf;
 
@@ -47,7 +47,8 @@ fn profile_e_u() -> Vec<f64> {
         .into_iter()
         .map(|r| r[0])
         .collect();
-    let baseline = base_rate_baseline(&o);
+    // Crowd baseline (D23): the weight-adjusted mean of the panel's own predictions.
+    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
     p.iter()
         .map(|pred| evaluator_score(brier_skill_score(pred, &o, &baseline), GAMMA))
         .collect()

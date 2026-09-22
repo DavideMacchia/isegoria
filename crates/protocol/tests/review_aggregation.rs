@@ -9,7 +9,7 @@ use proptest::prelude::*;
 use protocol::aggregate::{
     aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
 };
-use protocol::honeypot::reviewer_skill;
+use protocol::honeypot::reviewer_skills;
 use protocol::probation::{effective_review_weight, N_PROBATION};
 use scoring::collusion::{discount_weights, ALPHA};
 use scoring::reputation::evaluator_score;
@@ -168,8 +168,10 @@ fn honeypot_skill_drives_the_weights_and_the_verdict() {
         .collect();
     let coinflip = vec![0.5; outcomes.len()];
 
-    let e_sharp = evaluator_score(reviewer_skill(&sharp, &outcomes), 1.0);
-    let e_flip = evaluator_score(reviewer_skill(&coinflip, &outcomes), 1.0);
+    // Score both against the crowd baseline (the panel is sharp + coinflip).
+    let skills = reviewer_skills(&[sharp, coinflip], &[1.0, 1.0], &outcomes);
+    let e_sharp = evaluator_score(skills[0], 1.0);
+    let e_flip = evaluator_score(skills[1], 1.0);
     assert!(e_sharp > e_flip, "a sharp predictor must earn more E_u");
 
     // Two established reviewers disagree on a new item; the sharp one votes pass.
