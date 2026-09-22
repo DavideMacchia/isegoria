@@ -83,10 +83,18 @@ fn compare_csv(a: &Path, b: &Path, name: &str) {
     let xb = tokens(&fs::read_to_string(b).unwrap());
     assert_eq!(xa.len(), xb.len(), "{name}: token count changed");
 
+    // Files holding optimizer outputs (`*expected*`: the bridging b_j, the logistic
+    // fits) vary by ~1e-3 across platforms and scipy releases (docs/08 REPRO-003); the
+    // raw seeded data files are exact.
+    let tol = if name.contains("expected") {
+        2e-3
+    } else {
+        1e-4
+    };
     for (i, (sa, sb)) in xa.iter().zip(xb.iter()).enumerate() {
         match (sa.parse::<f64>(), sb.parse::<f64>()) {
             (Ok(fa), Ok(fb)) => assert!(
-                (fa - fb).abs() <= 1e-4 + 1e-4 * fa.abs(),
+                (fa - fb).abs() <= tol + tol * fa.abs(),
                 "{name} token {i}: {fa} vs {fb} (sim/fixture drift)"
             ),
             _ => assert_eq!(sa, sb, "{name} token {i}"),
