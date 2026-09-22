@@ -112,7 +112,7 @@ The repository makes, in `README.md`, `docs/00`–`06`, and `ARCHITECTURE.md`, t
 
 Observations that matter for every later section:
 
-- **There is no runtime orchestrator.** The lifecycle exists only as a sequence of function calls inside `crates/protocol/tests/end_to_end.rs::run_epoch`. `protocol::Stage` is an enum with no transition function. No module owns per-item state.
+- **The orchestrator exists (T12).** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. Still open: the fixture epoch in `end_to_end.rs::run_epoch` has not yet been re-routed through it.
 - **The protocol crate consumes only `identity::nym::Nym` and `network::{cid, log}`.** It never calls `nullifier::{prove,verify}`, `ratelimit::*`, `credential::*`, `consortium::*`, `merkle::*`, `erasure::*`, or `anchoring::*` (verified by `grep` over `crates/protocol/src`).
 - **`scoring::bridging::fit` takes no reviewer weights.** Everything Level C and anti-collusion computes (`E_u`, `w_max`, probation weight, `discount_weights`) has no consumer in the Level A objective.
 
@@ -136,7 +136,7 @@ Observations that matter for every later section:
 | Erasure | (10,30) RS | `reed-solomon-erasure` systematic RS | any-k recovery (proptest), <k fails | none | placement, repair, shard authentication | — | Functional |
 | Anchoring | hourly OTS to Bitcoin | real `.ots` build/parse/verify; injected block map; fake `upgrade` | lifecycle, mismatch, garbage | none | calendar POST, Bitcoin block source, scheduling, linkage to checkpoints | SHA-256; Bitcoin PoW | Format-level |
 | Transport / CRDT | gossip + DHT + CRDT | none | none | none | all | — | — |
-| Protocol stages | `docs/05` [1]–[9] | pure functions per stage; no state machine | per-function tests; e2e composition in a test | none | orchestrator; seed provenance; supplementary review; appeal escrow; batch enforcement | — | e2e on the fixture dataset |
+| Protocol stages | `docs/05` [1]–[9] | pure functions per stage + a `lifecycle` state machine (T12) rejecting invalid §9.1 transitions | per-function tests; `orchestrator.rs`; e2e composition in a test | none | route the fixture epoch through the state machine; seed provenance; supplementary review; appeal escrow | — | e2e on the fixture dataset |
 
 ---
 
@@ -734,7 +734,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 ## 9. Protocol state machines
 
-None of the following state machines exists in code as a state machine; `protocol::Stage` is an enum without transitions, and the only transition logic is the imperative sequence in `end_to_end.rs::run_epoch`. The tables are therefore the **specification the code MUST be brought to**, with the current function that implements each transition's guard where one exists.
+§9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. Still open: routing `end_to_end.rs::run_epoch` (the fixture walk) through `lifecycle::step` so the flow no longer lives twice, and the `SupplementaryReview` forward transition (PROTO-008, T10/T30).
 
 ### 9.1 Item lifecycle
 
@@ -1199,7 +1199,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
 | PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED | escrow semantics | G-15 |
 | PROTO-005 | pilot stages | `lifecycle.rs`, `end_to_end.rs` | TESTED | N/K gating | G-15 |
-| PROTO-006 | batch enforced | — | NOT ENFORCED | — | AT-PRO-02 |
+| PROTO-006 | batch enforced | `lifecycle.rs` (`BatchTooSmall`, `NotEnoughRespondents`); `orchestrator.rs` | ENFORCED (T12) in the state machine — the pilot-1 respondent floor and `K_min ≥ 2` reject a batch of one | wiring into the fixture epoch | AT-PRO-02 |
 | PROTO-007 | nym proof verified | — | NOT IMPLEMENTED | — | G-04 |
 | PROTO-008 | supplementary review | — | NOT SPECIFIED | — | G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
