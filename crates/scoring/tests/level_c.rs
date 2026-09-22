@@ -3,7 +3,7 @@
 
 use scoring::reputation::{
     asymmetric_ema, author_score, base_rate_baseline, brier_skill_score, capped_weight,
-    dasgupta_ghosh, evaluator_score, proposal_rate, weight_cap, AuthorPrior,
+    crowd_baseline, dasgupta_ghosh, evaluator_score, proposal_rate, weight_cap, AuthorPrior,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -56,18 +56,29 @@ fn evaluator_bss_reproduces_the_oracle() {
 
 #[test]
 fn following_the_crowd_does_not_pay() {
+    // Under the crowd baseline (docs/01 D23): the expert who tracks the outcomes beats
+    // the crowd; the crowd-followers do not.
     let o = read_vector("levelc_o.csv");
     let p = read_matrix("levelc_p.csv");
-    let baseline = base_rate_baseline(&o);
+    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
     let bss = |k: usize| brier_skill_score(&p[k], &o, &baseline);
 
-    assert!(bss(0).abs() < 1e-9, "base-rate profile should score ~0");
-    assert!(
-        bss(1) < 0.0,
-        "following peers should be worse than baseline"
-    );
-    assert!(bss(3) > 0.9, "the expert should score high");
-    assert!(bss(3) > bss(2), "expert beats crowd-following");
+    // Profiles: 0 base-rate, 1 follows-peers, 2 follows-bridging, 3 expert, 4 partisan.
+    assert!(bss(3) > 0.0, "the expert should beat the crowd: {}", bss(3));
+    assert!(bss(3) > bss(1), "expert beats peer-following");
+    assert!(bss(3) > bss(2), "expert beats bridging-following");
+}
+
+#[test]
+fn at_rep_02_a_consensus_follower_scores_zero() {
+    // docs/08 AT-REP-02 / D23: a reviewer who just predicts the crowd baseline earns
+    // BSS = 0 (numerator = denominator), so E_u = σ(0) = 0.5 — not a reward.
+    let o = read_vector("levelc_o.csv");
+    let p = read_matrix("levelc_p.csv");
+    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
+    let bss = brier_skill_score(&baseline, &o, &baseline);
+    assert!(bss.abs() < 1e-12, "consensus follower BSS = {bss}");
+    assert!((evaluator_score(bss, 2.0) - 0.5).abs() < 1e-9);
 }
 
 #[test]

@@ -66,9 +66,33 @@ pub fn brier_skill_score(p: &[f64], o: &[f64], baseline: &[f64]) -> f64 {
 }
 
 /// Constant base-rate baseline (mean outcome), as used in `sim/bridging_irt_dif.py`.
+/// Kept for the sim-reproduction test; the evaluator score uses [`crowd_baseline`].
 pub fn base_rate_baseline(o: &[f64]) -> Vec<f64> {
     let mean = o.iter().sum::<f64>() / o.len() as f64;
     vec![mean; o.len()]
+}
+
+/// Crowd baseline (`docs/01` D23, docs/08 G-09): per-item weight-adjusted mean of the
+/// panel's declared predictions, `p̄_j = Σ_u w_u p_uj / Σ_u w_u`. This is the reference
+/// the evaluator score is normalized against, so a reviewer who just predicts the crowd
+/// scores `BSS ≈ 0` — not the hindsight outcome base rate. `predictions[u][j]`.
+pub fn crowd_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
+    let m = predictions.first().map_or(0, |row| row.len());
+    let total: f64 = weights.iter().sum();
+    (0..m)
+        .map(|j| {
+            if total > 0.0 {
+                predictions
+                    .iter()
+                    .zip(weights)
+                    .map(|(p, &w)| w * p[j])
+                    .sum::<f64>()
+                    / total
+            } else {
+                0.0
+            }
+        })
+        .collect()
 }
 
 /// Squashes a Brier Skill Score into `E_u ∈ (0,1)` via `σ(γ·BSS)`.

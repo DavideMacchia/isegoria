@@ -11,7 +11,7 @@ use protocol::exposure::{
 };
 use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
-use protocol::honeypot::{inject, reviewer_skill, HONEYPOT_RATE};
+use protocol::honeypot::{inject, reviewer_skills, HONEYPOT_RATE};
 use protocol::lottery::admit;
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
@@ -180,14 +180,10 @@ fn honeypot_injects_about_the_target_rate_and_catches_random_voters() {
         .map(|&o| if o > 0.5 { 0.95 } else { 0.05 })
         .collect();
     let random: Vec<f64> = vec![0.5; 10];
-    assert!(
-        reviewer_skill(&expert, &outcomes) > 0.5,
-        "expert should score well"
-    );
-    assert!(
-        reviewer_skill(&random, &outcomes) <= 0.0,
-        "random voting should not pay"
-    );
+    // Score both against the crowd baseline (the panel is expert + random).
+    let skills = reviewer_skills(&[expert, random], &[1.0, 1.0], &outcomes);
+    assert!(skills[0] > 0.5, "expert should score well");
+    assert!(skills[1] <= 0.0, "random voting should not pay");
 }
 
 // Synthetic respondents spread along the ability axis, with a small deterministic
