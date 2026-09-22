@@ -66,7 +66,7 @@ complete" honest.
 
 | Task | What it means (plain) | Audit refs | Done when | Size |
 |---|---|---|---|---|
-| T12 | A real lifecycle **state machine / orchestrator** (today the flow lives only inside a test) that rejects every invalid transition | §2.2, §9.1, PC-1 | the "invalid cases" of §9.1 are rejected in code | L |
+| T12 | A real lifecycle **state machine / orchestrator** (today the flow lives only inside a test) that rejects every invalid transition. **Core done:** `protocol::lifecycle` (`State`/`Event`/`step`/`deposit`) rejects every checkable §9.1 invalid case (`orchestrator.rs`); proof-gated preconditions (T6/T7/T8/T11) enter as explicit inputs; dead `Stage` removed. *Remaining:* route `end_to_end.rs::run_epoch` through it, persistence (T13), and the `SupplementaryReview` transition (T30) | §2.2, §9.1, PC-1 | the "invalid cases" of §9.1 are rejected in code | L |
 | T13 | **Persistent state** so a restart recovers (everything is in-memory today) | §10.6 | state survives a process restart | M |
 | T14 | **Signed** append-only log + consistency proofs + truncation detection | NET-004 / G-14, DS-1 | `AT-NET-01` passes | M |
 | T15 | Checkpoint hardening: network id, member-set hash, client monotonic-height rule, fork/equivocation evidence | NET-006, §9.4, DS-3 | `AT-NET-03..05` pass | M |

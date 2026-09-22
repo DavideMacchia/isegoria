@@ -12,21 +12,9 @@ pub mod exposure;
 pub mod gate;
 pub mod governance;
 pub mod honeypot;
+pub mod lifecycle;
 pub mod lottery;
 pub mod pilot;
 pub mod probation;
 pub mod revalidation;
 pub mod review;
-
-/// Lifecycle stages (`docs/05`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stage {
-    Draft,
-    Deposited,
-    Admitted,
-    InReview,
-    Pilot1,
-    Pilot2,
-    ActivePool,
-    Retired,
-}
