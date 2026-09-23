@@ -526,8 +526,8 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### NET-004 — Log tamper-evidence
 - **Claim (docs/04).** Altering any past entry breaks the chain visibly.
 - **Analysis.** `TransparencyLog` is a hash chain with **no signatures** (despite "signed append-only logs"). `verify()` recomputes the chain from `[0;32]`; it detects an inconsistent edit (the test edits one payload without recomputing hashes) but **not a consistent suffix rewrite**: replacing entries `i..` and recomputing all subsequent hashes yields a log that `verify()` accepts. Tamper-evidence therefore exists only relative to an *externally held* prior head (a signed checkpoint or an anchor). No consistency proof (old head ⊑ new head) exists; a light client must re-download the suffix to check extension.
-- **Evidence.** `log.rs` unit test; `integrity.rs::append_only_log_is_tamper_evident`; `properties.rs::log_verifies_and_head_advances`.
-- **Evidence status.** TESTED for the inconsistent-edit case only. The claim as worded is NOT ESTABLISHED; it MUST be restated as "relative to a checkpoint the verifier already holds".
+- **Evidence.** `log.rs` unit tests; `integrity.rs::append_only_log_is_tamper_evident`; `properties.rs::log_verifies_and_head_advances`; `log_consistency.rs` (AT-NET-01).
+- **Evidence status.** RESOLVED@T14 (was TESTED for the inconsistent edit only). `log::checkpoint()` yields the `Checkpoint{height, head}` the consortium signs (`consortium::Member::sign`, a signature over the head that commits the whole prefix), and `log::verify_extends(&prior)` proves the current log consistently extends a checkpoint the verifier trusts — returning `ForkedHistory` for a consistent suffix rewrite of checkpointed history and `Truncated` for a shorter log, which `verify()` alone accepts. The claim now holds *relative to a signed checkpoint the verifier holds*, exactly as NET-004 required. `log_consistency.rs` co-signs the prior head with a `t`-of-`n` consortium.
 
 #### NET-005 — Checkpoint threshold
 - `Consortium::verify` counts distinct valid ed25519 (`ed25519-dalek` 2.2.0) signatures over `SHA-256(tag "isegoria/checkpoint/v1", height_le, head)` and requires `≥ threshold`. TESTED (3-of-5 passes, 2 fails, duplicates ignored, wrong-message signature ignored).
@@ -796,7 +796,7 @@ None of the fields `net_id`, `member_set_hash`, consistency proof, or the client
 ### 10.1 Append-only log
 - **State.** `Vec<Entry{seq, prev, payload: Cid, hash}>`; `head = last.hash` or `0³²`.
 - **Append.** `hash = SHA-256(tag, seq_le, prev, payload)`; `seq = len`. Prior entries are never mutated by the API (`tamper_payload` is `#[cfg(test)]`).
-- **Verify.** Recompute from genesis; detects inconsistent edits; **does not detect consistent suffix rewrites, truncation (a shorter valid prefix verifies), or forks** (NET-004).
+- **Verify.** `verify()` recomputes from genesis (inconsistent edits); `verify_extends(&prior)` (T14) detects consistent suffix rewrites (`ForkedHistory`) and truncation (`Truncated`) against a consortium-signed prior head (NET-004 RESOLVED@T14).
 - **Required semantics.** `verify_extends(old_head, old_len) → bool` (consistency); signed heads (per-writer or consortium); a definition of *who* may append (currently anyone holding the `&mut`).
 
 ### 10.2 Merkle tree
@@ -896,7 +896,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 |---|---|
 | Replay of an old checkpoint | UNSOLVED (NET-006) |
 | Equivocation (two heads at one height, `≥ t` sigs) | UNSOLVED — accepted twice, no detection |
-| Fork by consistent suffix rewrite of a log | DETECTED only relative to an externally held head (NET-004); otherwise UNSOLVED |
+| Fork by consistent suffix rewrite of a log | DETECTED against a consortium-signed prior head (T14, `verify_extends`); a client without a prior checkpoint still cannot judge history in isolation (inherent) |
 | Partition | undefined (no network) |
 | Stale-state injection to light clients | UNSOLVED — no client state |
 | Malicious checkpoint with `≥ t` signers | ACCEPTED (docs: "freedom to fork"); detection via reproducible recomputation NOT IMPLEMENTED (no checkpoint→input→output mapping) |
@@ -1188,7 +1188,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-001 | CID | `integrity.rs` | TESTED; Draft prefix fix RESOLVED @289aae3 (PROTO-011) | — | — |
 | NET-002 | Merkle inclusion | proptest | TESTED | — | — |
 | NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |
-| NET-004 | log tamper-evident | `log.rs`, `integrity.rs` | TESTED (inconsistent edit only) | consistency proofs; signatures | G-14 |
+| NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
 | NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
 | NET-006 | replay/equivocation/net id | — | NOT IMPLEMENTED | — | §9.4 |
 | NET-007 | erasure | proptest | TESTED | shard auth | AT-NET-06 |
