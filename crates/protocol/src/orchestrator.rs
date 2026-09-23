@@ -18,6 +18,7 @@
 use crate::gate::GateOutcome;
 use crate::lifecycle::{step, Event, Invalid, State};
 use crate::probation::effective_review_weight;
+use network::cid::Cid;
 use scoring::bridging::Ratings;
 
 /// A reviewer's standing carried from the previous epoch, in the same order as the
@@ -77,6 +78,8 @@ pub fn weighted_ratings(
 /// machine so the *lifecycle* decisions are made by [`run_item`], not the caller.
 #[derive(Clone, Copy, Debug)]
 pub struct ItemVerdicts {
+    /// The item's content id (its identity through the epoch).
+    pub item: Cid,
     /// Level A bridging gate outcome.
     pub gate: GateOutcome,
     /// The author appealed a polarization rejection.
@@ -108,8 +111,11 @@ pub fn run_item(v: &ItemVerdicts) -> Result<State, Invalid> {
         other => other,
     };
 
+    // Enter at the close of the review round to apply the gate outcome; the commit-reveal
+    // sub-walk (and its INV-12 binding) is exercised move-by-move in `tests/orchestrator.rs`.
     let mut s = step(
         State::Revealing {
+            item: v.item,
             commits: Vec::new(),
             reveals: Vec::new(),
         },

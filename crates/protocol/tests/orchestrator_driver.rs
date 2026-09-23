@@ -93,6 +93,7 @@ fn lower_reputation_moves_the_bridge_score_less() {
 /// Verdicts for a plain (non-band, non-appeal) item that clears both pilot stages.
 fn passing() -> ItemVerdicts {
     ItemVerdicts {
+        item: network::cid::cid(b"item"),
         gate: GateOutcome::Pass,
         appealed: false,
         band_advances: false,

@@ -280,6 +280,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     (0..m)
         .filter(|&j| {
             let verdicts = ItemVerdicts {
+                item: item_cid[j],
                 gate: gate[j],
                 appealed: appeals.contains(&j),
                 band_advances: band_advances[j],

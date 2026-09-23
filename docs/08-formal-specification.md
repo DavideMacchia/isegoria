@@ -195,7 +195,7 @@ Additional invariants this specification introduces (not in `docs/CLAUDE.md`), e
 | INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6): `admission::admit` + `deposit_with_identity`/`submit_review` key on `NullifierProof::id()`; PROTO-007 |
 | INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | CRYPTO-008 |
 | INV-11 | The uniqueness-label key (OPRF key) MUST NOT be rotated without a documented migration that preserves dedup; the label MUST be stable for the lifetime of the registry. | ID-006 |
-| INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | CRYPTO-007 |
+| INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | ENFORCED (T7): `review::commit = H(prob, nonce, committer, item)`; the reveal recomputes against the revealer + item; CRYPTO-007 |
 | INV-13 | The engine input MUST have a canonical serialization (fixed observation order, fixed float encoding) and the reproducibility claim MUST be stated relative to it. | REPRO-002 |
 | INV-14 | The `(Σw)^α` group transform MUST NOT increase any node's weight. | COLLUSION-004 |
 
@@ -484,8 +484,8 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### CRYPTO-007 — Commit–reveal binding
 - **Analysis.** `review::commit(prob, nonce) = SHA-256("isegoria/commit/v1" ‖ prob_le ‖ nonce)` binds neither the item nor the committer. If commitments are visible before reveal, reviewer B can copy reviewer A's commitment and, after A reveals, reveal the same `(prob, nonce)` — the classic commitment-copying attack, which reintroduces exactly the herding the mechanism exists to prevent. `prob.to_le_bytes()` also makes `0.0` and `−0.0` distinct commitments and admits NaN.
-- **Evidence.** `lifecycle.rs::commit_reveal_binds_the_judgment` tests hiding/binding of the value only.
-- **Evidence status.** IMPLEMENTED with a specification defect. INV-12: the commitment MUST include the committer's nullifier and the item CID, and reveals MUST be accepted only from the committing nullifier.
+- **Evidence.** `lifecycle.rs::commit_reveal_binds_the_judgment` (value hiding/binding); `protocol/tests/inv12_commit_binding.rs` (AT-BR-06: a copied commitment does not open under another committer, nor for another item).
+- **Evidence status.** RESOLVED@T7 (was a specification defect). `review::commit(prob, nonce, committer, item) = SHA-256("isegoria/commit/v2" ‖ prob_le ‖ nonce ‖ committer ‖ item)`; `reveal` recomputes against the revealer's nym and the item, so a commitment opens only for its committer and item (INV-12). The `lifecycle` `Revealing` state carries the item and the reveal is checked against `(reveal nym, item)`; NaN/out-of-range probabilities are already rejected at reveal (`ProbabilityOutOfRange`). Residual (cosmetic, not security): `prob.to_le_bytes()` still distinguishes `0.0`/`−0.0`. **The committer id is the T6 nullifier id**, so the binding is to the verified nullifier.
 
 #### CRYPTO-008 — Randomness for lottery, assignment, honeypot placement, sortition
 - **Analysis.** `lottery::admit(base_seed, epoch)`, `review::assign_reviewers(item_seed)`, `honeypot::inject(seed)`, `governance::stratified_sortition(seed)`, `blueprint::assemble_test(seed)` are deterministic in a caller-supplied `u64`. The tests use constants. No document says where the seed comes from. If it is derivable from data an author controls (e.g. the draft CID, which the author can grind by editing whitespace), the author can select its reviewers — the brigading the random assignment is meant to prevent. If it is chosen by an operator, that operator can select reviewers for any item.
@@ -669,7 +669,7 @@ Logarithmic score (`docs/02` C.2); 3PL; infit/outfit; `d = 2`; `n_min`; `w = min
 | Credential | BBS+ (BLS12-381, G1 signatures, G2 keys), 2 messages `(x, label)`, blind issuance via Pedersen commitment + Schnorr PoK (FS over `bases‖C‖t‖label`, SHA-256) | `bbs_plus` 0.25.0, `schnorr_pok` 0.23.0, arkworks 0.4.x | OsRng (blinding, PoK); issuer key: seed-derived | `isegoria/bbs+/v1` params label | REAL, single and threshold |
 | Threshold credential | `bbs_plus::threshold` (DKLS-style OT multiplication, `κ=256`, `stat=80`, base-OT key 128) | `oblivious_transfer_protocols` 0.12.0, `secret_sharing_and_dkg` 0.16.0, `blake2` 0.10.6, `sha3` 0.10.9 | `StdRng::from_seed(seed)` for dealer **and base OT**; OsRng for signing | `isegoria/bbs+/{gadget,threshold}/v1` | REAL protocol, in-process committee |
 | Nullifier | `N = x·H_role`, `H_role = WB hash-to-G1(role, DST …/nullifier/hash-to-g1/v1)`; AND-composed with BBS+ PoK (shared blinding for msg 0, shared FS challenge) | `bbs_plus`, `dock_crypto_utils` 0.23.0, arkworks | `ρ`: OsRng | yes | REAL, bespoke composition, unreviewed, unused by protocol |
-| Commit–reveal | SHA-256(`isegoria/commit/v1`‖prob_le‖nonce) | `sha2` | nonce: caller | tag, no length prefix (fixed sizes) | missing item/nym binding (CRYPTO-007) |
+| Commit–reveal | SHA-256(`isegoria/commit/v2`‖prob_le‖nonce‖committer‖item) | `sha2` | nonce: caller | tag; fixed-size fields | binds committer + item (CRYPTO-007 RESOLVED@T7) |
 | Checkpoint | ed25519 over SHA-256(`…/checkpoint/v1`, height_le, head) | `ed25519-dalek` 2.2.0 | key: seed | tag | REAL; no network id (NET-006) |
 | CID / Merkle / log | SHA-256 with tags `…/cid/v1`, `…/merkle/{leaf,node,empty}`, `…/log/entry` | `sha2` | — | yes | REAL; Merkle leaf-count defect (NET-003) |
 | Anchoring | OpenTimestamps `.ots` (SHA-256 ops, Bitcoin attestation) | `opentimestamps` 0.2.0 | — | — | REAL format; no network |
@@ -862,7 +862,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Faction impersonation (a cartel member pretends to be of the opposite camp on its history, then "bridges" a partisan item) | bridging estimates `f_u` from history | **UNSOLVED / not analysed**: a patient adversary can build a cross-camp `f_u` cheaply (ratings cost nothing) and then supply "cross-cutting approval" on demand; this is the *designed* trust signal and it is manufacturable at the price of `n_min` sincere-looking ratings |
 | Rating inflation/compression (everyone rates 1.0) | `b_u` absorbs severity | CONTAINED for individual bias; global compression destroys the signal (not analysed) |
 | Seed grinding for reviewer selection | INV-10 | **UNSOLVED** (CRYPTO-008) |
-| Commitment copying | INV-12 | **UNSOLVED** (CRYPTO-007) |
+| Commitment copying | INV-12 | SOLVED (T7): the commitment binds committer + item (CRYPTO-007) |
 
 ### 11.4 Psychometrics
 
@@ -1177,7 +1177,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | CRYPTO-004 | threshold BBS+ | `threshold_bbs.rs` | TESTED (in-process) | independent base-OT seed; DKG; review | §7.4 |
 | CRYPTO-005 | nullifier bound to credential | `nullifier.rs`, `tests/nullifier.rs`, `protocol/tests/inv9_nym_proof.rs` | TESTED; message binding now present (T6) — `prove`/`verify` take an action `context` folded into the Fiat–Shamir challenge, so a proof does not verify under another context (AT-ID-05) | external review (§7.4) | AT-ID-05; §7.4 |
 | CRYPTO-006 | cross-role unlinkability | — | HYPOTHESIS (SXDH) | name the assumption | docs |
-| CRYPTO-007 | commit binding | `lifecycle.rs` (value only) | DEFECT | — | INV-12 |
+| CRYPTO-007 | commit binding | `review.rs` (`commit`/`reveal`), `lifecycle.rs` (item in `Revealing`), `inv12_commit_binding.rs` | RESOLVED@T7 — binds committer + item; a copied commitment does not open (AT-BR-06) | — | INV-12 |
 | CRYPTO-008 | randomness source | — | NOT ESTABLISHED | — | INV-10 |
 | PRIV-001 | role nyms unlinkable | inequality tests | HYPOTHESIS | secret entropy rule | docs |
 | PRIV-002 | issuer unlinkability | — | HYPOTHESIS (docs contradict) | "label never revealed" | docs |
