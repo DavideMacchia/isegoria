@@ -25,7 +25,8 @@
 //! selective-disclosure of the label are future work.
 
 use crate::credential::{AnonymousCredential, IssuerPublic};
-use crate::nym::Role;
+use crate::hash::tagged;
+use crate::nym::{Nym, Role};
 
 use ark_bls12_381::g1::Config as G1Config;
 use ark_bls12_381::{Bls12_381, Fr, G1Affine, G1Projective};
@@ -79,6 +80,17 @@ impl NullifierProof {
     pub fn role(&self) -> Role {
         self.role
     }
+
+    /// The stable protocol identifier keyed on the verified nullifier (docs/08 INV-9):
+    /// `H(compressed N)`. Deterministic in `(secret, role)` because `N = x·H_role` is, so
+    /// it is the non-rotatable per-role pseudonym — now cryptographically proven, unlike
+    /// [`crate::nym::derive_nym`], which the protocol must not key on. It is independent of
+    /// the action `context`, so the same person-role has one id across all its actions.
+    pub fn id(&self) -> Nym {
+        let mut n = Vec::new();
+        self.nullifier.serialize_compressed(&mut n).unwrap();
+        Nym(tagged("isegoria/nullifier-id/v1", &[n.as_slice()]))
+    }
 }
 
 fn challenge(
@@ -86,17 +98,29 @@ fn challenge(
     h_role: &G1Affine,
     nullifier: &G1Affine,
     commitment: &G1Affine,
+    context: &[u8],
 ) -> Fr {
     let mut bytes = Vec::new();
     contribute(&mut bytes).expect("challenge contribution");
     h_role.serialize_compressed(&mut bytes).unwrap();
     nullifier.serialize_compressed(&mut bytes).unwrap();
     commitment.serialize_compressed(&mut bytes).unwrap();
+    // Length-prefix the action context so a proof is bound to the action it was made for:
+    // a proof for one context fails to verify against another (docs/08 AT-ID-05).
+    bytes.extend_from_slice(&(context.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(context);
     compute_random_oracle_challenge::<Fr, Sha256>(&bytes)
 }
 
 /// Prove a role nullifier from a credential, revealing neither the secret nor the label.
-pub fn prove(cred: &AnonymousCredential, issuer: &IssuerPublic, role: Role) -> NullifierProof {
+/// `context` binds the proof to the action it authorizes (e.g. the item CID and epoch), so
+/// it cannot be replayed onto a different action (docs/08 AT-ID-05).
+pub fn prove(
+    cred: &AnonymousCredential,
+    issuer: &IssuerPublic,
+    role: Role,
+    context: &[u8],
+) -> NullifierProof {
     let mut rng = OsRng;
     let x = *cred.secret();
     let h_role = context_generator(role);
@@ -122,6 +146,7 @@ pub fn prove(cred: &AnonymousCredential, issuer: &IssuerPublic, role: Role) -> N
         &h_role,
         &nullifier,
         &commitment,
+        context,
     );
     let sig_proof = protocol.gen_proof(&c).expect("proof generation");
 
@@ -133,8 +158,9 @@ pub fn prove(cred: &AnonymousCredential, issuer: &IssuerPublic, role: Role) -> N
     }
 }
 
-/// Verify a nullifier proof against the issuing committee's public key.
-pub fn verify(proof: &NullifierProof, issuer: &IssuerPublic) -> bool {
+/// Verify a nullifier proof against the issuing committee's public key, for the action
+/// `context` it must be bound to (docs/08 AT-ID-05). A proof made for another context fails.
+pub fn verify(proof: &NullifierProof, issuer: &IssuerPublic, context: &[u8]) -> bool {
     let h_role = context_generator(proof.role);
     let c = challenge(
         |w| {
@@ -145,6 +171,7 @@ pub fn verify(proof: &NullifierProof, issuer: &IssuerPublic) -> bool {
         &h_role,
         &proof.nullifier,
         &proof.commitment,
+        context,
     );
 
     // 1. The BBS+ proof shows knowledge of a valid credential signature over the hidden
@@ -186,14 +213,31 @@ mod tests {
         let (req, pending) = holder.request_issuance(&Label([7u8; 32]), &issuer.public());
         let cred = pending.finalize(issuer.issue(&req).unwrap());
 
-        let mut proof = prove(&cred, &issuer.public(), Role::Judge);
-        assert!(verify(&proof, &issuer.public()));
+        let mut proof = prove(&cred, &issuer.public(), Role::Judge, b"ctx");
+        assert!(verify(&proof, &issuer.public(), b"ctx"));
 
         // Swap in a well-formed but different nullifier (for x+1 instead of x). The
         // binding is load-bearing: verification fails rather than accepting any group
         // element as the nullifier.
         let x = *cred.secret();
         proof.nullifier = (context_generator(Role::Judge) * (x + Fr::from(1u64))).into_affine();
-        assert!(!verify(&proof, &issuer.public()));
+        assert!(!verify(&proof, &issuer.public(), b"ctx"));
+    }
+
+    #[test]
+    fn a_proof_does_not_verify_under_a_different_context() {
+        let issuer = Issuer::new([1u8; 32]);
+        let holder = Credential::from_secret([9u8; 32]);
+        let (req, pending) = holder.request_issuance(&Label([7u8; 32]), &issuer.public());
+        let cred = pending.finalize(issuer.issue(&req).unwrap());
+
+        // A proof bound to action A cannot be replayed onto action B (docs/08 AT-ID-05).
+        let proof = prove(&cred, &issuer.public(), Role::Judge, b"action-A");
+        assert!(verify(&proof, &issuer.public(), b"action-A"));
+        assert!(!verify(&proof, &issuer.public(), b"action-B"));
+
+        // …but the identifier is the person-role, independent of the action context.
+        let other = prove(&cred, &issuer.public(), Role::Judge, b"action-B");
+        assert_eq!(proof.id(), other.id());
     }
 }
