@@ -118,8 +118,8 @@ fn irt_2pl_discrimination_ranks_items() {
     let xa = read_matrix("levelb_XA.csv");
     let x = read_matrix("levelb_X.csv");
     let theta = theta_from_anchors(&xa);
-    let (a_flat, _) = fit_2pl_item(&theta, &column(&x, 4)); // capital of Italy: low discrimination
-    let (a_sharp, _) = fit_2pl_item(&theta, &column(&x, 0)); // number of deputies: high discrimination
+    let a_flat = fit_2pl_item(&theta, &column(&x, 4)).a; // capital of Italy: low discrimination
+    let a_sharp = fit_2pl_item(&theta, &column(&x, 0)).a; // number of deputies: high discrimination
     assert!(a_sharp > a_flat, "a_sharp={a_sharp:.3} a_flat={a_flat:.3}");
     assert!(
         a_flat < 0.6,
@@ -177,10 +177,11 @@ fn mixture_detects_bias_in_a_batch() {
     let edu = read_vector("mixture_batch_edu.csv");
     let res = mixture_dif(&theta, &x, 8, 0);
 
-    let biased_mean = res.delta[..3].iter().sum::<f64>() / 3.0;
-    let clean_mean = res.delta[3..].iter().sum::<f64>() / 5.0;
-    assert!(biased_mean > 0.6, "biased |δ| mean = {biased_mean:.3}");
-    assert!(clean_mean < 0.4, "clean |δ| mean = {clean_mean:.3}");
+    // `dif` is the b-gap 2|δ| (DIF-006); the fixture plants δ = 0.9, a gap of 1.8.
+    let biased_mean = res.dif[..3].iter().sum::<f64>() / 3.0;
+    let clean_mean = res.dif[3..].iter().sum::<f64>() / 5.0;
+    assert!(biased_mean > 1.2, "biased DIF mean = {biased_mean:.3}");
+    assert!(clean_mean < 0.8, "clean DIF mean = {clean_mean:.3}");
     assert!(
         res.bic > 0.0,
         "BIC = {:.1} should favor two classes",

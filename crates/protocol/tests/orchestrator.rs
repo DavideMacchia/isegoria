@@ -46,16 +46,37 @@ fn revealing() -> State {
     step(in_review(), Event::CloseCommits).unwrap()
 }
 
+/// Every panelist in `who` commits then (once commits close) reveals the same judgment.
+fn round_with(who: &[Nym], reveal_too: &[Nym]) -> State {
+    let (prob, nonce) = (0.8, [7u8; 32]);
+    let mut s = in_review();
+    for &n in who {
+        let commitment = commit(prob, &nonce, n, item());
+        s = step(s, Event::Commit { nym: n, commitment }).unwrap();
+    }
+    s = step(s, Event::CloseCommits).unwrap();
+    for &n in reveal_too {
+        s = step(
+            s,
+            Event::Reveal {
+                nym: n,
+                prob,
+                nonce,
+            },
+        )
+        .unwrap();
+    }
+    s
+}
+
+/// A round where the whole panel committed and revealed.
+fn fully_revealed() -> State {
+    round_with(&panel(), &panel())
+}
+
 /// The state reached by scoring a full epoch with the given gate outcome.
 fn scored(outcome: GateOutcome) -> State {
-    step(
-        revealing(),
-        Event::Score {
-            all_reveals_in: true,
-            outcome,
-        },
-    )
-    .unwrap()
+    step(fully_revealed(), Event::Score { outcome }).unwrap()
 }
 
 #[test]
@@ -88,7 +109,6 @@ fn a_full_valid_walk_reaches_the_pool_then_retires() {
     s = step(
         s,
         Event::Score {
-            all_reveals_in: true,
             outcome: GateOutcome::Pass,
         },
     )
@@ -310,17 +330,91 @@ fn an_out_of_range_or_nan_probability_is_rejected() {
     );
 }
 
+/// Scoring checks the round itself: the caller cannot assert "all revealed" (T33).
 #[test]
 fn scoring_a_partial_epoch_is_rejected() {
+    let score = |s: State| {
+        step(
+            s,
+            Event::Score {
+                outcome: GateOutcome::Pass,
+            },
+        )
+    };
+    let all = panel();
+    // Nobody revealed.
+    assert_eq!(score(revealing()), Err(Invalid::PartialEpoch));
+    // Everybody committed, one did not reveal.
+    assert_eq!(
+        score(round_with(&all, &all[..8])),
+        Err(Invalid::PartialEpoch)
+    );
+    // One panelist never committed, so it can never reveal.
+    assert_eq!(
+        score(round_with(&all[1..], &all[1..])),
+        Err(Invalid::PartialEpoch)
+    );
+    // A single reveal is not a full panel.
+    assert_eq!(
+        score(round_with(&all, &all[..1])),
+        Err(Invalid::PartialEpoch)
+    );
+    assert!(score(fully_revealed()).is_ok());
+}
+
+#[test]
+fn a_second_reveal_by_the_same_nym_is_rejected() {
+    let s = round_with(&panel(), &[nym(1)]);
     assert_eq!(
         step(
-            revealing(),
-            Event::Score {
-                all_reveals_in: false,
-                outcome: GateOutcome::Pass
+            s,
+            Event::Reveal {
+                nym: nym(1),
+                prob: 0.8,
+                nonce: [7u8; 32]
             }
         ),
-        Err(Invalid::PartialEpoch)
+        Err(Invalid::AlreadyRevealed)
+    );
+}
+
+/// Seven slots filled by six people is not a panel of seven (T33).
+#[test]
+fn a_panel_with_a_repeated_nym_is_rejected() {
+    let admitted = step(
+        deposit(true, true, true, true).unwrap(),
+        Event::Admit {
+            seed_from_checkpoint: true,
+        },
+    )
+    .unwrap();
+    for dup_at in 1..7 {
+        let mut p: Vec<Nym> = (1..=7).map(nym).collect();
+        p[dup_at] = p[dup_at - 1];
+        assert_eq!(
+            step(
+                admitted.clone(),
+                Event::AssignReviewers {
+                    panel: p,
+                    item: item()
+                }
+            ),
+            Err(Invalid::DuplicatePanelist),
+            "duplicate at slot {dup_at}"
+        );
+    }
+    // Repeats far apart are caught too.
+    let mut p: Vec<Nym> = (1..=11).map(nym).collect();
+    p[10] = p[0];
+    assert_eq!(
+        step(
+            admitted,
+            Event::AssignReviewers {
+                panel: p,
+                item: item()
+            }
+        ),
+        Err(Invalid::DuplicatePanelist)
     );
 }
 

@@ -3,7 +3,7 @@
 
 use proptest::prelude::*;
 use protocol::blueprint::Blueprint;
-use protocol::governance::{stratified_sortition, Candidate};
+use protocol::governance::{stratified_sortition, Candidate, DuplicateCandidate};
 use protocol::lottery::admit;
 use std::collections::HashSet;
 
@@ -59,10 +59,31 @@ proptest! {
         let candidates: Vec<Candidate<usize>> = (0..n)
             .map(|i| Candidate { id: i, f_u: i as f64 })
             .collect();
-        let chosen = stratified_sortition(&candidates, seats, strata, seed);
+        let chosen = stratified_sortition(&candidates, seats, strata, seed).unwrap();
 
         prop_assert_eq!(chosen.len(), seats.min(n));
         let set: HashSet<usize> = chosen.iter().copied().collect();
         prop_assert_eq!(set.len(), chosen.len(), "no duplicates");
+    }
+
+    /// A repeated id anywhere in the list is refused, whatever the draw (T36).
+    #[test]
+    fn sortition_refuses_any_repeated_candidate(
+        n in 2usize..80,
+        seats in 0usize..20,
+        strata in 1usize..6,
+        seed in any::<u64>(),
+        pick in any::<(usize, usize)>(),
+    ) {
+        let mut candidates: Vec<Candidate<usize>> = (0..n)
+            .map(|i| Candidate { id: i, f_u: i as f64 })
+            .collect();
+        let (from, to) = (pick.0 % n, pick.1 % n);
+        prop_assume!(from != to);
+        candidates[to].id = candidates[from].id;
+        prop_assert_eq!(
+            stratified_sortition(&candidates, seats, strata, seed),
+            Err(DuplicateCandidate)
+        );
     }
 }

@@ -221,6 +221,28 @@ fn pilot_stage1_drops_non_discriminating_items() {
     assert!(!keep[1], "a non-discriminating item should be killed");
 }
 
+/// A perfectly separating item has no finite 2PL slope: the fit reports `Separated` and
+/// the huge slope it stopped at must not pass `a ≥ A_MIN` (T34, OPT-001). Its
+/// point-biserial is high, so only the status check stops it.
+#[test]
+fn pilot_stage1_fails_an_item_whose_2pl_fit_is_separated() {
+    let (theta, _group) = synthetic();
+    let separated: Vec<f64> = theta.iter().map(|&t| (t > 0.0) as i32 as f64).collect();
+
+    let fit = scoring::irt::fit_2pl_item(&theta, &separated);
+    assert_eq!(fit.status, scoring::LogisticFit::Separated);
+    assert!(
+        fit.a >= scoring::irt::A_MIN,
+        "contrast: the slope alone would pass, a = {}",
+        fit.a
+    );
+    assert!(
+        scoring::irt::point_biserial(&separated, &theta) >= scoring::irt::R_PBIS_MIN,
+        "contrast: the point-biserial alone would pass"
+    );
+    assert!(!stage1_screen(&theta, &[separated])[0]);
+}
+
 #[cfg(feature = "calibration")]
 #[test]
 fn pilot_stage2_drops_dif_items() {
@@ -267,13 +289,13 @@ fn sortition_is_stratified_deterministic_and_sized() {
         })
         .collect();
 
-    let a = stratified_sortition(&candidates, 9, 3, 999);
+    let a = stratified_sortition(&candidates, 9, 3, 999).unwrap();
     assert_eq!(a.len(), 9);
 
     // Deterministic per seed.
-    assert_eq!(a, stratified_sortition(&candidates, 9, 3, 999));
+    assert_eq!(a, stratified_sortition(&candidates, 9, 3, 999).unwrap());
     // A different seed generally draws a different committee.
-    assert_ne!(a, stratified_sortition(&candidates, 9, 3, 1000));
+    assert_ne!(a, stratified_sortition(&candidates, 9, 3, 1000).unwrap());
 
     // Stratified: both axis extremes are represented (ids map monotonically to f_u).
     assert!(a.iter().any(|&id| id < 33), "no one from the low stratum");
@@ -288,7 +310,7 @@ fn sortition_handles_more_seats_than_candidates() {
             f_u: i as f64,
         })
         .collect();
-    let all = stratified_sortition(&candidates, 20, 4, 1);
+    let all = stratified_sortition(&candidates, 20, 4, 1).unwrap();
     assert_eq!(all.len(), 5, "cannot draw more than exist");
 }
 
@@ -560,6 +582,20 @@ fn meta_level_change_needs_supermajority_and_delay() {
     );
 }
 
+/// Boundaries of the meta-level rule, and a malformed tally (T36).
+#[test]
+fn meta_level_change_boundaries_and_malformed_tally() {
+    // Exactly 2/3 on exactly the delay passes; one vote or one day short does not.
+    assert!(change_approved(2, 3, 30));
+    assert!(change_approved(200, 300, 30));
+    assert!(!change_approved(199, 300, 30));
+    assert!(!change_approved(200, 300, 29));
+    // Unanimity is fine; more votes than voters is a malformed tally, never approved.
+    assert!(change_approved(100, 100, 30));
+    assert!(!change_approved(101, 100, 60));
+    assert!(!change_approved(usize::MAX, 3, 60));
+}
+
 #[test]
 fn float_sorts_tolerate_nan_positions_without_panicking() {
     // docs/08 IQ-2: the protocol sorts caller-supplied f64 positions. With `total_cmp`
@@ -582,7 +618,7 @@ fn float_sorts_tolerate_nan_positions_without_panicking() {
             },
         })
         .collect();
-    let drawn = stratified_sortition(&candidates, 9, 3, 11);
+    let drawn = stratified_sortition(&candidates, 9, 3, 11).unwrap();
     assert_eq!(drawn.len(), 9);
 
     // NaN sorts last: with `total_cmp`, the top stratum is where NaN candidates land.

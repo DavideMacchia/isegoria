@@ -9,6 +9,11 @@
 //! known at deposit time, and the per-item seed is keyed on a byte-independent slot index,
 //! never the draft bytes (AT-BR-05).
 //!
+//! Residual (T37, `docs/08` CRYPTO-008): the head is a deterministic function of the log
+//! content, so whoever controls the last deposits before the checkpoint — the publisher,
+//! a signing threshold, or a last depositor who sees the log — can try variants and keep
+//! the seed they prefer. The beacon is not yet separated from the state commitment.
+//!
 //! Seeds are domain-separated per purpose and per index, so the four draws never share a
 //! stream. The `_from_beacon` wrappers in `lottery`, `review`, `honeypot` and `governance`
 //! are the sanctioned entry points; the raw draws take a `u64` seed for unit testing.

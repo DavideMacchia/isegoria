@@ -88,6 +88,50 @@ Run after P1.1–P1.3, before Phase 2.
 - **Analysis:** re-walk the `docs/08` §15 matrix and raise the status of every claim
   that now has evidence; create `docs/09-verification-matrix.md` from it.
 
+### P1.5 · Second review — spec-to-code closure and test consolidation
+
+A second, independent review (2026-09-23) re-read the code against `docs/02`, `docs/05`
+and `docs/08`. Line coverage is already ~97% (`cargo llvm-cov --workspace --features
+calibration --summary-only`), yet every confirmed defect below sits in a file covered at
+96–100%: the lines run, but no test asserts that they *reject* the wrong input. So this
+block is two things — close the confirmed defects, then add the kinds of test that
+measure *verification*, not execution. Only property-based tests exist today in
+`network` (4) and `protocol` (3); `scoring` and `identity` have none.
+
+**Confirmed defects (fix first, each with a failing-first regression test):**
+
+| Task | What it means (plain) | Audit refs | Done when | Size |
+|---|---|---|---|---|
+| T33 | **The review round is checked from the state, not trusted from the caller.** **Done:** distinct panel (`DuplicatePanelist`), one reveal per nym (`AlreadyRevealed`), `Revealing` carries the panel and `Score { outcome }` checks every panelist revealed; `orchestrator::review_round` + `run_item(reviewed, …)`, and the e2e epoch walks a real 9-panel round per item. `AssignReviewers` accepts a panel with a repeated nym (7 slots, 6 people); `Score { all_reveals_in: bool }` takes the caller's word that everyone revealed; the same nym can reveal twice. The panel must be distinct, a reveal is accepted once, and `Score` succeeds only when every panelist has revealed — derived from the state | §9.1, PC-1 | duplicate panel / double reveal / partial reveal each rejected in `orchestrator.rs`; `run_item` walks a real review round | S |
+| T34 | **The 2PL item fit reports whether it can be trusted.** **Done:** `Fit2pl { a, b, status }`; `stage1_screen` requires `Converged` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`). `fit_2pl_item` drops the logistic status, so a separated fit's huge slope passes the `a ≥ A_MIN` screen. Return the status; the stage-1 screen fails an item whose fit is not `Converged` | OPT-001, T2 | a perfectly separating item fails the screen | S |
+| T35 | **The latent re-check reports the specified quantity and only acts on a trustworthy fit.** **Done:** `MixtureDif::dif = 2|δ|`, `MIXTURE_DIF_MAX = 1.0` (provisional), `revalidation::latent_flags` gates on convergence and BIC (`latent_revalidation.rs`). Report `DIF_j = 2|δ_j|` (the b-gap `docs/02` defines, not the half-gap) and flag nothing when the free fit did not converge or the BIC does not favour two classes. The rejection threshold on the b-gap stays **1.0** (the current behaviour, now stated) — the literature 0.5 applied to this estimator flags all 8 items of the one-biased-item fixture — until T24/T25 calibrate it | DIF-006, DIF-004, D24 | threshold on `DIF_j`; non-converged / BIC ≤ 0 flags nothing; docs/02 and docs/08 record the provisional value | S |
+| T36 | **Degenerate inputs have a defined answer.** **Done:** θ ≡ 0 with no spread, `point_biserial` = 0 with no variance, malformed tally never approves, `DuplicateCandidate` (`degenerate_inputs.rs`, `lifecycle.rs`, `properties.rs`). `standardize` on an empty or constant vector returns NaN (IRT-001); `point_biserial` divides by a zero variance; `change_approved` accepts `votes_for > total_eligible`; `stratified_sortition` can seat the same id twice | IRT-001, §6 | each case has a documented, conservative result and a test | S |
+| T37 | **The beacon is not grind-free yet (reopens INV-10).** **Decision pending (maintainer):** (a) a unique threshold signature over the epoch number, drand-style — unbiasable, but inherits the trusted-dealer caveat until T19; or (b) commit-reveal among members bound before the deposit window closes — simpler, but the last revealer can abort and bias one bit. The seed is `H(checkpoint head ‖ …)` and the head is a deterministic function of the log content: whoever orders or includes the last deposits before the checkpoint — the publisher, a colluding threshold of signers, or a last depositor who sees the log — can try variants and keep the preferred seed. Separate the randomness from the state commitment (commit-reveal among members, or a threshold signature/VRF over the epoch as the beacon) | INV-10, CRYPTO-008, D29 | a test shows the last depositor cannot choose among seeds; docs/08 status honest meanwhile | M |
+| T38 | **A higher checkpoint must extend the trusted one.** **Done:** `CheckpointClient::ingest_with_log` (`checkpoint_fork.rs`). `CheckpointClient::ingest` accepts any threshold-signed checkpoint of greater height; a client that holds the log must also require `log::verify_extends(prior)` (or a consistency proof) before moving its trust | NET-006 residual, T14/T15 | a threshold-signed higher-height fork is reported, not accepted | S |
+
+**Spec features still missing (tracked, not defects of the code that exists):**
+
+| Task | What it means (plain) | Audit refs | Size |
+|---|---|---|---|
+| T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2` | BRIDGE-00x, PROTO-003, `docs/02` §A.4 | M |
+| T40 | Mixture DIF: multi-start with deterministically derived seeds (keep the best converged likelihood), per-class discrimination (non-uniform DIF), `G > 2` selected by BIC, analytic gradient | DIF-004, §6.6 | M |
+
+**Test consolidation (what gives confidence beyond coverage):**
+
+| Task | What it means (plain) | Done when | Size |
+|---|---|---|---|
+| T41 | **Mutation testing** (`cargo-mutants`) over `protocol` and `scoring`, then `network`/`identity`: every surviving mutant is either killed by a new test or justified. Run periodically (not on every push: slow) | a report with the survivors triaged | M |
+| T42 | **Property tests where there are none:** `scoring` (bit-for-bit determinism, permutation invariance, bootstrap ≤ full fit, no NaN on finite input, monotonicity of `b_j` in agreeing ratings, `f` sign symmetry, zero weight = absent observation) and `identity` (any valid credential verifies, any flipped byte fails, nullifier distinct per role, any `t`-quorum reconstructs the same value, duplicate quorum always refused) | proptest suites in both crates | M |
+| T43 | **Model-based tests of the state machines** (`lifecycle`, `orchestrator`, `CheckpointClient`): random event sequences checked against a small reference model; invariants — no score without every reveal, no double commit/reveal, trusted height never decreases | proptest state-machine suites | M |
+| T44 | **Fuzzing and panic audit** of every byte decoder (`oprf`, `erasure`, `consortium`, and later the network codecs) with `cargo-fuzz`; classify the ~70 `unwrap`/`expect`/`assert` in `src/` as internal invariant vs external input, and turn the latter into errors | no panic on arbitrary bytes; the classification is recorded | M |
+| T45 | **Wider differential oracles:** random datasets vs SciPy (not only the fixed fixture), analytic vs numerical gradient for the mixture, `lbfgs` on functions with known minima (Rosenbrock, ill-conditioned quadratics) | oracle suite runs under the pinned sim env | M |
+| T46 | **Validated boundary types** (`Probability`, `ValidatedRatings`, a distinct odd `Panel` of 7–11) so whole classes of bad input cannot be constructed | public entry points take the validated types | M |
+| T47 | *(optional)* **Bounded model checking (Kani)** on small decisive functions: `bridging_gate`, `change_approved`, panel admission, `lagrange_at_zero` with distinct indices | proofs run in CI | S |
+
+T24 (below) is the statistical counterpart: it is the only way to say the detectors
+"work", and it now explicitly includes the **zero-biased** condition (false-positive
+rate), unbalanced classes, `δ` below 0.9, and the T35 threshold choice.
+
 **Milestone M1 — "whole and honest testnet":** reputation is consumed, the protocol
 boundary is Sybil-resistant, nodes talk and persist, the docs match the code. Not yet
 production (single-org committees, unreviewed bespoke crypto, uncharacterized
@@ -136,5 +180,8 @@ the *external* tasks (T23, T26, T27) are complete.
 - T30 depends on T5 (a clean re-decision needs the weighted bridging fit) and T10;
   T31 and T32 are independent and small.
 - T20 supersedes T11’s in-process rate limiting with the cryptographic form.
+- T33–T36 are small and independent; do them before T41 (mutation testing), so the
+  mutants report measures the fixed code. T35's threshold is final only after T24/T25.
+- T37 (beacon) and T38 (higher-height fork) are prerequisites for T18 (transport).
 - Nothing in Phase 1 requires the *external* gates; but the README/docs MUST keep
   calling the system a reference/testnet until T23, T26 and T27 are done.

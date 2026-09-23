@@ -6,10 +6,13 @@
 //! - **T12 / §9.1:** an item's stage-to-stage fate is decided by `lifecycle::step`,
 //!   driven by the epoch's gate and pilot verdicts, not by ad-hoc caller logic.
 
+use identity::nym::Nym;
+use network::cid::{cid, Cid};
 use protocol::gate::GateOutcome;
-use protocol::lifecycle::{RejectReason, State};
+use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State};
 use protocol::orchestrator::{
-    bridging_weights, run_item, weighted_ratings, ItemVerdicts, ReviewerStanding,
+    bridging_weights, review_round, run_item, weighted_ratings, ItemVerdicts, Judgment,
+    ReviewerStanding,
 };
 use protocol::probation::N_PROBATION;
 use scoring::bridging::{fit, BridgingParams};
@@ -93,7 +96,6 @@ fn lower_reputation_moves_the_bridge_score_less() {
 /// Verdicts for a plain (non-band, non-appeal) item that clears both pilot stages.
 fn passing() -> ItemVerdicts {
     ItemVerdicts {
-        item: network::cid::cid(b"item"),
         gate: GateOutcome::Pass,
         appealed: false,
         band_advances: false,
@@ -104,9 +106,65 @@ fn passing() -> ItemVerdicts {
     }
 }
 
+fn item() -> Cid {
+    cid(b"item")
+}
+
+fn panel() -> Vec<Nym> {
+    (1..=9).map(|i| Nym([i; 32])).collect()
+}
+
+fn admitted() -> State {
+    step(
+        deposit(true, true, true, true).unwrap(),
+        Event::Admit {
+            seed_from_checkpoint: true,
+        },
+    )
+    .unwrap()
+}
+
+fn judgments(who: &[Nym]) -> Vec<Judgment> {
+    who.iter()
+        .map(|&nym| Judgment {
+            nym,
+            prob: 0.7,
+            nonce: [nym.0[0]; 32],
+        })
+        .collect()
+}
+
+/// A complete review round: the full panel commits and reveals.
+fn reviewed() -> State {
+    review_round(admitted(), item(), panel(), &judgments(&panel())).unwrap()
+}
+
+/// `run_item` scores the round the machine walked: a panelist who never judged blocks
+/// the epoch, and a repeated nym never forms a panel (T33).
+#[test]
+fn run_item_refuses_an_incomplete_or_forged_review_round() {
+    let p = panel();
+    let partial = review_round(admitted(), item(), p.clone(), &judgments(&p[..8])).unwrap();
+    assert_eq!(run_item(partial, &passing()), Err(Invalid::PartialEpoch));
+
+    let mut dup = p.clone();
+    dup[8] = dup[0];
+    assert_eq!(
+        review_round(admitted(), item(), dup, &judgments(&p[..8])),
+        Err(Invalid::DuplicatePanelist)
+    );
+
+    // An outsider's judgment is refused at its commit.
+    let outsider = judgments(&[Nym([99; 32])]);
+    assert_eq!(
+        review_round(admitted(), item(), p, &outsider),
+        Err(Invalid::NotInPanel)
+    );
+}
+
 #[test]
 fn a_clean_item_reaches_the_pool() {
-    assert_eq!(run_item(&passing()).unwrap(), State::ActivePool);
+    assert_eq!(run_item(reviewed(), &passing()).unwrap(), State::ActivePool);
 }
 
 #[test]
@@ -116,14 +174,17 @@ fn the_screen_and_the_dif_stage_each_stop_an_item() {
         ..passing()
     };
     assert_eq!(
-        run_item(&screened).unwrap(),
+        run_item(reviewed(), &screened).unwrap(),
         State::Rejected(RejectReason::Screen)
     );
     let dif = ItemVerdicts {
         dif_passed: false,
         ..passing()
     };
-    assert_eq!(run_item(&dif).unwrap(), State::Rejected(RejectReason::Dif));
+    assert_eq!(
+        run_item(reviewed(), &dif).unwrap(),
+        State::Rejected(RejectReason::Dif)
+    );
 }
 
 #[test]
@@ -133,7 +194,7 @@ fn a_defect_reject_never_enters_the_pilot() {
         ..passing()
     };
     assert_eq!(
-        run_item(&defect).unwrap(),
+        run_item(reviewed(), &defect).unwrap(),
         State::Rejected(RejectReason::Defect)
     );
 }
@@ -146,19 +207,25 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
     };
     // No appeal: the window closes and it is rejected for polarization.
     assert_eq!(
-        run_item(&ItemVerdicts {
-            appealed: false,
-            ..base
-        })
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                appealed: false,
+                ..base
+            }
+        )
         .unwrap(),
         State::Rejected(RejectReason::Polarized)
     );
     // Appeal, then the evidence vindicates it.
     assert_eq!(
-        run_item(&ItemVerdicts {
-            appealed: true,
-            ..base
-        })
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                appealed: true,
+                ..base
+            }
+        )
         .unwrap(),
         State::ActivePool
     );
@@ -172,19 +239,25 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
     };
     // The D26 re-decision passes (re-fit b_j ≥ τ): it enters the pilot and reaches the pool.
     assert_eq!(
-        run_item(&ItemVerdicts {
-            band_advances: true,
-            ..base
-        })
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                band_advances: true,
+                ..base
+            }
+        )
         .unwrap(),
         State::ActivePool
     );
     // The re-decision fails: it is a defined borderline reject (no dead end, T10/T30).
     assert_eq!(
-        run_item(&ItemVerdicts {
-            band_advances: false,
-            ..base
-        })
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                band_advances: false,
+                ..base
+            }
+        )
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
     );

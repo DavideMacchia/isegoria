@@ -10,7 +10,8 @@ use crate::pilot::{admit_dif_batch, PilotError};
 use network::cid::Cid;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
-use scoring::dif::{mixture_dif, MIXTURE_DIF_MAX};
+use scoring::dif::{mixture_dif, MixtureDif, MIXTURE_DIF_MAX};
+use scoring::Convergence;
 
 /// Respondent floor for the latent-class mixture re-check (`docs/02` §B.6): the
 /// anonymity-compatible detector needs the largest sample (~3000), more than the
@@ -54,7 +55,7 @@ pub fn revalidate_pool(
 
 /// Latent-class re-check over the whole pool (`docs/02` §B.3, Variant 2): the
 /// anonymity-compatible detector for a distorting axis that was never observed. Flags
-/// each item whose latent-class difficulty shift exceeds the threshold. Only
+/// each item whose latent-class difficulty gap exceeds the threshold. Only
 /// identifiable in batches, which is what a whole-pool pass provides.
 pub fn revalidate_pool_latent(theta: &[f64], responses: &[Vec<f64>], seed: u64) -> Vec<bool> {
     let m = if responses.is_empty() {
@@ -65,8 +66,19 @@ pub fn revalidate_pool_latent(theta: &[f64], responses: &[Vec<f64>], seed: u64) 
     if m == 0 {
         return Vec::new();
     }
-    let res = mixture_dif(theta, responses, m, seed);
-    res.delta.iter().map(|d| *d > MIXTURE_DIF_MAX).collect()
+    latent_flags(&mixture_dif(theta, responses, m, seed))
+}
+
+/// The per-item verdict of a mixture fit (T35). Per-item gaps are read only off a fit
+/// that is evidence of two classes: if the free fit did not converge, or the BIC does
+/// not favour two classes over one, no item is flagged — the gaps are then optimizer
+/// output, not an estimate.
+pub fn latent_flags(res: &MixtureDif) -> Vec<bool> {
+    let trustworthy = res.status == Convergence::Converged && res.bic > 0.0;
+    res.dif
+        .iter()
+        .map(|&d| trustworthy && d > MIXTURE_DIF_MAX)
+        .collect()
 }
 
 /// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6): the

@@ -193,7 +193,7 @@ Additional invariants this specification introduces (not in `docs/CLAUDE.md`), e
 | # | Invariant | Reason |
 |---|---|---|
 | INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6): `admission::admit` + `deposit_with_identity`/`submit_review` key on `NullifierProof::id()`; PROTO-007 |
-| INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | ENFORCED (T8): `randomness::Beacon` derives every draw's seed from the signed checkpoint head; the `_from_beacon` wrappers are the entry points; CRYPTO-008 |
+| INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | PARTIAL (T8, reopened as T37): `randomness::Beacon` derives every draw's seed from the signed checkpoint head, so an author cannot grind a draft; but the head is a function of the log content, so whoever orders or includes the last deposits can grind it; CRYPTO-008 |
 | INV-11 | The uniqueness-label key (OPRF key) MUST NOT be rotated without a documented migration that preserves dedup; the label MUST be stable for the lifetime of the registry. | ID-006 |
 | INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | ENFORCED (T7): `review::commit = H(prob, nonce, committer, item)`; the reveal recomputes against the revealer + item; CRYPTO-007 |
 | INV-13 | The engine input MUST have a canonical serialization (fixed observation order, fixed float encoding) and the reproducibility claim MUST be stated relative to it. | REPRO-002 |
@@ -285,7 +285,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### IRT-001 — Ability proxy
 - **Claim.** `θ_i` is the standardized total score on anchor items (`irt::theta_from_anchors`).
 - **Evidence.** Code; matches `th` in both sims.
-- **Note.** This is a classical proxy, not an IRT ability estimate. `standardize` divides by the population SD and returns NaN if all totals are equal. All downstream thresholds (`A_MIN`, `BETA2_MAX`, `MIXTURE_DIF_MAX`) are therefore expressed in "logits per SD of anchor total", not in the IRT θ metric from which the literature values were taken.
+- **Note.** This is a classical proxy, not an IRT ability estimate. `standardize` divides by the population SD and returned NaN if all totals are equal (now: θ ≡ 0 with no spread, and `point_biserial` = 0 with no variance, which fails the screen — T36, `degenerate_inputs.rs`). All downstream thresholds (`A_MIN`, `BETA2_MAX`, `MIXTURE_DIF_MAX`) are therefore expressed in "logits per SD of anchor total", not in the IRT θ metric from which the literature values were taken.
 - **Evidence status.** IMPLEMENTED, TESTED. The metric mismatch is a specification ambiguity (§14 G-07).
 
 #### IRT-002 — Point-biserial catches inverted keys
@@ -295,6 +295,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### IRT-003 — 2PL discrimination screen
 - **Claim.** `fit_2pl_item` returns `a` such that `a ≥ 0.6` retains discriminating items.
+- **Status (T34).** `fit_2pl_item` now returns `Fit2pl { a, b, status }`; `pilot::stage1_screen` fails an item whose fit is not `Converged`, so a separated item's diverging slope no longer passes `a ≥ A_MIN` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`).
 - **Evidence.** `level_b.rs::irt_2pl_discrimination_ranks_items` (ranking + one item below 0.6). `end_to_end.rs` documents that item 02 (generated as 3PL with guessing floor 0.25 in the sim) fails the screen; the test rationalizes this as 3PL-vs-2PL, but the θ-metric mismatch (IRT-001) is an equally plausible cause and is not separated out.
 - **Evidence status.** IMPLEMENTED, TESTED (2 items). Threshold validity NOT ESTABLISHED. 3PL, `c ≤ 0.35`, `|b| ≤ 2.5` (constant `B_ABS_MAX` exists, unused), infit/outfit: NOT IMPLEMENTED.
 
@@ -330,7 +331,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### DIF-006 — Mixture rejection threshold is consistent across docs, sim, and code
 - **Analysis.** Model: `logit P = a_j(θ − b_j − δ_j z)`, `z ∈ {−1,+1}` ⇒ class difficulties `b_j ± δ_j` ⇒ `max_{g,h}|b_jg − b_jh| = 2|δ_j|`. `docs/02` rejects at `DIF_j > 0.5` (on the b-gap). `sim/latent_dif_and_capacity.py` declares "DETECTED" at mean `|δ̂| > 0.35` (batch-level, not per item). `scoring::dif::MIXTURE_DIF_MAX = 0.5` is applied to `|δ̂|` in `revalidation::revalidate_pool_latent` (per item) — i.e. 1.0 logit on the b-gap, **twice** the documented cut-off.
-- **Evidence status.** INCONSISTENT. The specification MUST fix one metric (recommend: report `2|δ̂|` as `DIF_j` and reject at a documented value chosen by an FP/FN study).
+- **Evidence status.** INCONSISTENT at the audit snapshot. **RESOLVED@T35 (metric) / OPEN (value):** `MixtureDif::dif` now reports `DIF_j = 2|δ̂_j|`, and `revalidation::latent_flags` rejects at `MIXTURE_DIF_MAX = 1.0` on the gap — the behaviour the code always had, now stated on the specified quantity — and flags nothing when the free fit did not converge or `BIC ≤ 0`. The literature 0.5 is not adopted: on the one-biased-item fixture `BIC = +32` and every item's gap is 0.56–0.91, so 0.5 would retire all eight (`latent_revalidation.rs`). `docs/02` §B.3 records 1.0 as provisional; the value is set by the FP/FN study (T24/T25).
 
 #### DIF-007 — Purification reaches a fixed point
 - **Claim.** `validation::purify_theta` returns a flagged set that is a fixed point of the flag→re-estimate map.
@@ -490,6 +491,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### CRYPTO-008 — Randomness for lottery, assignment, honeypot placement, sortition
 - **Analysis.** `lottery::admit(base_seed, epoch)`, `review::assign_reviewers(item_seed)`, `honeypot::inject(seed)`, `governance::stratified_sortition(seed)`, `blueprint::assemble_test(seed)` are deterministic in a caller-supplied `u64`. The tests use constants. No document says where the seed comes from. If it is derivable from data an author controls (e.g. the draft CID, which the author can grind by editing whitespace), the author can select its reviewers — the brigading the random assignment is meant to prevent. If it is chosen by an operator, that operator can select reviewers for any item.
 - **Evidence status.** RESOLVED@T8 (was NOT ESTABLISHED). `randomness::Beacon::from_checkpoint` takes a consortium-signed `Checkpoint` and derives every draw's seed as `seed(purpose, index) = H(head ‖ height ‖ purpose ‖ index)`, domain-separated per draw. The `_from_beacon` wrappers (`lottery`, `review`, `honeypot`, `governance`) are the sanctioned entry points; the raw `u64`-seeded draws remain for unit tests. Two properties give AT-BR-05: (1) the seed is a function of the signed head, which commits to every deposit and is fixed only once a threshold co-signs — an author cannot influence or predict it before deposits close; (2) reviewer assignment keys `index` on the item's **byte-independent admitted slot**, not the draft CID, so regenerating the draft cannot move the panel. Tests: `inv10_checkpoint_seed.rs`. Residual: the *publisher/timing* of the checkpoint at epoch close is part of the runtime layer (T13–T18); `blueprint::assemble_test` still takes a raw seed (committee-chosen coverage, not an adversarial draw).
+- **Reopened (second review, 2026-09-23) → PARTIAL, roadmap T37.** Property (1) holds only against an author who does not control the tail of the log. The head is a deterministic function of the log content, so it is computable by anyone who sees the pending entries before signing: the publisher that orders the last deposits, a threshold of signers choosing which of several candidate heads to sign, or a last depositor who sees the log can try variants and keep the seed they prefer. The beacon must be separated from the state commitment (e.g. a unique threshold signature over the epoch number, drand-style, or commit-reveal among members bound before the deposit window closes).
 
 ### 5.7 Privacy
 
@@ -534,7 +536,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### NET-006 — Checkpoint replay, equivocation, network binding
 - **Analysis.** The signed message has no network/consortium identifier and no epoch/time: a checkpoint is valid forever and, after a fork (`docs/04` "freedom to fork" — the same keys may sign on both sides), on both forks. Two threshold-signed checkpoints with the same `height` and different `head` are both accepted; no equivocation detection, no client-side monotonic-height rule, no accountability record. Member set changes (add/remove/rotate keys) are not representable.
-- **Evidence status.** RESOLVED@T15 (was NOT IMPLEMENTED). `Checkpoint` now carries `network_id` and `member_set_hash` **inside the signed message** (`…/checkpoint/v2`), and `consortium::CheckpointClient` is the §9.4 client state machine: it rejects a foreign `network_id` (AT-NET-05) or member set, ignores a non-monotonic `height` as a replay (`Stale`, AT-NET-03), and on two threshold-signed checkpoints at the same height with different heads returns `Forked{trusted, conflicting}` — the equivocation evidence (AT-NET-04). Tests: `checkpoint_replay.rs`. Residual: detecting a higher-height fork whose head does not extend the trusted one combines this with `log::verify_extends` (T14) for a client holding the log; member-set *rotation* in the checkpoint is future (CS-4/T22).
+- **Evidence status.** RESOLVED@T15 (was NOT IMPLEMENTED). `Checkpoint` now carries `network_id` and `member_set_hash` **inside the signed message** (`…/checkpoint/v2`), and `consortium::CheckpointClient` is the §9.4 client state machine: it rejects a foreign `network_id` (AT-NET-05) or member set, ignores a non-monotonic `height` as a replay (`Stale`, AT-NET-03), and on two threshold-signed checkpoints at the same height with different heads returns `Forked{trusted, conflicting}` — the equivocation evidence (AT-NET-04). Tests: `checkpoint_replay.rs`. Higher-height fork: **RESOLVED@T38** for a client holding the log — `CheckpointClient::ingest_with_log` accepts a higher checkpoint only if its log consistently extends both the trusted and the new head (`log::verify_extends`), returning `Forked` for a threshold-signed checkpoint on a different history, `LogBehind` while the log has not caught up, and `LocalLogDiverged` if the local copy left the trusted history (`checkpoint_fork.rs`). The checkpoint-only `ingest` still cannot tell and is documented as such. Residual: member-set *rotation* in the checkpoint is future (CS-4/T22).
 
 #### NET-007 — Erasure coding
 - `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). **Shard authentication RESOLVED@T16:** `Encoded` carries a per-shard `manifest` (`erasure::shard_hash`), and `erasure::reconstruct_verified` authenticates every present shard against it, dropping a wrong shard as lost before decoding — so a corrupted shard cannot silently corrupt the output; if fewer than `data_shards` authentic shards remain it returns `TooFewAuthenticShards` (`shard_authentication.rs`, AT-NET-06). No placement, repair, or churn model yet. **Evidence status.** Coding primitive + corrupted-shard detection TESTED; placement/repair/churn UNSOLVED.
@@ -613,7 +615,7 @@ Unpenalized MLE via `lbfgs`, `g_tol = 1e-8`, `max_iters` 200 (2PL) / 400 (DIF). 
 
 ### 6.4 IRT
 
-**Ability.** `θ_i = (T_i − mean T)/sd_pop(T)`, `T_i = Σ_anchor X_ia`. Requires `sd > 0`. Not an IRT ability; downstream thresholds are in this proxy's metric (IRT-001).
+**Ability.** `θ_i = (T_i − mean T)/sd_pop(T)`, `T_i = Σ_anchor X_ia`; `θ ≡ 0` when `sd = 0` (T36). Not an IRT ability; downstream thresholds are in this proxy's metric (IRT-001).
 **2PL per item.** `logit P(X_ij = 1 | θ_i) = w₁ θ_i + w₀`; `a_j = w₁`, `b_j = −w₀/w₁` (NaN/∞ when `w₁ = 0`). Retention: `a_j ≥ A_MIN = 0.6`. `B_ABS_MAX = 2.5` is defined and never applied.
 **Point-biserial.** Pearson between the 0/1 item and `total` (caller passes `θ`, a linear transform of the anchor total ⇒ identical correlation). Retention `≥ 0.20`; negative ⇒ inverted key. The spec's "total score on the rest of the test" is not what is computed (anchor total is used).
 **Not implemented.** 3PL (`c_j`), infit/outfit MNSQ, `|b| ≤ 2.5`.
@@ -630,7 +632,7 @@ Unpenalized MLE via `lbfgs`, `g_tol = 1e-8`, `max_iters` 200 (2PL) / 400 (DIF). 
 P(X_ij = 1 | θ_i, z_i) = σ( a_j (θ_i − b_j − δ_j z_i) ),   z_i ∈ {−1,+1},  P(z=+1) = π
 ℓ(π, a, b, δ) = Σ_i log[ (1−π)·Π_j P(x_ij | z=−1) + π·Π_j P(x_ij | z=+1) ]
 LR = 2(ℓ_full − ℓ_null(δ≡0)),   BIC_gain = LR − K·ln(NT)   (> 0 ⇒ two classes)
-DIF_j (spec) = |b_j^{+} − b_j^{−}| = 2|δ_j|;  code reports |δ_j| and rejects at 0.5
+DIF_j (spec) = |b_j^{+} − b_j^{−}| = 2|δ_j|;  code reports 2|δ_j| and rejects at 1.0 (T35, provisional)
 ```
 Init: `a = 1, b = 0, δ ~ 0.3·N(0,1)` (seeded), `logit π = 0`. Optimizer: `lbfgs` with central differences `h = 1e-5`, `g_tol = 1e-6`, ≤ 3000 iters.
 **Identifiability.** Label switching `(δ, π) ↔ (−δ, 1−π)` resolved by `|δ|`. Under the null, `π` is unidentified and the LR statistic is not χ²_K (boundary + non-identifiability: Self–Liang / mixture-LRT irregularity); BIC comparison is a heuristic, not a calibrated test. `θ` is fixed at the anchor proxy, so measurement error in `θ` is absorbed into `a`, `b`, `δ` (not characterized).
@@ -862,7 +864,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Sparse-data manipulation (target items with few reviewers) | `k` fixed per item; `n_min` unimplemented | UNSOLVED — a cartel member landing in a 7-reviewer panel has 1/7 of the raw input; the model's robustness to one extreme rating per panel is uncharacterized |
 | Faction impersonation (a cartel member pretends to be of the opposite camp on its history, then "bridges" a partisan item) | bridging estimates `f_u` from history | **UNSOLVED / not analysed**: a patient adversary can build a cross-camp `f_u` cheaply (ratings cost nothing) and then supply "cross-cutting approval" on demand; this is the *designed* trust signal and it is manufacturable at the price of `n_min` sincere-looking ratings |
 | Rating inflation/compression (everyone rates 1.0) | `b_u` absorbs severity | CONTAINED for individual bias; global compression destroys the signal (not analysed) |
-| Seed grinding for reviewer selection | INV-10 | SOLVED (T8): the seed is the signed checkpoint head; assignment keys on a byte-independent slot (CRYPTO-008) |
+| Seed grinding for reviewer selection | INV-10 | PARTIAL (T8): the seed is the signed checkpoint head and assignment keys on a byte-independent slot, so draft grinding is blocked; grinding the head by whoever controls the last deposits remains (T37, CRYPTO-008) |
 | Commitment copying | INV-12 | SOLVED (T7): the commitment binds committer + item (CRYPTO-007) |
 
 ### 11.4 Psychometrics

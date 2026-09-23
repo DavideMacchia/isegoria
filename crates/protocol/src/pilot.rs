@@ -13,7 +13,6 @@ use crate::lifecycle::K_MIN;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
 use scoring::irt::{fit_2pl_item, point_biserial, A_MIN, R_PBIS_MIN};
-#[cfg(feature = "calibration")]
 use scoring::LogisticFit;
 
 /// Stage-1 distinct-respondent floor (`docs/02` §B.6: the classic discrimination screen).
@@ -87,14 +86,15 @@ pub fn dif_batch(
 }
 
 /// Stage 1 screen (~300 respondents): keep items that discriminate. A negative
-/// point-biserial signals a wrong answer key.
+/// point-biserial signals a wrong answer key. A 2PL fit that did not converge (e.g. a
+/// separated item, whose slope diverges) says nothing about `a`, so it fails (T34).
 pub fn stage1_screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
     item_responses
         .iter()
         .map(|item| {
             let rp = point_biserial(item, theta);
-            let (a, _b) = fit_2pl_item(theta, item);
-            rp >= R_PBIS_MIN && a >= A_MIN
+            let fit = fit_2pl_item(theta, item);
+            rp >= R_PBIS_MIN && fit.status == LogisticFit::Converged && fit.a >= A_MIN
         })
         .collect()
 }

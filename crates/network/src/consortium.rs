@@ -3,6 +3,7 @@
 //! who controls the machines, so a checkpoint needs a threshold `t` of `n` signers.
 
 use crate::hash::tagged;
+use crate::log::{ConsistencyError, TransparencyLog};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 /// A signed state: the log head at a given height, bound to the network and the member
@@ -142,13 +143,20 @@ pub enum CheckpointReject {
     WrongMemberSet,
     /// Fewer than the threshold of valid distinct signatures.
     InsufficientSignatures,
+    /// [`CheckpointClient::ingest_with_log`]: the local log is shorter than the new
+    /// checkpoint, so it cannot yet show the new head extends the trusted one. Sync, retry.
+    LogBehind,
+    /// [`CheckpointClient::ingest_with_log`]: the local log does not extend the checkpoint
+    /// this client already trusts — the local copy, not the new checkpoint, is at fault.
+    LocalLogDiverged,
 }
 
 /// A light node that follows one network's checkpoints under a fixed member set,
 /// enforcing the §9.4 rules: reject a foreign network or member set, ignore a replayed
-/// (non-monotonic) height, and alarm on equivocation. Higher-height fork detection (a new
-/// head that does not extend the trusted one) additionally needs a log consistency proof
-/// (`log::verify_extends`, T14), which a client holding the log can combine.
+/// (non-monotonic) height, and alarm on equivocation. [`ingest`](Self::ingest) sees only
+/// checkpoints, so it cannot tell a higher checkpoint on a *different* history from an
+/// extension; a client holding the log uses [`ingest_with_log`](Self::ingest_with_log),
+/// which also requires the new head to extend the trusted one (T38).
 pub struct CheckpointClient {
     network_id: [u8; 32],
     member_set_hash: [u8; 32],
@@ -173,7 +181,49 @@ impl CheckpointClient {
     }
 
     /// Processes an incoming checkpoint and its signatures against the trusted state.
+    /// Accepts any correctly signed higher checkpoint: without the log it cannot check
+    /// that the new head extends the trusted one (use [`Self::ingest_with_log`]).
     pub fn ingest(&mut self, cp: &Checkpoint, sigs: &[(usize, Signature)]) -> CheckpointUpdate {
+        self.ingest_checked(cp, sigs, |_| Ok(()))
+    }
+
+    /// Like [`Self::ingest`], but a higher checkpoint is accepted only if `log` — this
+    /// client's copy — consistently extends both the trusted checkpoint and the new one
+    /// (`log::verify_extends`, T14). A threshold-signed checkpoint on a different history
+    /// is then reported as `Forked` instead of silently becoming the trusted head (T38).
+    pub fn ingest_with_log(
+        &mut self,
+        cp: &Checkpoint,
+        sigs: &[(usize, Signature)],
+        log: &TransparencyLog,
+    ) -> CheckpointUpdate {
+        self.ingest_checked(cp, sigs, |trusted| {
+            if log.verify_extends(trusted).is_err() {
+                return Err(CheckpointUpdate::Rejected(
+                    CheckpointReject::LocalLogDiverged,
+                ));
+            }
+            match log.verify_extends(cp) {
+                Ok(()) => Ok(()),
+                Err(ConsistencyError::Truncated { .. }) => {
+                    Err(CheckpointUpdate::Rejected(CheckpointReject::LogBehind))
+                }
+                Err(_) => Err(CheckpointUpdate::Forked {
+                    trusted: *trusted,
+                    conflicting: *cp,
+                }),
+            }
+        })
+    }
+
+    /// The shared §9.4 rules; `extends` vets a strictly higher checkpoint against the
+    /// trusted one before it is accepted.
+    fn ingest_checked(
+        &mut self,
+        cp: &Checkpoint,
+        sigs: &[(usize, Signature)],
+        extends: impl FnOnce(&Checkpoint) -> Result<(), CheckpointUpdate>,
+    ) -> CheckpointUpdate {
         if cp.network_id != self.network_id {
             return CheckpointUpdate::Rejected(CheckpointReject::WrongNetwork);
         }
@@ -188,10 +238,13 @@ impl CheckpointClient {
                 self.trusted = Some(*cp);
                 CheckpointUpdate::Accepted
             }
-            Some(t) if cp.height > t.height => {
-                self.trusted = Some(*cp);
-                CheckpointUpdate::Accepted
-            }
+            Some(t) if cp.height > t.height => match extends(&t) {
+                Ok(()) => {
+                    self.trusted = Some(*cp);
+                    CheckpointUpdate::Accepted
+                }
+                Err(update) => update,
+            },
             // Same height, different head from a threshold of signers: equivocation.
             Some(t) if cp.height == t.height && cp.head != t.head => CheckpointUpdate::Forked {
                 trusted: t,

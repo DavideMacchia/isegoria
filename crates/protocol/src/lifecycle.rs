@@ -42,6 +42,8 @@ pub enum State {
     },
     Revealing {
         item: Cid,
+        /// Carried from `InReview` so `Score` can check every panelist revealed.
+        panel: Vec<Nym>,
         commits: Vec<(Nym, Commitment)>,
         reveals: Vec<(Nym, f64)>,
     },
@@ -74,11 +76,15 @@ pub enum Invalid {
     SeedNotFromCheckpoint,
     /// Panel size must be odd and in `[7, 11]`.
     PanelSizeInvalid,
+    /// The same nym appears twice in a panel (fewer distinct reviewers than slots).
+    DuplicatePanelist,
     /// Commit/reveal from a nym that is not in the panel.
     NotInPanel,
     AlreadyCommitted,
     /// Reveal from a nym that never committed.
     NoCommit,
+    /// A second reveal from the same nym.
+    AlreadyRevealed,
     /// The reveal does not open the stored commitment (INV-12).
     RevealMismatch,
     /// A revealed probability outside `[0, 1]`, or NaN.
@@ -143,12 +149,9 @@ pub enum Event {
         prob: f64,
         nonce: [u8; 32],
     },
-    /// Reveal deadline reached; the epoch is scored. `all_reveals_in` guards against
-    /// scoring a partial epoch.
-    Score {
-        all_reveals_in: bool,
-        outcome: GateOutcome,
-    },
+    /// Reveal deadline reached; the epoch is scored. Refused unless every panelist has
+    /// revealed (checked against the state, not asserted by the caller).
+    Score { outcome: GateOutcome },
     /// The D26 supplementary re-decision of a band item: `passed` is `gate::
     /// supplementary_review` (a re-run bridging fit, `b_j` vs the plain threshold).
     Resolve { passed: bool },
@@ -194,17 +197,19 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // Admitted → InReview: k odd ∈ [7, 11].
+        // Admitted → InReview: k odd ∈ [7, 11] distinct reviewers.
         (Admitted, AssignReviewers { panel, item }) => {
             let k = panel.len();
-            if k % 2 == 1 && (7..=11).contains(&k) {
+            if k % 2 == 0 || !(7..=11).contains(&k) {
+                Err(Invalid::PanelSizeInvalid)
+            } else if (1..k).any(|i| panel[..i].contains(&panel[i])) {
+                Err(Invalid::DuplicatePanelist)
+            } else {
                 Ok(InReview {
                     item,
                     panel,
                     commits: Vec::new(),
                 })
-            } else {
-                Err(Invalid::PanelSizeInvalid)
             }
         }
 
@@ -230,8 +235,16 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
                 commits,
             })
         }
-        (InReview { item, commits, .. }, CloseCommits) => Ok(Revealing {
+        (
+            InReview {
+                item,
+                panel,
+                commits,
+            },
+            CloseCommits,
+        ) => Ok(Revealing {
             item,
+            panel,
             commits,
             reveals: Vec::new(),
         }),
@@ -242,6 +255,7 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
         (
             Revealing {
                 item,
+                panel,
                 commits,
                 mut reveals,
             },
@@ -250,6 +264,9 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             let Some((_, commitment)) = commits.iter().find(|(n, _)| *n == nym) else {
                 return Err(Invalid::NoCommit);
             };
+            if reveals.iter().any(|(n, _)| *n == nym) {
+                return Err(Invalid::AlreadyRevealed);
+            }
             if prob.is_nan() || !(0.0..=1.0).contains(&prob) {
                 return Err(Invalid::ProbabilityOutOfRange);
             }
@@ -259,20 +276,16 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             reveals.push((nym, prob));
             Ok(Revealing {
                 item,
+                panel,
                 commits,
                 reveals,
             })
         }
 
-        // Revealing → Gated outcome: never on a partial epoch.
-        (
-            Revealing { .. },
-            Score {
-                all_reveals_in,
-                outcome,
-            },
-        ) => {
-            if !all_reveals_in {
+        // Revealing → Gated outcome: never on a partial epoch. Reveals are unique and
+        // come only from committed panelists, so "all in" is every panelist present.
+        (Revealing { panel, reveals, .. }, Score { outcome }) => {
+            if !panel.iter().all(|p| reveals.iter().any(|(n, _)| n == p)) {
                 return Err(Invalid::PartialEpoch);
             }
             Ok(match outcome {

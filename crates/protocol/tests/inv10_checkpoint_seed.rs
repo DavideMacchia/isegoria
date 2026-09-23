@@ -134,10 +134,13 @@ fn honeypot_and_sortition_seed_from_the_beacon() {
             f_u: (i as f64 / 30.0) - 0.5,
         })
         .collect();
-    let s1 = sortition_from_beacon(&candidates, 7, 3, &beacon, 0);
-    let s2 = sortition_from_beacon(&candidates, 7, 3, &beacon, 0);
+    let s1 = sortition_from_beacon(&candidates, 7, 3, &beacon, 0).unwrap();
+    let s2 = sortition_from_beacon(&candidates, 7, 3, &beacon, 0).unwrap();
     assert_eq!(s1, s2, "sortition is deterministic per (beacon, round)");
     assert_eq!(s1.len(), 7);
     // A later round draws a different committee.
-    assert_ne!(sortition_from_beacon(&candidates, 7, 3, &beacon, 1), s1);
+    assert_ne!(
+        sortition_from_beacon(&candidates, 7, 3, &beacon, 1).unwrap(),
+        s1
+    );
 }

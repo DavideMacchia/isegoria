@@ -64,7 +64,7 @@ fn mixture_dif_is_bit_for_bit_reproducible() {
     let x = read_matrix("mixture_batch_X.csv");
     let a = mixture_dif(&theta, &x, 8, 0);
     let b = mixture_dif(&theta, &x, 8, 0);
-    assert_eq!(bits(&a.delta), bits(&b.delta));
+    assert_eq!(bits(&a.dif), bits(&b.dif));
     assert_eq!(a.bic.to_bits(), b.bic.to_bits());
     assert_eq!(bits(&a.class_posterior), bits(&b.class_posterior));
 }
