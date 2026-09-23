@@ -118,8 +118,8 @@ fn irt_2pl_discrimination_ranks_items() {
     let xa = read_matrix("levelb_XA.csv");
     let x = read_matrix("levelb_X.csv");
     let theta = theta_from_anchors(&xa);
-    let (a_flat, _) = fit_2pl_item(&theta, &column(&x, 4)); // capital of Italy: low discrimination
-    let (a_sharp, _) = fit_2pl_item(&theta, &column(&x, 0)); // number of deputies: high discrimination
+    let a_flat = fit_2pl_item(&theta, &column(&x, 4)).a; // capital of Italy: low discrimination
+    let a_sharp = fit_2pl_item(&theta, &column(&x, 0)).a; // number of deputies: high discrimination
     assert!(a_sharp > a_flat, "a_sharp={a_sharp:.3} a_flat={a_flat:.3}");
     assert!(
         a_flat < 0.6,

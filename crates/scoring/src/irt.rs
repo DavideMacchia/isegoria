@@ -1,6 +1,6 @@
 //! Level B — IRT and classical item statistics. See `docs/02`, §B.1–B.2.
 
-use crate::glm::fit_logistic;
+use crate::glm::{fit_logistic, LogisticFit};
 
 pub const A_MIN: f64 = 0.6;
 pub const B_ABS_MAX: f64 = 2.5;
@@ -40,12 +40,24 @@ pub fn point_biserial(item: &[f64], total: &[f64]) -> f64 {
     cov / (vi.sqrt() * vt.sqrt())
 }
 
+/// A 2PL item fit. `a` and `b` are meaningful only when `status` is `Converged`: under
+/// separation the slope diverges (docs/08 OPT-001, T34).
+#[derive(Clone, Copy, Debug)]
+pub struct Fit2pl {
+    pub a: f64,
+    pub b: f64,
+    pub status: LogisticFit,
+}
+
 /// 2PL fit for one item given fixed θ: `logit P = a(θ − b)`, via logistic
 /// regression on `[1, θ]` with `a = slope`, `b = −intercept / slope`.
-pub fn fit_2pl_item(theta: &[f64], responses: &[f64]) -> (f64, f64) {
+pub fn fit_2pl_item(theta: &[f64], responses: &[f64]) -> Fit2pl {
     let x: Vec<Vec<f64>> = theta.iter().map(|&t| vec![1.0, t]).collect();
-    let w = fit_logistic(&x, responses, 200).weights;
-    let a = w[1];
-    let b = -w[0] / w[1];
-    (a, b)
+    let fit = fit_logistic(&x, responses, 200);
+    let w = fit.weights;
+    Fit2pl {
+        a: w[1],
+        b: -w[0] / w[1],
+        status: fit.status,
+    }
 }

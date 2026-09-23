@@ -221,6 +221,28 @@ fn pilot_stage1_drops_non_discriminating_items() {
     assert!(!keep[1], "a non-discriminating item should be killed");
 }
 
+/// A perfectly separating item has no finite 2PL slope: the fit reports `Separated` and
+/// the huge slope it stopped at must not pass `a ≥ A_MIN` (T34, OPT-001). Its
+/// point-biserial is high, so only the status check stops it.
+#[test]
+fn pilot_stage1_fails_an_item_whose_2pl_fit_is_separated() {
+    let (theta, _group) = synthetic();
+    let separated: Vec<f64> = theta.iter().map(|&t| (t > 0.0) as i32 as f64).collect();
+
+    let fit = scoring::irt::fit_2pl_item(&theta, &separated);
+    assert_eq!(fit.status, scoring::LogisticFit::Separated);
+    assert!(
+        fit.a >= scoring::irt::A_MIN,
+        "contrast: the slope alone would pass, a = {}",
+        fit.a
+    );
+    assert!(
+        scoring::irt::point_biserial(&separated, &theta) >= scoring::irt::R_PBIS_MIN,
+        "contrast: the point-biserial alone would pass"
+    );
+    assert!(!stage1_screen(&theta, &[separated])[0]);
+}
+
 #[cfg(feature = "calibration")]
 #[test]
 fn pilot_stage2_drops_dif_items() {
