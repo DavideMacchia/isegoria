@@ -35,7 +35,7 @@ use protocol::lifecycle::State;
 use protocol::orchestrator::{run_item, weighted_ratings, ItemVerdicts, ReviewerStanding};
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
-use protocol::pilot::{stage2_dif, DifVerdict};
+use protocol::pilot::{dif_batch, screen, stage2_dif, DifVerdict, N1_MIN};
 use protocol::probation::N_PROBATION;
 use protocol::revalidation::revalidate_pool_latent;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
@@ -245,13 +245,15 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         })
         .collect();
 
-    // --- scoring Level B: two-stage pilot on the advancing items ---
+    // --- scoring Level B: two-stage pilot on the advancing items, batch/sample-gated ---
+    // The pilot runs through `pilot::{screen, dif_batch}` (INV-8, §B.6, T9): the fixtures
+    // meet both floors (1500 respondents; ≥ 2 advancing items), so admission succeeds.
     let theta = theta_from_anchors(&read_matrix("levelb_XA.csv"));
     let grp = read_vector("levelb_grp.csv");
     let x = read_matrix("levelb_X.csv");
 
     let cols: Vec<Vec<f64>> = advancing.iter().map(|&j| column(&x, j)).collect();
-    let keep1 = stage1_screen(&theta, &cols);
+    let keep1 = screen(&theta, &cols).expect("stage-1 respondent floor met on the fixtures");
     let screen_passed: HashMap<usize, bool> = advancing
         .iter()
         .copied()
@@ -264,7 +266,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .collect();
 
     let cols2: Vec<Vec<f64>> = after1.iter().map(|&j| column(&x, j)).collect();
-    let keep2 = stage2_dif(&theta, &grp, &cols2);
+    let keep2 = dif_batch(&theta, &grp, &cols2).expect("stage-2 batch and respondent floors met");
     // Only a clean Pass advances; a Reject or an Undetermined (separated) fit does not.
     let dif_passed: HashMap<usize, bool> = after1
         .iter()
@@ -284,7 +286,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
                 gate: gate[j],
                 appealed: appeals.contains(&j),
                 band_advances: band_advances[j],
-                enough_respondents: true,
+                enough_respondents: theta.len() >= N1_MIN,
                 screen_passed: *screen_passed.get(&j).unwrap_or(&false),
                 dif_passed: *dif_passed.get(&j).unwrap_or(&false),
                 pilot2_batch_size,

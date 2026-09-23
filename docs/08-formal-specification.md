@@ -186,7 +186,7 @@ The eight invariants of `docs/CLAUDE.md` are restated here as runtime invariants
 | INV-5 | One deterministic, non-rotatable pseudonym per role. | `nym::derive_nym` and `nullifier::prove` are both deterministic in `(secret, role)`. Rotation is prevented only if a second credential is impossible (ID-001…ID-005). | Enforced for derivation; depends on identity layer |
 | INV-6 | The authenticator (state) MUST be distinct from the issuer (committee). | Distinct types (`IdentityDocument` vs `Issuer`). No protocol message separates them; see §3.2. | Asserted |
 | INV-7 | Same input ⇒ bit-identical output. | `tests/reproducibility.rs` (same process, same binary). "Input" has no canonical serialization; see REPRO-001/002. | Tested within a process |
-| INV-8 | Level-B validation MUST run on batches, never a single item. | `dif::mixture_dif` takes a batch; `pilot::stage2_dif` accepts a batch of size 1 without complaint (`end_to_end.rs:203` calls it with one item). No minimum batch size is enforced anywhere. | Not enforced |
+| INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
 
 Additional invariants this specification introduces (not in `docs/CLAUDE.md`), each derived from a gap found in §10:
 
@@ -560,7 +560,8 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### PROTO-005 — Pilot stage semantics — Stage 1 = `r_pbis ≥ 0.20 ∧ a ≥ 0.6`; Stage 2 = `|β₂| ≤ 0.40` on a supplied `group`. No `|b| ≤ 2.5`, no `c`, no MH, no mixture in the pilot; the mixture appears only in re-validation. Sample sizes (300/1500/3000) are not parameters of any function. TESTED on synthetic and fixture data.
 
-#### PROTO-006 — Batch enforcement — NOT ENFORCED (INV-8).
+#### PROTO-006 — Batch enforcement — RESOLVED@T9 (was NOT ENFORCED).
+- The DIF stages run through batch-admission gates that refuse a batch below `K_MIN` items (INV-8) and a sample below its §B.6 floor: `pilot::admit_dif_batch`, the wrappers `pilot::{screen, dif_batch}` (Variant 1) and `revalidation::revalidate_batch_latent` (production Variant 2), with floors `N1_MIN`=300 / `N2_MIN`=1500 / `N_LATENT_MIN`=3000. `end_to_end.rs::run_epoch` runs the pilot through the gates, and `lifecycle::step` independently rejects `Pilot2Batch { batch_size < K_MIN }` (T12). AT-PRO-02 passes (`inv8_batch_min.rs`).
 
 #### PROTO-007 — Pseudonym validity is verified by the protocol
 - **Analysis.** `review::Reviewer.nym`, `probation::FounderSet`, and reputation maps are keyed on `nym::Nym` = SHA-256 of a secret, presented without proof. Anyone can mint unlimited `Nym`s. Sybil resistance, non-rotatability, and rate limiting are therefore properties of the *identity crate in isolation*, not of the protocol as wired. `lib.rs` of `identity` lists "unifying the protocol pseudonym with the ZK nullifier" as future work.
@@ -751,8 +752,8 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `SupplementaryReview` | **UNSPECIFIED** (PROTO-008) | | | | |
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` | `Pilot1{appealed}` | stake escrowed (REPUTATION-007) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
-| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✗ no check); duplicate respondent nullifier (✗ no check) |
-| `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✗ accepted today); Variant 1 with a linked/declared group in production (✗) |
+| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✗ no check) |
+| `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
 | `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound) | `Retired{EmergingDif}` / stays | — | — |
 | `ActivePool` | `exposure ≥ EXPOSURE_LIMIT (2000)` | — | `Retired{Exposure}` | template rotation | — |
@@ -1198,8 +1199,8 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-002 | lottery | `lifecycle.rs`, proptest | TESTED | seed source | G-05 |
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
 | PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED | escrow semantics | G-15 |
-| PROTO-005 | pilot stages | `lifecycle.rs`, `end_to_end.rs` | TESTED | N/K gating | G-15 |
-| PROTO-006 | batch enforced | `lifecycle.rs` (`BatchTooSmall`, `NotEnoughRespondents`); `orchestrator.rs` | ENFORCED (T12) in the state machine — the pilot-1 respondent floor and `K_min ≥ 2` reject a batch of one | wiring into the fixture epoch | AT-PRO-02 |
+| PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
+| PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
 | PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass | cryptographic-grade enrollment/replay (T20), per-credential quota (T11), external review of the nullifier (§7.4) | G-04 |
 | PROTO-008 | supplementary review | — | NOT SPECIFIED | — | G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |

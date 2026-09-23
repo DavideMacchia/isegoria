@@ -161,7 +161,7 @@ steps are seeded for reproducibility.
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
 | `aggregate` | [4]/[5], §C.2 | `review_weights`, `aggregate_pass_probability`, `resolve_band` | `scoring::collusion`, `probation` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `settle_appeal` | (scoring outputs) |
-| `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif` | `scoring::irt`, `scoring::dif` |
+| `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |

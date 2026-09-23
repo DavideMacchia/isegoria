@@ -6,10 +6,16 @@
 //! [`crate::exposure::should_retire`] as `ItemHealth`.
 
 use crate::exposure::{should_retire, ExposureLedger, ItemHealth, RetirementReason};
+use crate::pilot::{admit_dif_batch, PilotError};
 use network::cid::Cid;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
 use scoring::dif::{mixture_dif, MIXTURE_DIF_MAX};
+
+/// Respondent floor for the latent-class mixture re-check (`docs/02` §B.6): the
+/// anonymity-compatible detector needs the largest sample (~3000), more than the
+/// group-signal DIF stage.
+pub const N_LATENT_MIN: usize = 3000;
 
 #[cfg(feature = "calibration")]
 fn column(responses: &[Vec<f64>], j: usize) -> Vec<f64> {
@@ -61,6 +67,20 @@ pub fn revalidate_pool_latent(theta: &[f64], responses: &[Vec<f64>], seed: u64) 
     }
     let res = mixture_dif(theta, responses, m, seed);
     res.delta.iter().map(|d| *d > MIXTURE_DIF_MAX).collect()
+}
+
+/// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6): the
+/// pool is re-checked only as a batch of at least `K_MIN` items with at least
+/// `N_LATENT_MIN` respondents. A single item is rejected (AT-PRO-02) — it cannot reveal
+/// latent bias. `responses` is respondents × items.
+pub fn revalidate_batch_latent(
+    theta: &[f64],
+    responses: &[Vec<f64>],
+    seed: u64,
+) -> Result<Vec<bool>, PilotError> {
+    let m = responses.first().map_or(0, |row| row.len());
+    admit_dif_batch(m, theta.len(), N_LATENT_MIN)?;
+    Ok(revalidate_pool_latent(theta, responses, seed))
 }
 
 /// Composes re-validation health with exposure into the retirement list: for each
