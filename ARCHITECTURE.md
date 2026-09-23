@@ -153,7 +153,7 @@ steps are seeded for reproducibility.
 
 | Module | Stage | Key items | Uses |
 |---|---|---|---|
-| `admission` | INV-9 | `admit`, `NullifierSet` — verified role nullifier → proven `id` (T6) | `identity::nullifier`, `identity::credential` |
+| `admission` | INV-9/ID-008 | `admit`, `NullifierSet` (T6); `QuotaLedger` — per-credential proposal quota (T11) | `identity::nullifier`, `identity::ratelimit` |
 | `blueprint` | [8]/L2 | `Blueprint`, `quotas`, `coverage_deviation`, `assemble_test` | — |
 | `deposit` | [2] | `Draft`, `deposit`, `deposit_with_identity` (identity-gated) | `admission`, `identity`, `network::{log,cid}` |
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
@@ -262,7 +262,7 @@ cargo clippy --workspace --all-targets
 | Concern | Status | Production backend |
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
-| Role pseudonyms, rate-limiting tokens | **Real** (hash-based) | — |
+| Role pseudonyms; one credential per label; proposal rate limit | **Real** — deterministic role nyms; `IssuanceRegistry` (one credential per label, T11); `QuotaLedger` per-credential proposal quota keyed on the proven id (T11) | cryptographic-grade RLN (ZK `slot < quota`, reuse reveals key) — T20 |
 | ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review entry points key on its proven `id`, with an action-context binding against replay | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |

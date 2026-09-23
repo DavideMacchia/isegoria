@@ -13,7 +13,8 @@
 use identity::credential::IssuerPublic;
 use identity::nullifier::{verify, NullifierProof};
 use identity::nym::{Nym, Role};
-use std::collections::HashSet;
+use identity::ratelimit::within_quota;
+use std::collections::{HashMap, HashSet};
 
 /// Why a presented identity proof is not admissible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,5 +72,42 @@ impl NullifierSet {
 
     pub fn contains(&self, id: &Nym) -> bool {
         self.seen.contains(id)
+    }
+}
+
+/// Over the per-credential proposal quota for the epoch.
+#[derive(Debug, PartialEq, Eq)]
+pub struct OverQuota;
+
+/// Per-credential proposal quota for one epoch (`docs/08` ID-008; the structural
+/// in-process form — the RLN cryptographic-grade form is T20). Counts proposals per
+/// **proposer nullifier id** (INV-9, never `derive_nym`), so a person's proposals are
+/// bounded across their unlinkable Propose actions. The quota is set by the caller from
+/// the author score `C_a` (`scoring::reputation::proposal_rate`) — the cost of proposing
+/// is reputation and a rate limit, never money (invariant #3). Use one ledger per epoch.
+#[derive(Default)]
+pub struct QuotaLedger {
+    used: HashMap<Nym, u32>,
+}
+
+impl QuotaLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Charges one proposal to `proposer` against `quota`, rejecting once the count would
+    /// exceed it. Reuses [`identity::ratelimit::within_quota`] for the bound.
+    pub fn charge(&mut self, proposer: Nym, quota: u32) -> Result<(), OverQuota> {
+        let used = self.used.entry(proposer).or_insert(0);
+        if !within_quota(*used, quota) {
+            return Err(OverQuota);
+        }
+        *used += 1;
+        Ok(())
+    }
+
+    /// How many proposals `proposer` has made this epoch.
+    pub fn used(&self, proposer: &Nym) -> u32 {
+        self.used.get(proposer).copied().unwrap_or(0)
     }
 }

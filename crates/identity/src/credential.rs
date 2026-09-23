@@ -52,6 +52,7 @@ use sha2::Sha256;
 use sha3::Shake256;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::fmt;
 
 type E = Bls12_381;
@@ -242,6 +243,29 @@ pub enum IssuanceError {
     InvalidProofOfKnowledge,
     /// BBS+ signing failed (e.g. malformed request).
     Signing,
+    /// A credential was already issued for this label (`docs/08` ID-007): one
+    /// credential per uniqueness label, so a person cannot obtain a second identity.
+    AlreadyIssued,
+}
+
+/// Records which uniqueness labels have already been issued a credential, so a person —
+/// who has exactly one label (`enrollment`) — gets exactly one credential (`docs/08`
+/// ID-007). Mirrors [`crate::enrollment::EnrollmentRegistry`]; pair it with
+/// [`Issuer::issue_once`].
+#[derive(Default)]
+pub struct IssuanceRegistry {
+    issued: HashSet<Label>,
+}
+
+impl IssuanceRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether a credential has already been issued for `label`.
+    pub fn contains(&self, label: &Label) -> bool {
+        self.issued.contains(label)
+    }
 }
 
 /// A single blind issuer. Holds the BBS+ secret key; `public()` hands out everything
@@ -293,6 +317,25 @@ impl Issuer {
         )
         .map(BlindSignature)
         .map_err(|_| IssuanceError::Signing)
+    }
+
+    /// One credential per label (`docs/08` ID-007): blind-sign only if `registry` has not
+    /// already issued for this label, recording it on success. This is what stops
+    /// whitewashing with a fresh secret (AT-ID-03): the label is fixed at enrollment, so a
+    /// second request under a new secret carries the same label and is refused
+    /// (AT-ID-02). The label is recorded only after a valid signature, so a bad request
+    /// does not burn it.
+    pub fn issue_once(
+        &self,
+        registry: &mut IssuanceRegistry,
+        request: &IssuanceRequest,
+    ) -> Result<BlindSignature, IssuanceError> {
+        if registry.issued.contains(&request.label) {
+            return Err(IssuanceError::AlreadyIssued);
+        }
+        let signature = self.issue(request)?;
+        registry.issued.insert(request.label.clone());
+        Ok(signature)
     }
 }
 
