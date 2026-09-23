@@ -285,7 +285,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### IRT-001 — Ability proxy
 - **Claim.** `θ_i` is the standardized total score on anchor items (`irt::theta_from_anchors`).
 - **Evidence.** Code; matches `th` in both sims.
-- **Note.** This is a classical proxy, not an IRT ability estimate. `standardize` divides by the population SD and returns NaN if all totals are equal. All downstream thresholds (`A_MIN`, `BETA2_MAX`, `MIXTURE_DIF_MAX`) are therefore expressed in "logits per SD of anchor total", not in the IRT θ metric from which the literature values were taken.
+- **Note.** This is a classical proxy, not an IRT ability estimate. `standardize` divides by the population SD and returned NaN if all totals are equal (now: θ ≡ 0 with no spread, and `point_biserial` = 0 with no variance, which fails the screen — T36, `degenerate_inputs.rs`). All downstream thresholds (`A_MIN`, `BETA2_MAX`, `MIXTURE_DIF_MAX`) are therefore expressed in "logits per SD of anchor total", not in the IRT θ metric from which the literature values were taken.
 - **Evidence status.** IMPLEMENTED, TESTED. The metric mismatch is a specification ambiguity (§14 G-07).
 
 #### IRT-002 — Point-biserial catches inverted keys
@@ -614,7 +614,7 @@ Unpenalized MLE via `lbfgs`, `g_tol = 1e-8`, `max_iters` 200 (2PL) / 400 (DIF). 
 
 ### 6.4 IRT
 
-**Ability.** `θ_i = (T_i − mean T)/sd_pop(T)`, `T_i = Σ_anchor X_ia`. Requires `sd > 0`. Not an IRT ability; downstream thresholds are in this proxy's metric (IRT-001).
+**Ability.** `θ_i = (T_i − mean T)/sd_pop(T)`, `T_i = Σ_anchor X_ia`; `θ ≡ 0` when `sd = 0` (T36). Not an IRT ability; downstream thresholds are in this proxy's metric (IRT-001).
 **2PL per item.** `logit P(X_ij = 1 | θ_i) = w₁ θ_i + w₀`; `a_j = w₁`, `b_j = −w₀/w₁` (NaN/∞ when `w₁ = 0`). Retention: `a_j ≥ A_MIN = 0.6`. `B_ABS_MAX = 2.5` is defined and never applied.
 **Point-biserial.** Pearson between the 0/1 item and `total` (caller passes `θ`, a linear transform of the anchor total ⇒ identical correlation). Retention `≥ 0.20`; negative ⇒ inverted key. The spec's "total score on the rest of the test" is not what is computed (anchor total is used).
 **Not implemented.** 3PL (`c_j`), infit/outfit MNSQ, `|b| ≤ 2.5`.

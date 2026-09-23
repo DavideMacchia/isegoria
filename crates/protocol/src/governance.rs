@@ -10,6 +10,8 @@ use crate::randomness::{Beacon, SORTITION};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::collections::HashSet;
+use std::hash::Hash;
 
 pub const SUPERMAJORITY: f64 = 2.0 / 3.0;
 pub const CHANGE_DELAY_DAYS: u32 = 30;
@@ -21,33 +23,42 @@ pub struct Candidate<Id> {
     pub f_u: f64,
 }
 
-/// Draws `seats` members by stratified sortition on `f_u`: sort by position, split
-/// into `n_strata` equal-frequency strata, and spread the seats across the strata so
-/// every position of the axis is represented. Deterministic per `seed`. Returns the
-/// chosen ids in candidate order.
+/// The same id appears twice among the candidates: it would get two tickets in the draw
+/// and could fill two seats (T36).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DuplicateCandidate;
+
 /// Stratified sortition seeded from the signed checkpoint (INV-10, D29, T8): who tunes
-/// the system is drawn from a beacon nobody controls, closing the meta-level capture
-/// vector. `round` domain-separates successive draws. Sanctioned entry point;
-/// [`stratified_sortition`] takes a raw seed for testing.
-pub fn sortition_from_beacon<Id: Clone>(
+/// the system is drawn from the epoch beacon, closing the meta-level capture vector
+/// (the beacon's own grinding residual is T37). `round` domain-separates successive
+/// draws. Sanctioned entry point; [`stratified_sortition`] takes a raw seed for testing.
+pub fn sortition_from_beacon<Id: Clone + Eq + Hash>(
     candidates: &[Candidate<Id>],
     seats: usize,
     n_strata: usize,
     beacon: &Beacon,
     round: u64,
-) -> Vec<Id> {
+) -> Result<Vec<Id>, DuplicateCandidate> {
     stratified_sortition(candidates, seats, n_strata, beacon.seed(SORTITION, round))
 }
 
-pub fn stratified_sortition<Id: Clone>(
+/// Draws `seats` members by stratified sortition on `f_u`: sort by position, split
+/// into `n_strata` equal-frequency strata, and spread the seats across the strata so
+/// every position of the axis is represented. Deterministic per `seed`. Returns the
+/// chosen ids in candidate order; refuses a candidate list with a repeated id.
+pub fn stratified_sortition<Id: Clone + Eq + Hash>(
     candidates: &[Candidate<Id>],
     seats: usize,
     n_strata: usize,
     seed: u64,
-) -> Vec<Id> {
+) -> Result<Vec<Id>, DuplicateCandidate> {
+    let mut seen = HashSet::with_capacity(candidates.len());
+    if !candidates.iter().all(|c| seen.insert(&c.id)) {
+        return Err(DuplicateCandidate);
+    }
     let n = candidates.len();
     if n == 0 || seats == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let seats = seats.min(n);
     let strata = n_strata.clamp(1, seats);
@@ -83,18 +94,19 @@ pub fn stratified_sortition<Id: Clone>(
         }
     }
 
-    candidates
+    Ok(candidates
         .iter()
         .enumerate()
         .filter(|(i, _)| picked[*i])
         .map(|(_, c)| c.id.clone())
-        .collect()
+        .collect())
 }
 
 /// A meta-level change is approved only with a qualified supermajority AND after the
-/// mandatory delay (`docs/05`: e.g. 2/3 + 30 days). Both conditions are required.
+/// mandatory delay (`docs/05`: e.g. 2/3 + 30 days). Both conditions are required. A
+/// tally with more votes than eligible voters is malformed and never approves (T36).
 pub fn change_approved(votes_for: usize, total_eligible: usize, days_elapsed: u32) -> bool {
-    if total_eligible == 0 {
+    if total_eligible == 0 || votes_for > total_eligible {
         return false;
     }
     let fraction = votes_for as f64 / total_eligible as f64;
