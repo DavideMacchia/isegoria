@@ -134,7 +134,7 @@ Integrity without permissionless consensus (`docs/04`).
 | `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering; `checkpoint` + `verify_extends` prove consistency/truncation against a signed prior head, T14) |
 | `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint` (net-id + member-set bound, T15), `Consortium::verify` (t-of-n), `CheckpointClient` (monotonic-height, equivocation, T15) |
 | `anchoring` | §Anchoring | `Anchor` trait, `OtsAnchor`, `Receipt`, `AnchorState` |
-| `erasure` | §Durability | `encode`, `reconstruct` (real Reed–Solomon) |
+| `erasure` | §Durability | `encode`, `reconstruct`, `reconstruct_verified` (real Reed–Solomon; per-shard manifest, corrupt-shard authentication before decode, T16) |
 
 **Real:** content addressing, Merkle trees, the hash-chained append-only log,
 ed25519 consortium checkpoints, erasure coding, and the anchoring proof format —
