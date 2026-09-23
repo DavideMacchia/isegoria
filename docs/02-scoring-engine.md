@@ -142,15 +142,22 @@ tertiles, Mantel–Haenszel with ETS classification:
 
 ```
 P(X_ij = 1 | θ_i, g) = [1 + exp(−a_jg (θ_i − b_jg))]⁻¹
-DIF_j = max_{g,h} | b_jg − b_jh |          reject if DIF_j > 0.5
+DIF_j = max_{g,h} | b_jg − b_jh |          reject if DIF_j > 1.0  (provisional, see below)
 ```
 
 The population is a mixture of `G` classes with proportions `π_g`; the classes have no
 label and do not need one. Estimation via EM or MCMC; `G` chosen by BIC. **This
 variant is what makes DIF compatible with full anonymity**: in testing, with ≥2
-distorted questions in a batch, it estimates a distortion of ~1.0 on the defective
-ones and ~0.1 on the clean ones, and reconstructs the hidden axis with correlation
-0.5–0.8 without ever observing it.
+distorted questions in a batch, it estimates a difficulty gap `DIF_j` of ~2.0 on the
+defective ones and ~0.2 on the clean ones, and reconstructs the hidden axis with
+correlation 0.5–0.8 without ever observing it.
+
+*Threshold.* The literature value for `DIF_j` is 0.5 logit. On this estimator it is
+not usable yet: with one distorted question in eight, every question's estimated gap
+lands in 0.5–1.0, so 0.5 would retire the seven clean ones too. The reference
+implementation therefore rejects at **1.0** on the gap, and only when the two-class
+fit converged and its BIC favours two classes. The value is provisional until the
+false-positive / power study (`10` T24/T25) sets it (`08` DIF-006).
 
 **Critical requirement: validate in batches.** A single distorted question in
 isolation is unidentifiable (in testing: 1 of 8 → invisible; 2 of 8 → detected). The
@@ -374,7 +381,7 @@ conservatively.
 | `N` pilot stage 2 | ~1500–3000 | 1500 with a group signal; ≥3000 for latent-class DIF (§B.6) |
 | `a_min` | 0.6 | minimum discrimination |
 | `|β₂|` max DIF | 0.40 | logistic regression |
-| `DIF_j` max (latent classes) | 0.5 logit | IRT mixture |
+| `DIF_j` max (latent classes) | 1.0 logit (provisional; literature 0.5) | IRT mixture; see §B.3 |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
 | `α` (cluster discount) | 0.5 | square root |
 | `w_max` | 3× median | individual cap |

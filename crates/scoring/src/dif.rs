@@ -4,7 +4,7 @@
 //! Mantel–Haenszel with ETS A/B/C classification. Calibration-only: it needs a
 //! per-respondent `group` (`docs/01` D20), so it is gated behind the `calibration` feature.
 //! Variant 2: latent-class mixture IRT, the anonymity-compatible detector
-//! (`DIF = max|b_g − b_h| > 0.5` → reject), run per batch, never per single item — the
+//! (`DIF = max|b_g − b_h| > MIXTURE_DIF_MAX` → reject), run per batch, never per single item — the
 //! only variant on the production path. Reference prototype: `sim/latent_dif_and_capacity.py`.
 
 use crate::glm::sigmoid;
@@ -18,7 +18,12 @@ use rand_chacha::ChaCha8Rng;
 /// Variant-1 rejection threshold; calibration-only (see `mantel_haenszel`).
 #[cfg(feature = "calibration")]
 pub const BETA2_MAX: f64 = 0.40;
-pub const MIXTURE_DIF_MAX: f64 = 0.5;
+/// Variant-2 rejection threshold on `DIF_j = |b_j⁺ − b_j⁻|` (the b-gap). Provisional:
+/// `docs/02` §B.3 cites 0.5 from the literature, but on this estimator 0.5 flags every
+/// item of the one-biased-item fixture; 1.0 is the value the code has applied since the
+/// start (it thresholded the half-gap `|δ|` at 0.5), now stated on the specified
+/// quantity until T24/T25 calibrate it (`docs/08` DIF-006).
+pub const MIXTURE_DIF_MAX: f64 = 1.0;
 #[cfg(feature = "calibration")]
 pub const MH_DELTA_B: f64 = 1.0;
 #[cfg(feature = "calibration")]
@@ -129,8 +134,9 @@ pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usi
 pub struct MixtureDif {
     /// mixing proportion of class +1
     pub pi: f64,
-    /// per-item |δ|, the latent-class difficulty shift
-    pub delta: Vec<f64>,
+    /// per-item `DIF_j = |b_j⁺ − b_j⁻| = 2|δ_j|`: the gap between the two classes'
+    /// difficulties, the quantity `docs/02` §B.3 thresholds (DIF-006)
+    pub dif: Vec<f64>,
     /// per-respondent posterior probability of class +1
     pub class_posterior: Vec<f64>,
     /// likelihood ratio of the free-δ model vs the null (δ = 0)
@@ -219,7 +225,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
     let a = &full[1..1 + k];
     let b = &full[1 + k..1 + 2 * k];
     let d = &full[1 + 2 * k..1 + 3 * k];
-    let delta: Vec<f64> = d.iter().map(|v| v.abs()).collect();
+    let dif: Vec<f64> = d.iter().map(|v| 2.0 * v.abs()).collect();
 
     let ln_pi_pos = pi.ln();
     let ln_pi_neg = (1.0 - pi).ln();
@@ -245,7 +251,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
 
     MixtureDif {
         pi,
-        delta,
+        dif,
         class_posterior,
         lr,
         bic,

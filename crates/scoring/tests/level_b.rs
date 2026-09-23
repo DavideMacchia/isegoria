@@ -177,10 +177,11 @@ fn mixture_detects_bias_in_a_batch() {
     let edu = read_vector("mixture_batch_edu.csv");
     let res = mixture_dif(&theta, &x, 8, 0);
 
-    let biased_mean = res.delta[..3].iter().sum::<f64>() / 3.0;
-    let clean_mean = res.delta[3..].iter().sum::<f64>() / 5.0;
-    assert!(biased_mean > 0.6, "biased |δ| mean = {biased_mean:.3}");
-    assert!(clean_mean < 0.4, "clean |δ| mean = {clean_mean:.3}");
+    // `dif` is the b-gap 2|δ| (DIF-006); the fixture plants δ = 0.9, a gap of 1.8.
+    let biased_mean = res.dif[..3].iter().sum::<f64>() / 3.0;
+    let clean_mean = res.dif[3..].iter().sum::<f64>() / 5.0;
+    assert!(biased_mean > 1.2, "biased DIF mean = {biased_mean:.3}");
+    assert!(clean_mean < 0.8, "clean DIF mean = {clean_mean:.3}");
     assert!(
         res.bic > 0.0,
         "BIC = {:.1} should favor two classes",

@@ -295,6 +295,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### IRT-003 — 2PL discrimination screen
 - **Claim.** `fit_2pl_item` returns `a` such that `a ≥ 0.6` retains discriminating items.
+- **Status (T34).** `fit_2pl_item` now returns `Fit2pl { a, b, status }`; `pilot::stage1_screen` fails an item whose fit is not `Converged`, so a separated item's diverging slope no longer passes `a ≥ A_MIN` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`).
 - **Evidence.** `level_b.rs::irt_2pl_discrimination_ranks_items` (ranking + one item below 0.6). `end_to_end.rs` documents that item 02 (generated as 3PL with guessing floor 0.25 in the sim) fails the screen; the test rationalizes this as 3PL-vs-2PL, but the θ-metric mismatch (IRT-001) is an equally plausible cause and is not separated out.
 - **Evidence status.** IMPLEMENTED, TESTED (2 items). Threshold validity NOT ESTABLISHED. 3PL, `c ≤ 0.35`, `|b| ≤ 2.5` (constant `B_ABS_MAX` exists, unused), infit/outfit: NOT IMPLEMENTED.
 
@@ -330,7 +331,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### DIF-006 — Mixture rejection threshold is consistent across docs, sim, and code
 - **Analysis.** Model: `logit P = a_j(θ − b_j − δ_j z)`, `z ∈ {−1,+1}` ⇒ class difficulties `b_j ± δ_j` ⇒ `max_{g,h}|b_jg − b_jh| = 2|δ_j|`. `docs/02` rejects at `DIF_j > 0.5` (on the b-gap). `sim/latent_dif_and_capacity.py` declares "DETECTED" at mean `|δ̂| > 0.35` (batch-level, not per item). `scoring::dif::MIXTURE_DIF_MAX = 0.5` is applied to `|δ̂|` in `revalidation::revalidate_pool_latent` (per item) — i.e. 1.0 logit on the b-gap, **twice** the documented cut-off.
-- **Evidence status.** INCONSISTENT. The specification MUST fix one metric (recommend: report `2|δ̂|` as `DIF_j` and reject at a documented value chosen by an FP/FN study).
+- **Evidence status.** INCONSISTENT at the audit snapshot. **RESOLVED@T35 (metric) / OPEN (value):** `MixtureDif::dif` now reports `DIF_j = 2|δ̂_j|`, and `revalidation::latent_flags` rejects at `MIXTURE_DIF_MAX = 1.0` on the gap — the behaviour the code always had, now stated on the specified quantity — and flags nothing when the free fit did not converge or `BIC ≤ 0`. The literature 0.5 is not adopted: on the one-biased-item fixture `BIC = +32` and every item's gap is 0.56–0.91, so 0.5 would retire all eight (`latent_revalidation.rs`). `docs/02` §B.3 records 1.0 as provisional; the value is set by the FP/FN study (T24/T25).
 
 #### DIF-007 — Purification reaches a fixed point
 - **Claim.** `validation::purify_theta` returns a flagged set that is a fixed point of the flag→re-estimate map.
@@ -630,7 +631,7 @@ Unpenalized MLE via `lbfgs`, `g_tol = 1e-8`, `max_iters` 200 (2PL) / 400 (DIF). 
 P(X_ij = 1 | θ_i, z_i) = σ( a_j (θ_i − b_j − δ_j z_i) ),   z_i ∈ {−1,+1},  P(z=+1) = π
 ℓ(π, a, b, δ) = Σ_i log[ (1−π)·Π_j P(x_ij | z=−1) + π·Π_j P(x_ij | z=+1) ]
 LR = 2(ℓ_full − ℓ_null(δ≡0)),   BIC_gain = LR − K·ln(NT)   (> 0 ⇒ two classes)
-DIF_j (spec) = |b_j^{+} − b_j^{−}| = 2|δ_j|;  code reports |δ_j| and rejects at 0.5
+DIF_j (spec) = |b_j^{+} − b_j^{−}| = 2|δ_j|;  code reports 2|δ_j| and rejects at 1.0 (T35, provisional)
 ```
 Init: `a = 1, b = 0, δ ~ 0.3·N(0,1)` (seeded), `logit π = 0`. Optimizer: `lbfgs` with central differences `h = 1e-5`, `g_tol = 1e-6`, ≤ 3000 iters.
 **Identifiability.** Label switching `(δ, π) ↔ (−δ, 1−π)` resolved by `|δ|`. Under the null, `π` is unidentified and the LR statistic is not χ²_K (boundary + non-identifiability: Self–Liang / mixture-LRT irregularity); BIC comparison is a heuristic, not a calibrated test. `θ` is fixed at the anchor proxy, so measurement error in `θ` is absorbed into `a`, `b`, `δ` (not characterized).
