@@ -131,7 +131,7 @@ Integrity without permissionless consensus (`docs/04`).
 |---|---|---|
 | `cid` | §Content-addressed storage | `Cid`, `cid` |
 | `merkle` | §Merkle tree | `leaf_hash`, `merkle_root`, `merkle_proof`, `verify_proof` |
-| `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering) |
+| `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering; `checkpoint` + `verify_extends` prove consistency/truncation against a signed prior head, T14) |
 | `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint`, `Consortium::verify` (t-of-n) |
 | `anchoring` | §Anchoring | `Anchor` trait, `OtsAnchor`, `Receipt`, `AnchorState` |
 | `erasure` | §Durability | `encode`, `reconstruct` (real Reed–Solomon) |
