@@ -1,7 +1,7 @@
 //! [2] Deposit (`docs/05`): the draft is content-addressed and its hash recorded
 //! on the append-only log. The bond is in reputation, never money (invariant #3).
 
-use crate::admission::{admit, Unproven};
+use crate::admission::{admit, OverQuota, QuotaLedger, Unproven};
 use identity::credential::IssuerPublic;
 use identity::nullifier::NullifierProof;
 use identity::nym::{Nym, Role};
@@ -43,22 +43,28 @@ pub fn deposit(log: &mut TransparencyLog, draft: &Draft) -> Result<Cid, NoPrimar
     Ok(id)
 }
 
-/// The identity-gated proposal entry point (`docs/08` §9.1, INV-9, T6): the proposer
-/// presents a `NullifierProof(Propose)` **bound to this exact draft** (context = its
-/// content id, so the proof cannot be replayed onto another draft, AT-ID-05). On success
-/// the draft is recorded and the proposer's proven, non-rotatable id is returned — the id
-/// a reputation/rate-limit layer keys on, never `nym::derive_nym`.
+/// The identity-gated, rate-limited proposal entry point (`docs/08` §9.1, INV-9/ID-008,
+/// T6/T11): the proposer presents a `NullifierProof(Propose)` **bound to this exact
+/// draft** (context = its content id, so the proof cannot be replayed onto another draft,
+/// AT-ID-05), and the proposal is charged against a per-credential epoch `quota` keyed on
+/// the proven id (over quota → rejected). `quota` is set by the caller from the author
+/// score `C_a` (`scoring::reputation::proposal_rate`): the cost of proposing is reputation
+/// and a rate limit, never money (invariant #3). On success the draft is recorded and the
+/// proposer's proven, non-rotatable id is returned.
 pub fn deposit_with_identity(
     log: &mut TransparencyLog,
     draft: &Draft,
     proof: &NullifierProof,
     issuer: &IssuerPublic,
+    quota_ledger: &mut QuotaLedger,
+    quota: u32,
 ) -> Result<(Cid, Nym), DepositRejected> {
     if draft.primary_source.is_empty() {
         return Err(DepositRejected::NoPrimarySource);
     }
     let id = draft.content_id();
     let proposer = admit(proof, issuer, Role::Propose, &id.0)?;
+    quota_ledger.charge(proposer, quota)?;
     log.append(id);
     Ok((id, proposer))
 }
@@ -72,10 +78,18 @@ pub enum DepositRejected {
     NoPrimarySource,
     /// The proposer did not present a valid `Propose` nullifier proof for this draft.
     Unproven(Unproven),
+    /// The proposer is over its per-credential proposal quota for the epoch (ID-008).
+    OverQuota,
 }
 
 impl From<Unproven> for DepositRejected {
     fn from(u: Unproven) -> Self {
         DepositRejected::Unproven(u)
+    }
+}
+
+impl From<OverQuota> for DepositRejected {
+    fn from(_: OverQuota) -> Self {
+        DepositRejected::OverQuota
     }
 }

@@ -444,12 +444,12 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Claim.** A person cannot obtain a second pseudonym for the same role.
 - **Evidence.** `derive_nym` and `nullifier::prove` are deterministic in `(x, role)`; `protocol/tests/adversarial.rs::whitewashing_cannot_shed_a_bad_reputation`.
 - **Analysis.** The test shows the *same secret* yields the same nym and the *same anchor* is refused a second enrollment. It does not, and cannot, show that a person cannot obtain a second credential with a *different* secret: the issuer never checks the registry, never checks that a label has not already been issued a credential (`Issuer::issue` signs any label with a valid PoK, any number of times), and the label→credential step is unlinked from `EnrollmentRegistry`. Two credentials for one label = two nyms per role.
-- **Evidence status.** TESTED for derivation determinism. **Whitewashing resistance NOT ESTABLISHED** until the issuer enforces one credential per label (or the registry stores an issuance mark) and ID-004/ID-005 close.
+- **Evidence status.** RESOLVED@T11 for the in-process form (was NOT ESTABLISHED). `credential::IssuanceRegistry` + `Issuer::issue_once` enforce **one credential per label**: a second request for a label already issued is refused with `IssuanceError::AlreadyIssued`, whatever secret it carries — so a person (one label from enrollment) gets one credential, one set of role nyms. Tests: `id007_one_credential.rs` (AT-ID-02, AT-ID-03). Residual: the cryptographic-grade enrollment that binds the label to the request without a trusted registry (ID-004/ID-005) is T20.
 
 #### ID-008 — Rate limiting
 - **Claim (docs/03).** One token per slot; reuse reveals the key; the holder proves in ZK that `slot < quota`.
 - **Analysis.** `rln_token = H(secret, role, epoch, slot)` is a hash. A verifier cannot check which slot it encodes, that `slot < quota`, or that it derives from a valid secret; `within_quota` checks a *claimed* integer. Reuse yields a duplicate hash (detected) but reveals nothing. The documented Shamir-based RLN (two evaluations of a degree-1 polynomial reveal the secret) is not implemented.
-- **Evidence status.** IMPLEMENTED as a collision detector only. **Rate limiting is NOT ENFORCED** against a dishonest holder. `ARCHITECTURE.md`'s "Real (hash-based)" overstates this.
+- **Evidence status.** RESOLVED@T11 for the structural in-process form (was NOT ENFORCED). `admission::QuotaLedger` counts proposals per **verified Propose nullifier id** (INV-9) for the epoch and `deposit_with_identity` refuses one over `quota` with `DepositRejected::OverQuota`; the quota is set from the author score `C_a` via `reputation::proposal_rate` (reputation, not money — invariant #3). Tests: `id008_proposal_quota.rs`. Residual: the cryptographic-grade RLN (a ZK proof that `slot < quota` from a valid secret, with reuse revealing the key) is T20 — the in-process ledger trusts the verifier to key on the proven id, which T6 provides.
 
 ### 5.6 Cryptography
 
@@ -741,7 +741,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
 |---|---|---|---|---|---|
-| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID; unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✗ T11) |
+| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID; unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
 | `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
 | `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
@@ -1171,8 +1171,8 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | ID-004 | input bound to eID | — | NOT ESTABLISHED (design) | — | G-02 |
 | ID-005 | label authenticity/custody | — | CONTRADICTORY / NOT IMPLEMENTED | — | G-02 |
 | ID-006 | key lifecycle | — | NOT ESTABLISHED | — | G-17 |
-| ID-007 | no whitewashing | `protocol/tests/adversarial.rs` | TESTED (derivation); property NOT ESTABLISHED | one-credential-per-label | AT-ID-02/03 |
-| ID-008 | rate limit enforced | `properties.rs` (collision only) | NOT ENFORCED | ZK/RLN | AT-ID-06 |
+| ID-007 | no whitewashing | `credential.rs` (`IssuanceRegistry`, `issue_once`), `id007_one_credential.rs` | ENFORCED (T11) — one credential per label, `AlreadyIssued` on a repeat; AT-ID-02/03 pass | trusted-registry-free binding (ID-004/005, T20) | AT-ID-02/03 |
+| ID-008 | rate limit enforced | `admission.rs` (`QuotaLedger`), `deposit.rs`, `id008_proposal_quota.rs` | ENFORCED (T11, structural) — per-credential epoch quota keyed on the proven id; over quota → `OverQuota` | ZK/RLN cryptographic-grade (T20) | AT-ID-06 |
 | CRYPTO-001 | VOPRF RFC 9497 | `voprf_oracle.rs` | TESTED | RFC test vectors | differential/ |
 | CRYPTO-003 | BBS+ blind issuance | `bbs_credential.rs`, unit tests | TESTED | per-label limit; external review | §7.4 |
 | CRYPTO-004 | threshold BBS+ | `threshold_bbs.rs` | TESTED (in-process) | independent base-OT seed; DKG; review | §7.4 |

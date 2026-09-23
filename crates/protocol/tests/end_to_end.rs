@@ -23,6 +23,8 @@ use identity::nullifier;
 use identity::nym::Role;
 #[cfg(feature = "calibration")]
 use network::log::TransparencyLog;
+#[cfg(feature = "calibration")]
+use protocol::admission::QuotaLedger;
 use protocol::aggregate::{
     aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
 };
@@ -175,8 +177,12 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let (req, pending) = author.request_issuance(&Label([3u8; 32]), &issuer.public());
     let author_cred = pending.finalize(issuer.issue(&req).unwrap());
 
-    // --- network: deposit the ten drafts onto the tamper-evident log, identity-gated ---
+    // --- network: deposit the ten drafts onto the tamper-evident log, identity-gated
+    // and rate-limited (INV-9/ID-008). The per-credential epoch quota is set from the
+    // author score (here a generous constant; production uses `reputation::proposal_rate`).
     let mut log = TransparencyLog::new();
+    let mut quota_ledger = QuotaLedger::new();
+    const PROPOSAL_QUOTA: u32 = 32;
     let mut item_cid = Vec::with_capacity(m);
     for j in 0..m {
         let draft = Draft {
@@ -189,8 +195,15 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
             Role::Propose,
             &draft.content_id().0,
         );
-        let (id, _proposer) =
-            deposit_with_identity(&mut log, &draft, &proof, &issuer.public()).unwrap();
+        let (id, _proposer) = deposit_with_identity(
+            &mut log,
+            &draft,
+            &proof,
+            &issuer.public(),
+            &mut quota_ledger,
+            PROPOSAL_QUOTA,
+        )
+        .unwrap();
         item_cid.push(id);
     }
     assert_eq!(log.len(), m);

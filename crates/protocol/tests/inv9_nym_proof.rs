@@ -12,7 +12,7 @@ use identity::enrollment::Label;
 use identity::nullifier::{prove, NullifierProof};
 use identity::nym::Role;
 use network::cid::cid;
-use protocol::admission::{admit, NullifierSet, Unproven};
+use protocol::admission::{admit, NullifierSet, QuotaLedger, Unproven};
 use protocol::deposit::{deposit_with_identity, DepositRejected, Draft};
 use protocol::review::{review_context, submit_review, ReviewRejected};
 
@@ -108,8 +108,9 @@ fn deposit_requires_a_propose_proof_bound_to_the_draft() {
         Role::Propose,
         &draft.content_id().0,
     );
+    let mut quota = QuotaLedger::new();
     let (deposited, proposer) =
-        deposit_with_identity(&mut log, &draft, &proof, &issuer.public()).unwrap();
+        deposit_with_identity(&mut log, &draft, &proof, &issuer.public(), &mut quota, 8).unwrap();
     assert_eq!(deposited, draft.content_id());
     // The proposer id is the proven nullifier id, stable and non-rotatable.
     assert_eq!(proposer, proof.id());
@@ -154,8 +155,9 @@ fn a_deposit_proof_cannot_be_replayed_onto_another_draft() {
         Role::Propose,
         &draft_a.content_id().0,
     );
+    let mut quota = QuotaLedger::new();
     assert_eq!(
-        deposit_with_identity(&mut log, &draft_b, &proof, &issuer.public()),
+        deposit_with_identity(&mut log, &draft_b, &proof, &issuer.public(), &mut quota, 8),
         Err(DepositRejected::Unproven(Unproven::BadProof))
     );
 }
