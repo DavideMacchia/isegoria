@@ -11,13 +11,15 @@
 //!   an epoch (a gate outcome becomes a pilot entry, a pilot verdict becomes pool or
 //!   reject) used to be re-implemented imperatively by every caller. [`run_item`] drives
 //!   those transitions through `lifecycle::step`, so the state machine — not the caller
-//!   — owns them. The commit/reveal sub-walk is entered at its close (`Revealing` +
-//!   `Score`): that half is exercised move-by-move in `tests/orchestrator.rs`, while an
-//!   epoch enters the machine with the gate outcome its review round produced.
+//!   — owns them. [`review_round`] walks the commit/reveal sub-machine for one panel, and
+//!   `run_item` scores the state it leaves: the machine itself checks that every
+//!   panelist revealed (T33), so an epoch cannot be scored on a partial round.
 
 use crate::gate::GateOutcome;
 use crate::lifecycle::{step, Event, Invalid, State};
 use crate::probation::effective_review_weight;
+use crate::review::commit;
+use identity::nym::Nym;
 use network::cid::Cid;
 use scoring::bridging::Ratings;
 
@@ -78,8 +80,6 @@ pub fn weighted_ratings(
 /// machine so the *lifecycle* decisions are made by [`run_item`], not the caller.
 #[derive(Clone, Copy, Debug)]
 pub struct ItemVerdicts {
-    /// The item's content id (its identity through the epoch).
-    pub item: Cid,
     /// Level A bridging gate outcome.
     pub gate: GateOutcome,
     /// The author appealed a polarization rejection.
@@ -97,27 +97,60 @@ pub struct ItemVerdicts {
     pub pilot2_batch_size: usize,
 }
 
+/// One panelist's blind judgment: the probability it commits to, and the nonce it later
+/// reveals (INV-12).
+#[derive(Clone, Copy, Debug)]
+pub struct Judgment {
+    pub nym: Nym,
+    pub prob: f64,
+    pub nonce: [u8; 32],
+}
+
+/// Walks one review round through `lifecycle::step` from `Admitted`: assign `panel` to
+/// `item`, every judgment commits, commits close, every judgment reveals. Returns the
+/// `Revealing` state to hand to [`run_item`]; any invalid move (duplicate panelist,
+/// outsider, double commit or reveal) is the machine's rejection.
+pub fn review_round(
+    admitted: State,
+    item: Cid,
+    panel: Vec<Nym>,
+    judgments: &[Judgment],
+) -> Result<State, Invalid> {
+    let mut s = step(admitted, Event::AssignReviewers { panel, item })?;
+    for j in judgments {
+        let commitment = commit(j.prob, &j.nonce, j.nym, item);
+        s = step(
+            s,
+            Event::Commit {
+                nym: j.nym,
+                commitment,
+            },
+        )?;
+    }
+    s = step(s, Event::CloseCommits)?;
+    for j in judgments {
+        s = step(
+            s,
+            Event::Reveal {
+                nym: j.nym,
+                prob: j.prob,
+                nonce: j.nonce,
+            },
+        )?;
+    }
+    Ok(s)
+}
+
 /// Drives one item from a scored review round to its terminal `State` via
-/// `lifecycle::step` (T12). `ActivePool` means it reached the pool.
+/// `lifecycle::step` (T12). `reviewed` is the state [`review_round`] left; scoring it is
+/// refused unless every panelist revealed. `ActivePool` means it reached the pool.
 ///
 /// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
 /// (T10/T30): `band_advances` is the outcome of `gate::supplementary_review` — a re-run
 /// bridging fit re-deciding `b_j` against the plain threshold — so a passing band item
 /// advances to the pilot and a failing one is a `Borderline` reject, not a dead end.
-pub fn run_item(v: &ItemVerdicts) -> Result<State, Invalid> {
-    // Enter at the close of the review round to apply the gate outcome; the commit-reveal
-    // sub-walk (and its INV-12 binding) is exercised move-by-move in `tests/orchestrator.rs`.
-    let mut s = step(
-        State::Revealing {
-            item: v.item,
-            commits: Vec::new(),
-            reveals: Vec::new(),
-        },
-        Event::Score {
-            all_reveals_in: true,
-            outcome: v.gate,
-        },
-    )?;
+pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
+    let mut s = step(reviewed, Event::Score { outcome: v.gate })?;
 
     if matches!(s, State::SupplementaryReview) {
         s = step(

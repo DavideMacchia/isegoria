@@ -20,7 +20,7 @@ use identity::enrollment::{
 #[cfg(feature = "calibration")]
 use identity::nullifier;
 #[cfg(feature = "calibration")]
-use identity::nym::Role;
+use identity::nym::{Nym, Role};
 #[cfg(feature = "calibration")]
 use network::log::TransparencyLog;
 #[cfg(feature = "calibration")]
@@ -30,9 +30,11 @@ use protocol::deposit::{deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
 use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
 #[cfg(feature = "calibration")]
-use protocol::lifecycle::State;
+use protocol::lifecycle::{deposit, step, Event, State};
 #[cfg(feature = "calibration")]
-use protocol::orchestrator::{run_item, weighted_ratings, ItemVerdicts, ReviewerStanding};
+use protocol::orchestrator::{
+    review_round, run_item, weighted_ratings, ItemVerdicts, Judgment, ReviewerStanding,
+};
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
 use protocol::pilot::{dif_batch, screen, stage2_dif, DifVerdict, N1_MIN};
@@ -248,13 +250,34 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let pilot2_batch_size = after1.len();
 
     // --- protocol: the lifecycle state machine decides each item (T12) ---
+    // Each item's blind review round is walked through the machine (T33): a panel of 9
+    // reviewers who rated it commits to, then reveals, its own rating as a probability.
     // Every stage-to-stage transition (gate outcome → pilot entry, pilot verdict → pool
     // or reject) goes through `lifecycle::step`; the pool is exactly the items the
     // machine leaves in `ActivePool`.
+    let reviewed = |j: usize| {
+        let admitted = step(
+            deposit(true, true, true, true).unwrap(),
+            Event::Admit {
+                seed_from_checkpoint: true,
+            },
+        )
+        .unwrap();
+        let judgments: Vec<Judgment> = (0..r_dense.len())
+            .filter(|&u| mask_bool[u][j])
+            .take(9)
+            .map(|u| Judgment {
+                nym: Nym([u as u8; 32]),
+                prob: r_dense[u][j],
+                nonce: [(u ^ j) as u8; 32],
+            })
+            .collect();
+        let panel = judgments.iter().map(|jd| jd.nym).collect();
+        review_round(admitted, item_cid[j], panel, &judgments).unwrap()
+    };
     (0..m)
         .filter(|&j| {
             let verdicts = ItemVerdicts {
-                item: item_cid[j],
                 gate: gate[j],
                 appealed: appeals.contains(&j),
                 band_advances: band_advances[j],
@@ -263,7 +286,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
                 dif_passed: *dif_passed.get(&j).unwrap_or(&false),
                 pilot2_batch_size,
             };
-            run_item(&verdicts).unwrap() == State::ActivePool
+            run_item(reviewed(j), &verdicts).unwrap() == State::ActivePool
         })
         .collect()
 }
