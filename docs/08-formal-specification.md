@@ -537,7 +537,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Evidence status.** RESOLVED@T15 (was NOT IMPLEMENTED). `Checkpoint` now carries `network_id` and `member_set_hash` **inside the signed message** (`…/checkpoint/v2`), and `consortium::CheckpointClient` is the §9.4 client state machine: it rejects a foreign `network_id` (AT-NET-05) or member set, ignores a non-monotonic `height` as a replay (`Stale`, AT-NET-03), and on two threshold-signed checkpoints at the same height with different heads returns `Forked{trusted, conflicting}` — the equivocation evidence (AT-NET-04). Tests: `checkpoint_replay.rs`. Residual: detecting a higher-height fork whose head does not extend the trusted one combines this with `log::verify_extends` (T14) for a client holding the log; member-set *rotation* in the checkpoint is future (CS-4/T22).
 
 #### NET-007 — Erasure coding
-- `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). No shard authentication (a corrupted shard is not detected before reconstruction; RS decoding with erasures only assumes shards are either missing or correct — a *wrong* shard yields wrong data silently). No placement, repair, or churn model. **Evidence status.** TESTED for the coding primitive; corrupted-shard case UNSOLVED.
+- `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). **Shard authentication RESOLVED@T16:** `Encoded` carries a per-shard `manifest` (`erasure::shard_hash`), and `erasure::reconstruct_verified` authenticates every present shard against it, dropping a wrong shard as lost before decoding — so a corrupted shard cannot silently corrupt the output; if fewer than `data_shards` authentic shards remain it returns `TooFewAuthenticShards` (`shard_authentication.rs`, AT-NET-06). No placement, repair, or churn model yet. **Evidence status.** Coding primitive + corrupted-shard detection TESTED; placement/repair/churn UNSOLVED.
 
 #### NET-008 — Anchoring verification
 - `opentimestamps` 0.2.0 parses `.ots`, recomputing each step's output by executing ops from `start_digest` (auditor checked `timestamp.rs::deserialize_step_recurse`), and `OtsAnchor::walk` compares a `Bitcoin{height}` attestation's digest to the injected block root. Sound given a trustworthy block source. TESTED (lifecycle, mismatch, garbage). **Note** `verify` is the only entry that parses untrusted bytes; the recursion limit in the library bounds it, but a fuzz test is absent.
@@ -807,7 +807,7 @@ Implemented@T15: `Checkpoint` carries `network_id`/`member_set_hash` in its sign
 - **Required convergence invariant (to be stated when CRDT work starts).** For any two replicas `R₁, R₂` that have received the same set of signed entries in any order, `state(R₁) = state(R₂)`; the state MUST be a function of the *set* of entries, which forces per-writer sequence numbers or a grow-only set with deterministic ordering for scoring input (this also resolves REPRO-002).
 
 ### 10.4 Erasure coding
-- RS(k, n) on byte shards; systematic. No shard hashing → a corrupted (not missing) shard silently corrupts the output. Required: shard `Cid`s in the manifest, verification before decode, and a repair policy.
+- RS(k, n) on byte shards; systematic. Shard hashing RESOLVED@T16: `Encoded.manifest` holds a per-shard hash and `reconstruct_verified` verifies before decode, so a corrupted (not missing) shard is dropped rather than silently corrupting the output. Still required: a repair/placement policy.
 
 ### 10.5 Anchoring
 - Format-level only. Required: submit `checkpoint.message()` (not the raw log head) hourly; store receipts in the log; verifier reads Bitcoin headers via SPV; define behaviour when the calendar is unavailable (Pending indefinitely).
@@ -900,7 +900,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Partition | undefined (no network) |
 | Stale-state injection to light clients | UNSOLVED — no client state |
 | Malicious checkpoint with `≥ t` signers | ACCEPTED (docs: "freedom to fork"); detection via reproducible recomputation NOT IMPLEMENTED (no checkpoint→input→output mapping) |
-| Corrupted shard | UNSOLVED (NET-007) |
+| Corrupted shard | SOLVED (T16): `reconstruct_verified` drops a shard failing its manifest hash before decoding (NET-007) |
 | Gossip poisoning | undefined (no gossip) |
 | Merkle leaf duplication | DEFECT (NET-003) — currently unexploitable only because nothing uses the root |
 | OTS proof parsing of hostile bytes | PARTIALLY MITIGATED (library recursion limit; no fuzzing) |
@@ -1191,7 +1191,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
 | NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
 | NET-006 | replay/equivocation/net id | `consortium.rs` (`Checkpoint` v2, `CheckpointClient`, `member_set_hash`), `checkpoint_replay.rs` | RESOLVED@T15 — net/member-set binding in the signed message; client monotonic-height rule; same-height equivocation evidence (AT-NET-03..05) | member-set rotation (T22); higher-height fork via `verify_extends` | §9.4 |
-| NET-007 | erasure | proptest | TESTED | shard auth | AT-NET-06 |
+| NET-007 | erasure | `erasure.rs` (`manifest`, `reconstruct_verified`), `shard_authentication.rs` | RESOLVED@T16 — shard authentication before decode (AT-NET-06) | placement/repair/churn | AT-NET-06 |
 | NET-008 | OTS verify | `anchoring.rs`, `integrity.rs` | TESTED (format) | fuzz | AT-NET-07 |
 | NET-009 | anchoring liveness | — | NOT IMPLEMENTED | — | roadmap |
 | NET-010 | transport/CRDT | — | HYPOTHESIS | — | roadmap |

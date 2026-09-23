@@ -2,8 +2,20 @@
 //! nodes; any `data_shards` of them reconstruct it. At equal storage it beats
 //! replication and, unlike replication, its durability lives on all nodes.
 //! Real Reed–Solomon via `reed-solomon-erasure`.
+//!
+//! Reed–Solomon with *erasures* assumes each shard is either missing or correct: a
+//! **wrong** shard silently corrupts the output. So each `Encoded` carries a `manifest`
+//! of per-shard hashes, and [`reconstruct_verified`] authenticates every present shard
+//! against it, dropping a tampered one as lost before decoding (NET-007 / DS-4, T16). The
+//! manifest is itself committed elsewhere (e.g. in the signed checkpoint).
 
+use crate::hash::tagged;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+/// Hash committing to one shard's bytes (its manifest entry).
+pub fn shard_hash(shard: &[u8]) -> [u8; 32] {
+    tagged("isegoria/erasure/shard/v1", &[shard])
+}
 
 #[derive(Clone, Debug)]
 pub struct Encoded {
@@ -11,6 +23,19 @@ pub struct Encoded {
     pub data_shards: usize,
     pub parity_shards: usize,
     pub orig_len: usize,
+    /// Per-shard hash, index-aligned to `shards`; commit this to authenticate shards on
+    /// recovery (`shard_hash`).
+    pub manifest: Vec<[u8; 32]>,
+}
+
+/// Why authenticated reconstruction failed (T16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoverError {
+    /// After dropping shards that fail their manifest hash, fewer than `data_shards`
+    /// authentic shards remain — recovery is impossible without trusting a corrupt shard.
+    TooFewAuthenticShards { authentic: usize, need: usize },
+    /// Reed–Solomon reconstruction itself failed.
+    Decode,
 }
 
 /// Encodes `data` into `data_shards` systematic shards plus `parity_shards`.
@@ -31,11 +56,13 @@ pub fn encode(data: &[u8], data_shards: usize, parity_shards: usize) -> Encoded 
         shards.push(vec![0u8; shard_len]);
     }
     r.encode(&mut shards).expect("encode");
+    let manifest = shards.iter().map(|s| shard_hash(s)).collect();
     Encoded {
         shards,
         data_shards,
         parity_shards,
         orig_len: data.len(),
+        manifest,
     }
 }
 
@@ -55,4 +82,35 @@ pub fn reconstruct(
     }
     out.truncate(orig_len);
     Some(out)
+}
+
+/// Reconstructs, **authenticating every present shard against `manifest` first** (NET-007,
+/// AT-NET-06). A shard whose bytes do not match its committed hash is treated as lost —
+/// never fed to the decoder — so a corrupted shard cannot silently corrupt the output. If
+/// fewer than `data_shards` authentic shards remain, recovery fails rather than trusting a
+/// bad one. `shards` and `manifest` are index-aligned to the `data + parity` shards.
+pub fn reconstruct_verified(
+    shards: Vec<Option<Vec<u8>>>,
+    manifest: &[[u8; 32]],
+    data_shards: usize,
+    parity_shards: usize,
+    orig_len: usize,
+) -> Result<Vec<u8>, RecoverError> {
+    let clean: Vec<Option<Vec<u8>>> = shards
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| match s {
+            // Keep a shard only if present AND its bytes match the committed hash.
+            Some(bytes) if manifest.get(i) == Some(&shard_hash(&bytes)) => Some(bytes),
+            _ => None,
+        })
+        .collect();
+    let authentic = clean.iter().filter(|s| s.is_some()).count();
+    if authentic < data_shards {
+        return Err(RecoverError::TooFewAuthenticShards {
+            authentic,
+            need: data_shards,
+        });
+    }
+    reconstruct(clean, data_shards, parity_shards, orig_len).ok_or(RecoverError::Decode)
 }
