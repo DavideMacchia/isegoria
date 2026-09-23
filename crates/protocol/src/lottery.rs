@@ -3,9 +3,22 @@
 //! a random subset enters the pipeline, giving equal expected access with a bounded
 //! queue. Deterministic given the epoch seed.
 
+use crate::randomness::{Beacon, LOTTERY};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+
+/// Admission lottery seeded from the signed checkpoint (INV-10, D29, T8): the seed is
+/// fixed after deposits close and no depositor can influence it, so nobody can grind for
+/// admission. This is the sanctioned entry point; [`admit`] takes a raw seed for testing.
+pub fn admit_from_beacon<T: Clone>(
+    deposited: &[T],
+    capacity: usize,
+    beacon: &Beacon,
+    epoch: u64,
+) -> Vec<T> {
+    admit(deposited, capacity, beacon.seed(LOTTERY, epoch), epoch)
+}
 
 /// Selects up to `capacity` drafts at random from `deposited`, deterministically
 /// per `(base_seed, epoch)`.

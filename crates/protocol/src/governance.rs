@@ -6,6 +6,7 @@
 //! delay for changes. Sortition is the recurring defense against capture by whoever
 //! controls the rules: whoever can *choose* who tunes the system controls it.
 
+use crate::randomness::{Beacon, SORTITION};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -24,6 +25,20 @@ pub struct Candidate<Id> {
 /// into `n_strata` equal-frequency strata, and spread the seats across the strata so
 /// every position of the axis is represented. Deterministic per `seed`. Returns the
 /// chosen ids in candidate order.
+/// Stratified sortition seeded from the signed checkpoint (INV-10, D29, T8): who tunes
+/// the system is drawn from a beacon nobody controls, closing the meta-level capture
+/// vector. `round` domain-separates successive draws. Sanctioned entry point;
+/// [`stratified_sortition`] takes a raw seed for testing.
+pub fn sortition_from_beacon<Id: Clone>(
+    candidates: &[Candidate<Id>],
+    seats: usize,
+    n_strata: usize,
+    beacon: &Beacon,
+    round: u64,
+) -> Vec<Id> {
+    stratified_sortition(candidates, seats, n_strata, beacon.seed(SORTITION, round))
+}
+
 pub fn stratified_sortition<Id: Clone>(
     candidates: &[Candidate<Id>],
     seats: usize,
