@@ -22,8 +22,11 @@
 //!   reduces to a weighted majority, so the *substance* of #2/D2 is not provided here.
 //! - **#4.** Only the evaluator score `E_u` is used; the author score `C_a` is never
 //!   taken or imported.
-//! - **Weights are not consumed by `bridging::fit`** (docs/08 BRIDGE-007, roadmap T5):
-//!   the discount computed here changes this tie-break, not `b_j`.
+//! - **This discount is local to the tie-break.** `bridging::fit` does consume
+//!   per-reviewer weights (docs/08 BRIDGE-007, roadmap T5 — from prior-epoch standing,
+//!   via `orchestrator::bridging_weights`), but those are the reviewer's `E_u`-based
+//!   vote weight, not the correlation discount computed here; this discount changes only
+//!   this band tie-break, never `b_j`.
 
 use scoring::collusion::{cluster_by_correlation, correlation_matrix, discount_weights, ALPHA};
 

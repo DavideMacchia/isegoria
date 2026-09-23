@@ -14,6 +14,7 @@ pub mod governance;
 pub mod honeypot;
 pub mod lifecycle;
 pub mod lottery;
+pub mod orchestrator;
 pub mod pilot;
 pub mod probation;
 pub mod revalidation;
