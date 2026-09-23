@@ -84,8 +84,8 @@ pub struct ItemVerdicts {
     pub gate: GateOutcome,
     /// The author appealed a polarization rejection.
     pub appealed: bool,
-    /// Provisional band tie-break result (`docs/08` PROTO-012, roadmap T30): consulted
-    /// only when `gate == SupplementaryReview`.
+    /// D26 supplementary re-decision result (`gate::supplementary_review`, T10/T30):
+    /// consulted only when `gate == SupplementaryReview`.
     pub band_advances: bool,
     /// Pilot stage 1 (discrimination screen) had enough distinct respondents (INV-8).
     pub enough_respondents: bool,
@@ -100,17 +100,11 @@ pub struct ItemVerdicts {
 /// Drives one item from a scored review round to its terminal `State` via
 /// `lifecycle::step` (T12). `ActivePool` means it reached the pool.
 ///
-/// The uncertainty band is resolved outside the machine: `SupplementaryReview` has no
-/// forward transition by design (T30/PROTO-008), so a band item that the provisional
-/// tie-break advances is scored as a `Pass` here — the documented stand-in until the
-/// D26 mechanism (T30) is built — while one it does not advance rests in
-/// `SupplementaryReview`.
+/// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
+/// (T10/T30): `band_advances` is the outcome of `gate::supplementary_review` — a re-run
+/// bridging fit re-deciding `b_j` against the plain threshold — so a passing band item
+/// advances to the pilot and a failing one is a `Borderline` reject, not a dead end.
 pub fn run_item(v: &ItemVerdicts) -> Result<State, Invalid> {
-    let scored_outcome = match v.gate {
-        GateOutcome::SupplementaryReview if v.band_advances => GateOutcome::Pass,
-        other => other,
-    };
-
     // Enter at the close of the review round to apply the gate outcome; the commit-reveal
     // sub-walk (and its INV-12 binding) is exercised move-by-move in `tests/orchestrator.rs`.
     let mut s = step(
@@ -121,9 +115,18 @@ pub fn run_item(v: &ItemVerdicts) -> Result<State, Invalid> {
         },
         Event::Score {
             all_reveals_in: true,
-            outcome: scored_outcome,
+            outcome: v.gate,
         },
     )?;
+
+    if matches!(s, State::SupplementaryReview) {
+        s = step(
+            s,
+            Event::Resolve {
+                passed: v.band_advances,
+            },
+        )?;
+    }
 
     if matches!(s, State::AppealEligible) {
         s = if v.appealed {

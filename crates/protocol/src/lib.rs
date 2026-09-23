@@ -6,7 +6,6 @@
 //! reviewer assignment) are seeded for reproducibility.
 
 pub mod admission;
-pub mod aggregate;
 pub mod blueprint;
 pub mod deposit;
 pub mod exposure;

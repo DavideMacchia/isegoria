@@ -52,7 +52,7 @@ Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust
 
 **New finding — PROTO-012 (`protocol::aggregate`, merged in `b139acf`, not covered by §0-bis).** `resolve_band(aggregate_pass_probability(p, w), 0.5)` is a weighted arithmetic mean of the *same* ratings the bridging model already consumed, compared to 0.5. That is the "simple average" `docs/01` D2 rejects, applied as the deciding rule for the one class of items (the band) where bridging is undecided; it carries no cross-axis requirement. Evidence, now pinned by `documents_limitation_*` tests: on the oracle fixtures the rule advances **every** item, including 08 and 09 that bridging rejects for polarization (unit-weight means 0.593 and 0.708); a 120-vs-80 polarized panel at 0.9/0.3 with no cartel resolves in favour (0.66); the "√k never flips" scenario holds only for exact-copy cartels with k < 576 (flip at k = 576), and a jittered cartel (σ ≈ 0.05) is not clustered at all (COLLUSION-002), flipping the same panel at k ≈ 65. On the fixtures all three band items (1, 5, 6) have mean ≥ 0.83, so "resolved by review" and "passed by default" are not distinguishable by the e2e test. The module also does **not** address BRIDGE-007: `bridging::fit` remains unweighted, so the discount changes this tie-break and nothing else. Finally, the mechanism contradicts `docs/01` D26 (decided the same day): "more reviewers, then a clean re-decision against the plain threshold". `ARCHITECTURE.md`'s "the review aggregation is **done** and **wired into the epoch**" has been corrected on this branch to "provisional tie-break"; roadmap T5 and T10 correctly remain open, and T30 is added. Status: **IMPLEMENTED (tie-break); INV-2 substantively not provided for band items; D26 NOT IMPLEMENTED.**
 
-**Decisions D17–D31 vs. code.** Consistent with §17 (Q-15, D15's "preferred" separation, remains undecided). Three are *decided but not implemented* and should be tracked as such: D20 (`pilot::stage2_dif` is still on the production e2e path with no calibration gate — T32), D23 (`base_rate_baseline` is still the only baseline, and `composed_gate.rs` derives its `E_u` from it — T31), D26 (above — T30).
+**Decisions D17–D31 vs. code.** Consistent with §17 (Q-15, D15's "preferred" separation, remains undecided). Three are *decided but not implemented* and should be tracked as such: D20 (`pilot::stage2_dif` is still on the production e2e path with no calibration gate — T32), D23 (`base_rate_baseline` was the only baseline — now RESOLVED@T31 via `reputation::crowd_baseline`), D26 (above — T30).
 
 **Matrix deltas (§15).** Added PROTO-012; IQ-2 closed; REPRO-003 now carries repository-native failing evidence; ID-003 unchanged beyond §0-bis; everything else as in §0-bis.
 
@@ -112,7 +112,7 @@ The repository makes, in `README.md`, `docs/00`–`06`, and `ARCHITECTURE.md`, t
 
 Observations that matter for every later section:
 
-- **The orchestrator exists (T12) and the fixture epoch is routed through it.** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. `end_to_end.rs::run_epoch` now makes every stage-to-stage decision through `lifecycle::step` via `orchestrator::run_item` (RESOLVED@T12). Still open: persistence (T13) and the `SupplementaryReview` forward transition (T30).
+- **The orchestrator exists (T12) and the fixture epoch is routed through it.** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. `end_to_end.rs::run_epoch` now makes every stage-to-stage decision through `lifecycle::step` via `orchestrator::run_item` (RESOLVED@T12). The `SupplementaryReview` forward transition is now defined (`Event::Resolve`, the D26 re-decision — RESOLVED@T10/T30). Still open: persistence (T13).
 - **The protocol crate consumes only `identity::nym::Nym` and `network::{cid, log}`.** It never calls `nullifier::{prove,verify}`, `ratelimit::*`, `credential::*`, `consortium::*`, `merkle::*`, `erasure::*`, or `anchoring::*` (verified by `grep` over `crates/protocol/src`). *(RESOLVED@T6: `protocol::admission` now calls `nullifier::verify` and the `deposit_with_identity`/`submit_review` entry points key on `NullifierProof::id`; see PROTO-007.)*
 - **`scoring::bridging::fit` takes no reviewer weights.** Everything Level C and anti-collusion computes (`E_u`, `w_max`, probation weight, `discount_weights`) has no consumer in the Level A objective. *(RESOLVED@T5: the fit minimizes `Σ w_u (r−r̂)²`; `orchestrator::bridging_weights` supplies `w_u`; see BRIDGE-007.)*
 
@@ -267,8 +267,8 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### BRIDGE-006 — Uncertainty band
 - **Claim.** Items with `b_j ∈ [τ−ε, τ+ε]` go to supplementary review.
-- **Evidence.** `gate::bridging_gate` returns `SupplementaryReview`; `end_to_end.rs:129` treats it as a pass ("assumed to pass here"). What supplementary review *is* (more reviewers? re-gate? which threshold?) is specified nowhere.
-- **Evidence status.** IMPLEMENTED as a label. Semantics NOT ESTABLISHED (PROTO-008).
+- **Evidence.** `gate::bridging_gate` returns `SupplementaryReview`; the D26 re-decision `gate::supplementary_review` re-runs bridging over the (expanded) panel and decides `b_j` against the plain threshold τ; `lifecycle` resolves the state via `Event::Resolve`. `supplementary_redecision.rs`.
+- **Evidence status.** RESOLVED@T10/T30 (was IMPLEMENTED as a label only). Semantics now defined: more reviewers → re-run bridging → decide `b_j` vs τ (a bridging decision, not a vote); polarized items 07/08 are not passed.
 
 #### BRIDGE-007 — Reviewer weights enter the aggregation
 - **Claim (docs/02 §C.2, §Anti-collusion, docs/05 §Cold start).** `E_u` weights the review vote; the cartel discount reduces a cartel's influence on `b_j`; probation nodes have weight 0.
@@ -365,7 +365,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### REPUTATION-003 — "Following the consensus scores ≈ 0"
 - **Claim (docs/02 §C.2, docs/01 D6).** BSS is normalized against the crowd baseline `p̄_j`; someone who replicates the consensus gets `BSS ≈ 0`.
 - **Analysis.** The sim and `reputation::base_rate_baseline` normalize against the **outcome base rate `mean(o)`** — a constant known only after outcomes, not the crowd's declared probabilities. Under this baseline the "follows the peer average" profile scores **−1.33**, not ≈ 0, and the "always predicts the base rate" profile scores exactly 0. The documented property refers to a baseline that is not implemented; the implemented property ("guessing the base rate scores 0") is different and depends on hindsight.
-- **Evidence status.** RESOLVED (T31). Chose (a) the crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (D23), matching D6's incentive argument: `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`, `composed_gate`) normalizes BSS against it. `level_c.rs::at_rep_02_a_consensus_follower_scores_zero` (AT-REP-02) pins `BSS = 0` for a follower. The zero-denominator guard is separately RESOLVED (AT-REP-03, §0-ter). Residual: the sim's `levelc_bss` reference still uses the base rate — it reproduces the BSS *function*, not the E_u policy.
+- **Evidence status.** RESOLVED (T31). Chose (a) the crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (D23), matching D6's incentive argument: `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`) normalizes BSS against it. `level_c.rs::at_rep_02_a_consensus_follower_scores_zero` (AT-REP-02) pins `BSS = 0` for a follower. The zero-denominator guard is separately RESOLVED (AT-REP-03, §0-ter). Residual: the sim's `levelc_bss` reference still uses the base rate — it reproduces the BSS *function*, not the E_u policy.
 
 #### REPUTATION-004 — Temporal asymmetry
 - **Evidence.** `asymmetric_ema` with caller-supplied `(up, down)`; tests use (0.1, 0.8) and (0.05, 0.5). No rates are specified in `docs/02` §C.4 ("rises slowly, falls quickly"). The "long-con is unprofitable" test (`scoring/tests/adversarial.rs::a_long_con_is_unprofitable`) checks arithmetic consequences of chosen rates, not a game-theoretic property.
@@ -567,7 +567,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Analysis.** `review::Reviewer.nym`, `probation::FounderSet`, and reputation maps are keyed on `nym::Nym` = SHA-256 of a secret, presented without proof. Anyone can mint unlimited `Nym`s. Sybil resistance, non-rotatability, and rate limiting are therefore properties of the *identity crate in isolation*, not of the protocol as wired. `lib.rs` of `identity` lists "unifying the protocol pseudonym with the ZK nullifier" as future work.
 - **Evidence status.** RESOLVED@T6 (was NOT IMPLEMENTED). `protocol::admission::admit` verifies a role `NullifierProof` (via `nullifier::verify`) and returns `NullifierProof::id()` — a domain-separated hash of the verified nullifier `N = x·H_role`; the entry points `deposit_with_identity` (context = draft cid) and `review::submit_review` (context = item cid + epoch) require it, and `review::NullifierSet` keys per-item dedup on that id, not on `derive_nym`. A bare `Nym` carries no proof and cannot act (`AT-PRO-01`); a proof is bound to its action context and cannot be replayed (`AT-ID-05`); tests in `protocol/tests/inv9_nym_proof.rs`. **Remaining for a full Sybil claim:** the cryptographic-grade enrollment/replay hardening and per-credential quota are T20/T11, and the bespoke nullifier composition is still externally UNREVIEWED (§7.4).
 
-#### PROTO-008 — Supplementary review — NOT SPECIFIED (BRIDGE-006).
+#### PROTO-008 — Supplementary review — RESOLVED@T10/T30 (was NOT SPECIFIED). `gate::supplementary_review` (re-run bridging, decide `b_j` vs τ) + `lifecycle::Event::Resolve` (→ `Pilot1` or `Rejected(Borderline)`); `supplementary_redecision.rs`.
 
 #### PROTO-009 — Honeypot
 - `inject` and `reviewer_skill` TESTED. Not specified: how golden items' "known quality" is established without a Level-B run (a committee opinion — which is the thing Level A is not supposed to trust), how committee members are prevented from reviewing their own golden items, and how the base-rate baseline (REPUTATION-003) interacts with a deliberately balanced golden set.
@@ -735,7 +735,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 ## 9. Protocol state machines
 
-§9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. `end_to_end.rs::run_epoch` (the fixture walk) is now routed through `lifecycle::step` (via `orchestrator::run_item`), so the flow no longer lives twice (RESOLVED@T12). Still open: the `SupplementaryReview` forward transition (PROTO-008, T10/T30).
+§9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. `end_to_end.rs::run_epoch` (the fixture walk) is now routed through `lifecycle::step` (via `orchestrator::run_item`), so the flow no longer lives twice (RESOLVED@T12). The `SupplementaryReview` forward transition is defined via `Event::Resolve`, the D26 re-decision (RESOLVED@T10/T30, PROTO-008).
 
 ### 9.1 Item lifecycle
 
@@ -749,7 +749,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
 | `Revealing` | reveal deadline | ≥ `k_min` reveals (unspecified) | `Gated` | non-revealers: `E_u` penalty (unspecified) | — |
 | `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(B_j, f_j, τ, ε, α_appeal)` | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
-| `SupplementaryReview` | **UNSPECIFIED** (PROTO-008) | | | | |
+| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide `b_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `b_j ≥ τ` else `Rejected(Borderline)` | — | resolved (T10/T30); production "add reviewers" folds them into the re-fit ratings |
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` | `Pilot1{appealed}` | stake escrowed (REPUTATION-007) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✗ no check) |
@@ -1063,7 +1063,7 @@ Only gaps supported by evidence in the repository are listed. Each gives: locati
 *Location.* `docs/02` §C.2, `reputation.rs::base_rate_baseline`, `sim/bridging_irt_dif.py` (`base = out.mean()`), `levelc_bss.csv`.
 *Minimum spec.* Choose; if base rate, re-derive the "correct dissenter is rewarded" argument and specify how `E_u` is computed *before* an epoch's outcomes are known (the base rate is hindsight).
 *Test.* AT-REP-02, AT-REP-03.
-*Status.* RESOLVED (T31) — chose the crowd baseline (D23): `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`, `composed_gate`) normalizes BSS against `p̄_j`; AT-REP-02 passes. The sim's reference `levelc_bss` still uses the base rate (it reproduces the BSS *function*, not the E_u policy).
+*Status.* RESOLVED (T31) — chose the crowd baseline (D23): `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`) normalizes BSS against `p̄_j`; AT-REP-02 passes. The sim's reference `levelc_bss` still uses the base rate (it reproduces the BSS *function*, not the E_u policy).
 
 **G-10 — Oracle precision, acceptance tolerance, and verdict divergence.**
 *Location.* `level_a.rs` (tol 0.03), `fixture_drift.rs` (tol 1e-4, ignored), `end_to_end.rs::EXPECTED_POOL`, auditor regeneration (drift ≤ 1e-3).
@@ -1137,7 +1137,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-003 | polarized items rejected | `level_a.rs` | TESTED (1 dataset) | calibration procedure for τ, λ | docs/07 §13 |
 | BRIDGE-004 | bootstrap-min pessimistic & stable | `level_a.rs` (tautological) | IMPLEMENTED | warm vs cold comparison | new test |
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
-| BRIDGE-006 | band → supplementary review | `gate.rs` | IMPLEMENTED (label) | semantics | G-15 |
+| BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | IMPLEMENTED + semantics defined (T10/T30): D26 re-decision | — | G-15 |
 | BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
 | OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
@@ -1202,11 +1202,11 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
 | PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
 | PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass | cryptographic-grade enrollment/replay (T20), per-credential quota (T11), external review of the nullifier (§7.4) | G-04 |
-| PROTO-008 | supplementary review | — | NOT SPECIFIED | — | G-15 |
+| PROTO-008 | supplementary review | `gate.rs` (`supplementary_review`), `lifecycle.rs` (`Resolve`), `supplementary_redecision.rs` | RESOLVED@T10/T30 — D26 re-decision (re-run bridging, `b_j` vs τ); defined terminal | — | G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
 | PROTO-011 | Draft CID unambiguous | `lifecycle.rs` (AT-PRO-04) | RESOLVED @289aae3 (was DEFECT) — see §0-bis | — | — |
-| PROTO-012 | band resolution is a bridging decision (INV-2/D2/D26) | `aggregate.rs`; `review_aggregation.rs`, `end_to_end.rs` `documents_limitation_*` (auditor, §0-ter) | IMPLEMENTED as a weighted-mean tie-break; INV-2 substantively NOT PROVIDED for band items; D26 NOT IMPLEMENTED | — | roadmap T30 (D26), T5 (BRIDGE-007) |
+| PROTO-012 | band resolution is a bridging decision (INV-2/D2/D26) | `gate.rs` (`supplementary_review`), `supplementary_redecision.rs` | RESOLVED@T30 — the weighted-mean tie-break (`aggregate` module + `review_aggregation.rs`/`composed_gate.rs`) is deleted; the band is re-decided by re-running bridging vs the plain threshold, so a polarized panel is not carried by the larger camp | — | D26, D2 |
 
 No claim in this matrix is at INDEPENDENTLY_REVIEWED, SCIENTIFICALLY_CHARACTERIZED, PRODUCTION_CANDIDATE, or PRODUCTION_READY. The auditor's re-execution of the Python simulations counts as REPRODUCED for DIF-004 and BRIDGE-002 *at the simulation level only*, and explicitly *fails* REPRODUCED for REPRO-003.
 

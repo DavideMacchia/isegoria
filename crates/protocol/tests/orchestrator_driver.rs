@@ -165,12 +165,12 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
 }
 
 #[test]
-fn a_band_item_advances_only_when_the_tie_break_carries_it() {
+fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
     let base = ItemVerdicts {
         gate: GateOutcome::SupplementaryReview,
         ..passing()
     };
-    // The provisional tie-break carries it: it enters the pilot and (passing) reaches the pool.
+    // The D26 re-decision passes (re-fit b_j ≥ τ): it enters the pilot and reaches the pool.
     assert_eq!(
         run_item(&ItemVerdicts {
             band_advances: true,
@@ -179,14 +179,13 @@ fn a_band_item_advances_only_when_the_tie_break_carries_it() {
         .unwrap(),
         State::ActivePool
     );
-    // The tie-break does not carry it: it rests in the band, which has no forward
-    // transition (T30/PROTO-008), so it does not reach the pool.
+    // The re-decision fails: it is a defined borderline reject (no dead end, T10/T30).
     assert_eq!(
         run_item(&ItemVerdicts {
             band_advances: false,
             ..base
         })
         .unwrap(),
-        State::SupplementaryReview
+        State::Rejected(RejectReason::Borderline)
     );
 }

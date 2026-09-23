@@ -402,9 +402,24 @@ fn out_of_order_events_are_rejected() {
 }
 
 #[test]
-fn supplementary_review_has_no_forward_transition() {
-    // PROTO-008 / roadmap T10+T30: the band's forward transition is deliberately undefined.
+fn a_band_item_is_resolved_by_the_d26_re_decision() {
+    // PROTO-008/PROTO-012 closed (T10/T30): the band has a forward transition — the D26
+    // re-decision (`Resolve`) either lifts it into the pilot or rejects it as borderline.
     let s = scored(GateOutcome::SupplementaryReview);
     assert_eq!(s, State::SupplementaryReview);
-    assert_eq!(step(s, Event::Administer), Err(Invalid::UnexpectedEvent));
+    // An out-of-order event is still rejected …
+    assert_eq!(
+        step(s.clone(), Event::Administer),
+        Err(Invalid::UnexpectedEvent)
+    );
+    // … the re-decision passing lifts it to the pilot,
+    assert_eq!(
+        step(s.clone(), Event::Resolve { passed: true }).unwrap(),
+        State::Pilot1 { appealed: false }
+    );
+    // … and failing it is a defined borderline reject, not a dead end.
+    assert_eq!(
+        step(s, Event::Resolve { passed: false }).unwrap(),
+        State::Rejected(RejectReason::Borderline)
+    );
 }
