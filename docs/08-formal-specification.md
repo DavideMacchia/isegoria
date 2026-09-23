@@ -112,7 +112,7 @@ The repository makes, in `README.md`, `docs/00`–`06`, and `ARCHITECTURE.md`, t
 
 Observations that matter for every later section:
 
-- **The orchestrator exists (T12).** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. Still open: the fixture epoch in `end_to_end.rs::run_epoch` has not yet been re-routed through it.
+- **The orchestrator exists (T12) and the fixture epoch is routed through it.** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. `end_to_end.rs::run_epoch` now makes every stage-to-stage decision through `lifecycle::step` via `orchestrator::run_item` (RESOLVED@T12). Still open: persistence (T13) and the `SupplementaryReview` forward transition (T30).
 - **The protocol crate consumes only `identity::nym::Nym` and `network::{cid, log}`.** It never calls `nullifier::{prove,verify}`, `ratelimit::*`, `credential::*`, `consortium::*`, `merkle::*`, `erasure::*`, or `anchoring::*` (verified by `grep` over `crates/protocol/src`).
 - **`scoring::bridging::fit` takes no reviewer weights.** Everything Level C and anti-collusion computes (`E_u`, `w_max`, probation weight, `discount_weights`) has no consumer in the Level A objective.
 
@@ -734,7 +734,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 ## 9. Protocol state machines
 
-§9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. Still open: routing `end_to_end.rs::run_epoch` (the fixture walk) through `lifecycle::step` so the flow no longer lives twice, and the `SupplementaryReview` forward transition (PROTO-008, T10/T30).
+§9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. `end_to_end.rs::run_epoch` (the fixture walk) is now routed through `lifecycle::step` (via `orchestrator::run_item`), so the flow no longer lives twice (RESOLVED@T12). Still open: the `SupplementaryReview` forward transition (PROTO-008, T10/T30).
 
 ### 9.1 Item lifecycle
 
@@ -1137,7 +1137,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-004 | bootstrap-min pessimistic & stable | `level_a.rs` (tautological) | IMPLEMENTED | warm vs cold comparison | new test |
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` | IMPLEMENTED (label) | semantics | G-15 |
-| BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; a discounted cartel moves `b_j` less than the same number of independents | previous-epoch lag wiring in a real epoch (T12) | G-03 |
+| BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
 | OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |
@@ -1157,7 +1157,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | REPUTATION-003 | consensus ≈ 0 | `reputation::crowd_baseline`; `level_c.rs` (AT-REP-02) | RESOLVED (T31) — E_u normalizes BSS against the crowd baseline `p̄_j` (D23); a consensus follower scores BSS 0. Sim's `levelc_bss` reference still base-rate | sim BSS → crowd | G-09 |
 | REPUTATION-004 | asymmetry deters long-con | `scoring/tests/adversarial.rs` | IMPLEMENTED; claim HYPOTHESIS | rates; game analysis | AT-REP-01 |
 | REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
-| REPUTATION-006 | probation | `lifecycle.rs` | TESTED, NOT WIRED | — | G-03 |
+| REPUTATION-006 | probation | `probation.rs`, `orchestrator.rs` (`bridging_weights`) | WIRED (T5) — probation → `w_u = 0`, so a probationer's ratings do not move `b_j`; `orchestrator_driver.rs` | — | G-03 |
 | REPUTATION-007 | appeal stake coherent | `lifecycle.rs` | INCONSISTENT | — | redefine as pseudo-observation |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |

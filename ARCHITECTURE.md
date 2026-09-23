@@ -165,6 +165,8 @@ steps are seeded for reproducibility.
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
+| `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12) | `gate`, `review`, `exposure`, `identity::nym` |
+| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12) | `lifecycle`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -272,13 +274,16 @@ to make the pipeline testable end-to-end.
 ## Future work
 
 - Integrate the real cryptographic and transport backends into the plug points.
-- `protocol::aggregate` composes `probation` + anti-collusion weights into a
-  **provisional tie-break for band items** (a weighted mean of pass-probabilities vs
-  0.5). It is **not** the review-weighting the design specifies: the weights still do
-  not enter `bridging::fit`, so a cartel's discount changes this tie-break and nothing
-  else (docs/08 BRIDGE-007, roadmap T5); and it is not the borderline mechanism
-  `docs/01` D26 decided (more reviewers, then a clean re-decision of the bridging score
-  — roadmap T10/T30). Still open in the composition: `governance` sortition feeding the
+- Reputation now enters `bridging::fit`: `orchestrator::{bridging_weights, weighted_ratings}`
+  turn prior-epoch reviewer standing into the per-reviewer `w_u` the weighted objective
+  minimizes over (docs/08 BRIDGE-007, roadmap T5 — **done**), and `end_to_end.rs::run_epoch`
+  drives each item through the `lifecycle` state machine (T12 — **done**). Two things
+  the composition still lacks: `protocol::aggregate` remains a **provisional tie-break
+  for band items** (a weighted mean of pass-probabilities vs 0.5) — its correlation
+  discount is local to that tie-break, not the fit — rather than the borderline mechanism
+  `docs/01` D26 decided (more reviewers, then a clean re-decision of the bridging score,
+  roadmap T10/T30); and no persistence yet (roadmap T13). Still open in the composition:
+  `governance` sortition feeding the
   honeypot / blueprint committees; `revalidation` → `exposure` retirement on a
   schedule; deduplicating reviewer votes via the M3 ZK nullifier.
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian

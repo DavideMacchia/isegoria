@@ -25,6 +25,10 @@ use protocol::aggregate::{
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
+#[cfg(feature = "calibration")]
+use protocol::lifecycle::State;
+#[cfg(feature = "calibration")]
+use protocol::orchestrator::{run_item, weighted_ratings, ItemVerdicts, ReviewerStanding};
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
 use protocol::pilot::{stage2_dif, DifVerdict};
@@ -34,6 +38,8 @@ use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
 #[cfg(feature = "calibration")]
 use std::collections::BTreeSet;
+#[cfg(feature = "calibration")]
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -182,34 +188,46 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         "content addressing gives each draft a distinct id"
     );
 
-    // --- scoring Level A: bridging gate ---
-    let ratings = load_ratings();
+    // --- scoring Level A: bridging gate, on ratings weighted by prior-epoch standing ---
+    // The fit consumes per-reviewer weights (T5, BRIDGE-007). This is a bootstrap epoch,
+    // so every reviewer seeds as a founder at unit weight — but the weight now comes from
+    // the orchestrator (`bridging_weights`), the same reputation path that weights the
+    // aggregation, instead of being an implicit `1.0` baked into `Ratings::from_dense`.
+    let r_dense = read_matrix("R.csv");
+    let mask_bool: Vec<Vec<bool>> = read_matrix("mask.csv")
+        .iter()
+        .map(|row| row.iter().map(|&v| v != 0.0).collect())
+        .collect();
+    let standings = vec![ReviewerStanding::founder(); r_dense.len()];
+    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0);
+
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85);
     let f = fit(&ratings, &params);
 
-    // Dense ratings + mask, to resolve the uncertainty band with a weighted,
-    // anti-collusion-discounted second look at the same panel (docs/05 [4]/[5]).
-    let r_dense = read_matrix("R.csv");
+    // Dense mask, to resolve the uncertainty band with a weighted, anti-collusion-
+    // discounted second look at the same panel (docs/05 [4]/[5]).
     let mask = read_matrix("mask.csv");
 
-    let mut advancing: Vec<usize> = Vec::new();
-    for (j, &b) in bridge.iter().enumerate() {
-        match bridging_gate(b, f.f_j[j], TAU, EPS, APPEAL_THRESHOLD) {
-            GateOutcome::Pass => advancing.push(j),
-            // Inside the band: resolved by the reviewers who rated it, weighted
-            // (established, unit E_u — the fixtures carry no per-reviewer E_u) and
-            // discounted for collusion, not passed by default.
-            GateOutcome::SupplementaryReview => {
-                if resolve_supplementary(&r_dense, &mask, j) {
-                    advancing.push(j);
-                }
-            }
-            // Rejected for polarization: advances only if the author appeals.
-            GateOutcome::AppealEligible if appeals.contains(&j) => advancing.push(j),
-            _ => {}
-        }
-    }
+    // Gate every item and record whether it advances: a straight pass, a band item the
+    // provisional tie-break carries (resolved by its own weighted, collusion-discounted
+    // panel, not by default), or a polarization reject whose author appeals.
+    let gate: Vec<GateOutcome> = (0..m)
+        .map(|j| bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD))
+        .collect();
+    let band_advances: Vec<bool> = (0..m)
+        .map(|j| {
+            matches!(gate[j], GateOutcome::SupplementaryReview)
+                && resolve_supplementary(&r_dense, &mask, j)
+        })
+        .collect();
+    let advancing: Vec<usize> = (0..m)
+        .filter(|&j| {
+            matches!(gate[j], GateOutcome::Pass)
+                || band_advances[j]
+                || (matches!(gate[j], GateOutcome::AppealEligible) && appeals.contains(&j))
+        })
+        .collect();
 
     // --- scoring Level B: two-stage pilot on the advancing items ---
     let theta = theta_from_anchors(&read_matrix("levelb_XA.csv"));
@@ -218,6 +236,11 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
 
     let cols: Vec<Vec<f64>> = advancing.iter().map(|&j| column(&x, j)).collect();
     let keep1 = stage1_screen(&theta, &cols);
+    let screen_passed: HashMap<usize, bool> = advancing
+        .iter()
+        .copied()
+        .zip(keep1.iter().copied())
+        .collect();
     let after1: Vec<usize> = advancing
         .iter()
         .zip(keep1.iter())
@@ -227,10 +250,30 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let cols2: Vec<Vec<f64>> = after1.iter().map(|&j| column(&x, j)).collect();
     let keep2 = stage2_dif(&theta, &grp, &cols2);
     // Only a clean Pass advances; a Reject or an Undetermined (separated) fit does not.
-    after1
+    let dif_passed: HashMap<usize, bool> = after1
         .iter()
-        .zip(keep2.iter())
-        .filter_map(|(&j, &k)| (k == DifVerdict::Pass).then_some(j))
+        .copied()
+        .zip(keep2.iter().map(|&k| k == DifVerdict::Pass))
+        .collect();
+    let pilot2_batch_size = after1.len();
+
+    // --- protocol: the lifecycle state machine decides each item (T12) ---
+    // Every stage-to-stage transition (gate outcome → pilot entry, pilot verdict → pool
+    // or reject) goes through `lifecycle::step`; the pool is exactly the items the
+    // machine leaves in `ActivePool`.
+    (0..m)
+        .filter(|&j| {
+            let verdicts = ItemVerdicts {
+                gate: gate[j],
+                appealed: appeals.contains(&j),
+                band_advances: band_advances[j],
+                enough_respondents: true,
+                screen_passed: *screen_passed.get(&j).unwrap_or(&false),
+                dif_passed: *dif_passed.get(&j).unwrap_or(&false),
+                pilot2_batch_size,
+            };
+            run_item(&verdicts).unwrap() == State::ActivePool
+        })
         .collect()
 }
 
