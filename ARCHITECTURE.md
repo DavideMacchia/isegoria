@@ -153,11 +153,12 @@ steps are seeded for reproducibility.
 
 | Module | Stage | Key items | Uses |
 |---|---|---|---|
+| `admission` | INV-9 | `admit`, `NullifierSet` — verified role nullifier → proven `id` (T6) | `identity::nullifier`, `identity::credential` |
 | `blueprint` | [8]/L2 | `Blueprint`, `quotas`, `coverage_deviation`, `assemble_test` | — |
-| `deposit` | [2] | `Draft`, `deposit`, `NoPrimarySource` | `network::log`, `network::cid` |
+| `deposit` | [2] | `Draft`, `deposit`, `deposit_with_identity` (identity-gated) | `admission`, `identity`, `network::{log,cid}` |
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
 | `lottery` | [3] | `admit` | — |
-| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal` | `identity::nym` |
+| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
 | `aggregate` | [4]/[5], §C.2 | `review_weights`, `aggregate_pass_probability`, `resolve_band` | `scoring::collusion`, `probation` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `settle_appeal` | (scoring outputs) |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif` | `scoring::irt`, `scoring::dif` |
@@ -261,7 +262,7 @@ cargo clippy --workspace --all-targets
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
 | Role pseudonyms, rate-limiting tokens | **Real** (hash-based) | — |
-| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol) | (circom Semaphore avoided) |
+| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review entry points key on its proven `id`, with an action-context binding against replay | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
 | Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |
@@ -285,7 +286,8 @@ to make the pipeline testable end-to-end.
   roadmap T10/T30); and no persistence yet (roadmap T13). Still open in the composition:
   `governance` sortition feeding the
   honeypot / blueprint committees; `revalidation` → `exposure` retirement on a
-  schedule; deduplicating reviewer votes via the M3 ZK nullifier.
+  schedule. (Reviewer-vote dedup via the M3 ZK nullifier is now done at the boundary —
+  `admission::NullifierSet` — T6.)
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple

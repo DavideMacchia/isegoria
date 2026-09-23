@@ -113,8 +113,8 @@ The repository makes, in `README.md`, `docs/00`–`06`, and `ARCHITECTURE.md`, t
 Observations that matter for every later section:
 
 - **The orchestrator exists (T12) and the fixture epoch is routed through it.** `protocol::lifecycle` owns per-item `State` and a `step` transition function that rejects every checkable invalid §9.1 transition (`tests/orchestrator.rs`). The dead `protocol::Stage` enum was removed. `end_to_end.rs::run_epoch` now makes every stage-to-stage decision through `lifecycle::step` via `orchestrator::run_item` (RESOLVED@T12). Still open: persistence (T13) and the `SupplementaryReview` forward transition (T30).
-- **The protocol crate consumes only `identity::nym::Nym` and `network::{cid, log}`.** It never calls `nullifier::{prove,verify}`, `ratelimit::*`, `credential::*`, `consortium::*`, `merkle::*`, `erasure::*`, or `anchoring::*` (verified by `grep` over `crates/protocol/src`).
-- **`scoring::bridging::fit` takes no reviewer weights.** Everything Level C and anti-collusion computes (`E_u`, `w_max`, probation weight, `discount_weights`) has no consumer in the Level A objective.
+- **The protocol crate consumes only `identity::nym::Nym` and `network::{cid, log}`.** It never calls `nullifier::{prove,verify}`, `ratelimit::*`, `credential::*`, `consortium::*`, `merkle::*`, `erasure::*`, or `anchoring::*` (verified by `grep` over `crates/protocol/src`). *(RESOLVED@T6: `protocol::admission` now calls `nullifier::verify` and the `deposit_with_identity`/`submit_review` entry points key on `NullifierProof::id`; see PROTO-007.)*
+- **`scoring::bridging::fit` takes no reviewer weights.** Everything Level C and anti-collusion computes (`E_u`, `w_max`, probation weight, `discount_weights`) has no consumer in the Level A objective. *(RESOLVED@T5: the fit minimizes `Σ w_u (r−r̂)²`; `orchestrator::bridging_weights` supplies `w_u`; see BRIDGE-007.)*
 
 ### 2.3 Design intent vs. implemented vs. tested vs. simulated
 
@@ -192,7 +192,7 @@ Additional invariants this specification introduces (not in `docs/CLAUDE.md`), e
 
 | # | Invariant | Reason |
 |---|---|---|
-| INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | PROTO-007 |
+| INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6): `admission::admit` + `deposit_with_identity`/`submit_review` key on `NullifierProof::id()`; PROTO-007 |
 | INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | CRYPTO-008 |
 | INV-11 | The uniqueness-label key (OPRF key) MUST NOT be rotated without a documented migration that preserves dedup; the label MUST be stable for the lifetime of the registry. | ID-006 |
 | INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | CRYPTO-007 |
@@ -564,7 +564,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### PROTO-007 — Pseudonym validity is verified by the protocol
 - **Analysis.** `review::Reviewer.nym`, `probation::FounderSet`, and reputation maps are keyed on `nym::Nym` = SHA-256 of a secret, presented without proof. Anyone can mint unlimited `Nym`s. Sybil resistance, non-rotatability, and rate limiting are therefore properties of the *identity crate in isolation*, not of the protocol as wired. `lib.rs` of `identity` lists "unifying the protocol pseudonym with the ZK nullifier" as future work.
-- **Evidence status.** NOT IMPLEMENTED (INV-9). Until fixed, **no protocol-level Sybil claim holds.**
+- **Evidence status.** RESOLVED@T6 (was NOT IMPLEMENTED). `protocol::admission::admit` verifies a role `NullifierProof` (via `nullifier::verify`) and returns `NullifierProof::id()` — a domain-separated hash of the verified nullifier `N = x·H_role`; the entry points `deposit_with_identity` (context = draft cid) and `review::submit_review` (context = item cid + epoch) require it, and `review::NullifierSet` keys per-item dedup on that id, not on `derive_nym`. A bare `Nym` carries no proof and cannot act (`AT-PRO-01`); a proof is bound to its action context and cannot be replayed (`AT-ID-05`); tests in `protocol/tests/inv9_nym_proof.rs`. **Remaining for a full Sybil claim:** the cryptographic-grade enrollment/replay hardening and per-credential quota are T20/T11, and the bespoke nullifier composition is still externally UNREVIEWED (§7.4).
 
 #### PROTO-008 — Supplementary review — NOT SPECIFIED (BRIDGE-006).
 
@@ -740,7 +740,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
 |---|---|---|---|---|---|
-| — | `deposit(draft)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` (INV-9); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓ implemented); duplicate CID; unproven nym (✗); over-quota (✗) |
+| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID; unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✗ T11) |
 | `Deposited` | epoch close → `admit()` | lottery seed = `H(checkpoint_head_at_close ‖ epoch)` (INV-10); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✗ unguarded) |
 | `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
@@ -1175,7 +1175,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | CRYPTO-001 | VOPRF RFC 9497 | `voprf_oracle.rs` | TESTED | RFC test vectors | differential/ |
 | CRYPTO-003 | BBS+ blind issuance | `bbs_credential.rs`, unit tests | TESTED | per-label limit; external review | §7.4 |
 | CRYPTO-004 | threshold BBS+ | `threshold_bbs.rs` | TESTED (in-process) | independent base-OT seed; DKG; review | §7.4 |
-| CRYPTO-005 | nullifier bound to credential | `nullifier.rs`, `tests/nullifier.rs` | TESTED | message binding; external review | AT-ID-05; §7.4 |
+| CRYPTO-005 | nullifier bound to credential | `nullifier.rs`, `tests/nullifier.rs`, `protocol/tests/inv9_nym_proof.rs` | TESTED; message binding now present (T6) — `prove`/`verify` take an action `context` folded into the Fiat–Shamir challenge, so a proof does not verify under another context (AT-ID-05) | external review (§7.4) | AT-ID-05; §7.4 |
 | CRYPTO-006 | cross-role unlinkability | — | HYPOTHESIS (SXDH) | name the assumption | docs |
 | CRYPTO-007 | commit binding | `lifecycle.rs` (value only) | DEFECT | — | INV-12 |
 | CRYPTO-008 | randomness source | — | NOT ESTABLISHED | — | INV-10 |
@@ -1200,7 +1200,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED | escrow semantics | G-15 |
 | PROTO-005 | pilot stages | `lifecycle.rs`, `end_to_end.rs` | TESTED | N/K gating | G-15 |
 | PROTO-006 | batch enforced | `lifecycle.rs` (`BatchTooSmall`, `NotEnoughRespondents`); `orchestrator.rs` | ENFORCED (T12) in the state machine — the pilot-1 respondent floor and `K_min ≥ 2` reject a batch of one | wiring into the fixture epoch | AT-PRO-02 |
-| PROTO-007 | nym proof verified | — | NOT IMPLEMENTED | — | G-04 |
+| PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass | cryptographic-grade enrollment/replay (T20), per-credential quota (T11), external review of the nullifier (§7.4) | G-04 |
 | PROTO-008 | supplementary review | — | NOT SPECIFIED | — | G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |

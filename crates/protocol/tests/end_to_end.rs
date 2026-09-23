@@ -12,9 +12,13 @@
 // Identity enrollment, the transparency log and deposit are exercised only by the
 // full-epoch walk, which is calibration-only (its DIF stage is Variant 1, docs/01 D20).
 #[cfg(feature = "calibration")]
-use identity::credential::Credential;
+use identity::credential::{Credential, Issuer};
 #[cfg(feature = "calibration")]
-use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid, VoprfOracle};
+use identity::enrollment::{
+    Cie, DuplicateEnrollment, EnrollmentRegistry, Label, Spid, VoprfOracle,
+};
+#[cfg(feature = "calibration")]
+use identity::nullifier;
 #[cfg(feature = "calibration")]
 use identity::nym::Role;
 #[cfg(feature = "calibration")]
@@ -23,7 +27,7 @@ use protocol::aggregate::{
     aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
 };
 #[cfg(feature = "calibration")]
-use protocol::deposit::{deposit, Draft};
+use protocol::deposit::{deposit_with_identity, Draft};
 use protocol::gate::{bridging_gate, GateOutcome};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::State;
@@ -164,10 +168,14 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         Err(DuplicateEnrollment),
         "same person cannot enroll twice, even via another source"
     );
+    // The author holds a committee-issued credential; each deposit proves a `Propose`
+    // nullifier bound to that draft (INV-9, T6) — a bare pseudonym cannot propose.
+    let issuer = Issuer::new([1u8; 32]);
     let author = Credential::from_secret([42u8; 32]);
-    let _propose_nym = author.nym(Role::Propose); // the author acts under a role pseudonym
+    let (req, pending) = author.request_issuance(&Label([3u8; 32]), &issuer.public());
+    let author_cred = pending.finalize(issuer.issue(&req).unwrap());
 
-    // --- network: deposit the ten drafts onto the tamper-evident log ---
+    // --- network: deposit the ten drafts onto the tamper-evident log, identity-gated ---
     let mut log = TransparencyLog::new();
     let mut item_cid = Vec::with_capacity(m);
     for j in 0..m {
@@ -175,7 +183,15 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
             item: format!("item {j}").into_bytes(),
             primary_source: b"Gazzetta Ufficiale".to_vec(),
         };
-        item_cid.push(deposit(&mut log, &draft).unwrap());
+        let proof = nullifier::prove(
+            &author_cred,
+            &issuer.public(),
+            Role::Propose,
+            &draft.content_id().0,
+        );
+        let (id, _proposer) =
+            deposit_with_identity(&mut log, &draft, &proof, &issuer.public()).unwrap();
+        item_cid.push(id);
     }
     assert_eq!(log.len(), m);
     assert!(log.verify());

@@ -3,7 +3,11 @@
 //! picks what to review (anti-brigading). Judgments are committed then revealed, so
 //! no one can copy others or ride an information cascade.
 
-use identity::nym::Nym;
+use crate::admission::{admit, DuplicateNullifier, NullifierSet, Unproven};
+use identity::credential::IssuerPublic;
+use identity::nullifier::NullifierProof;
+use identity::nym::{Nym, Role};
+use network::cid::Cid;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -56,4 +60,53 @@ pub fn commit(prob: f64, nonce: &[u8; 32]) -> Commit {
 /// Checks a revealed (prob, nonce) against its commitment.
 pub fn reveal(commitment: Commit, prob: f64, nonce: &[u8; 32]) -> bool {
     commit(prob, nonce) == commitment
+}
+
+/// The action context a review proof is bound to: this item and epoch (AT-ID-05). A
+/// reviewer proves against exactly this, so a proof made for one item cannot be replayed
+/// onto another.
+pub fn review_context(item: Cid, epoch: u64) -> Vec<u8> {
+    let mut ctx = Vec::with_capacity(40);
+    ctx.extend_from_slice(&item.0);
+    ctx.extend_from_slice(&epoch.to_le_bytes());
+    ctx
+}
+
+/// The identity-gated review entry point (`docs/08` §9.1, INV-9, T6): the reviewer
+/// presents a `NullifierProof(Judge)` bound to this item and epoch, so it cannot be
+/// replayed onto another item (AT-ID-05). The proven id is recorded in `panel`, rejecting
+/// a second judgment by the same role-nullifier on this item. Returns the reviewer's
+/// proven, non-rotatable id — the id the panel and reputation key on, never
+/// `nym::derive_nym` (a bare `Nym` has no proof and is refused, AT-PRO-01).
+pub fn submit_review(
+    proof: &NullifierProof,
+    issuer: &IssuerPublic,
+    item: Cid,
+    epoch: u64,
+    panel: &mut NullifierSet,
+) -> Result<Nym, ReviewRejected> {
+    let id = admit(proof, issuer, Role::Judge, &review_context(item, epoch))?;
+    panel.spend(id)?;
+    Ok(id)
+}
+
+/// Why a submitted review was refused at the identity-gated entry point.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReviewRejected {
+    /// No valid `Judge` nullifier proof for this item and epoch.
+    Unproven(Unproven),
+    /// This role-nullifier already reviewed this item.
+    Duplicate,
+}
+
+impl From<Unproven> for ReviewRejected {
+    fn from(u: Unproven) -> Self {
+        ReviewRejected::Unproven(u)
+    }
+}
+
+impl From<DuplicateNullifier> for ReviewRejected {
+    fn from(_: DuplicateNullifier) -> Self {
+        ReviewRejected::Duplicate
+    }
 }
