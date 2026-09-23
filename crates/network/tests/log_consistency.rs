@@ -15,6 +15,12 @@ fn log_of(payloads: &[&[u8]]) -> TransparencyLog {
     log
 }
 
+/// Stamp a head-only checkpoint; the T14 consistency check ignores the network binding
+/// (that is T15's concern), so fixed zero binding is fine here.
+fn checkpoint(log: &TransparencyLog) -> Checkpoint {
+    log.checkpoint([0u8; 32], [0u8; 32])
+}
+
 /// A checkpoint the consortium has co-signed (a threshold of members) — what a verifier
 /// trusts as the prior head.
 fn signed(cp: &Checkpoint) -> bool {
@@ -32,7 +38,7 @@ fn signed(cp: &Checkpoint) -> bool {
 fn at_net_01_a_consistent_rewrite_is_detected_against_a_signed_head() {
     // Height-4 log; the consortium signs its head — this is the trusted prior checkpoint.
     let original = log_of(&[b"a", b"b", b"c", b"d"]);
-    let prior = original.checkpoint();
+    let prior = checkpoint(&original);
     assert!(signed(&prior), "the prior head is consortium-signed");
 
     // A consistent rewrite: entry 1 is `X` instead of `b`, every later hash recomputed, so
@@ -48,7 +54,7 @@ fn at_net_01_a_consistent_rewrite_is_detected_against_a_signed_head() {
 
 #[test]
 fn truncation_is_detected() {
-    let prior = log_of(&[b"a", b"b", b"c", b"d"]).checkpoint();
+    let prior = checkpoint(&log_of(&[b"a", b"b", b"c", b"d"]));
     let truncated = log_of(&[b"a", b"b"]);
     assert!(truncated.verify(), "a shorter prefix verifies on its own");
     assert_eq!(
@@ -60,13 +66,13 @@ fn truncation_is_detected() {
 #[test]
 fn a_genuine_extension_passes() {
     let original = log_of(&[b"a", b"b", b"c", b"d"]);
-    let prior = original.checkpoint();
+    let prior = checkpoint(&original);
     // The same prefix plus new entries: the checkpointed head is unchanged, so it extends.
     let extended = log_of(&[b"a", b"b", b"c", b"d", b"e", b"f"]);
     assert_eq!(extended.verify_extends(&prior), Ok(()));
     // The empty checkpoint is a prefix of everything.
     assert_eq!(
-        extended.verify_extends(&TransparencyLog::new().checkpoint()),
+        extended.verify_extends(&checkpoint(&TransparencyLog::new())),
         Ok(())
     );
 }

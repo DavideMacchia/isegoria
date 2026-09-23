@@ -89,14 +89,17 @@ impl TransparencyLog {
         true
     }
 
-    /// The log's current state as a `Checkpoint { height = len, head }` — the object the
-    /// consortium signs (`consortium::Member::sign`). A signature over this head commits
-    /// the whole prefix, because the head chains every earlier entry.
-    pub fn checkpoint(&self) -> Checkpoint {
-        Checkpoint {
-            height: self.entries.len() as u64,
-            head: self.head(),
-        }
+    /// The log's current state as a `Checkpoint` bound to `network_id` and
+    /// `member_set_hash` (T15) — the object the consortium signs (`consortium::Member::
+    /// sign`). A signature over this head commits the whole prefix, because the head chains
+    /// every earlier entry.
+    pub fn checkpoint(&self, network_id: [u8; 32], member_set_hash: [u8; 32]) -> Checkpoint {
+        Checkpoint::new(
+            network_id,
+            member_set_hash,
+            self.entries.len() as u64,
+            self.head(),
+        )
     }
 
     /// Proves the log consistently extends `prior` — a checkpoint the verifier already
@@ -164,7 +167,7 @@ mod tests {
             let mut l = TransparencyLog::new();
             l.append(cid(b"a"));
             l.append(cid(b"b"));
-            l.checkpoint()
+            l.checkpoint([0u8; 32], [0u8; 32])
         };
         let mut log = TransparencyLog::new();
         log.append(cid(b"a"));

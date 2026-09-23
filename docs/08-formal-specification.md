@@ -534,7 +534,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### NET-006 — Checkpoint replay, equivocation, network binding
 - **Analysis.** The signed message has no network/consortium identifier and no epoch/time: a checkpoint is valid forever and, after a fork (`docs/04` "freedom to fork" — the same keys may sign on both sides), on both forks. Two threshold-signed checkpoints with the same `height` and different `head` are both accepted; no equivocation detection, no client-side monotonic-height rule, no accountability record. Member set changes (add/remove/rotate keys) are not representable.
-- **Evidence status.** NOT IMPLEMENTED. The specification MUST add `network_id` and `member_set_hash` to the checkpoint message, define a client state machine (§9.4), and define what a light node does on conflicting checkpoints.
+- **Evidence status.** RESOLVED@T15 (was NOT IMPLEMENTED). `Checkpoint` now carries `network_id` and `member_set_hash` **inside the signed message** (`…/checkpoint/v2`), and `consortium::CheckpointClient` is the §9.4 client state machine: it rejects a foreign `network_id` (AT-NET-05) or member set, ignores a non-monotonic `height` as a replay (`Stale`, AT-NET-03), and on two threshold-signed checkpoints at the same height with different heads returns `Forked{trusted, conflicting}` — the equivocation evidence (AT-NET-04). Tests: `checkpoint_replay.rs`. Residual: detecting a higher-height fork whose head does not extend the trusted one combines this with `log::verify_extends` (T14) for a client holding the log; member-set *rotation* in the checkpoint is future (CS-4/T22).
 
 #### NET-007 — Erasure coding
 - `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). No shard authentication (a corrupted shard is not detected before reconstruction; RS decoding with erasures only assumes shards are either missing or correct — a *wrong* shard yields wrong data silently). No placement, repair, or churn model. **Evidence status.** TESTED for the coding primitive; corrupted-shard case UNSOLVED.
@@ -787,7 +787,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Trusted{h, head, member_set}` | receive `cp{h', head', net_id, member_set_hash}` + sigs | `net_id` matches; `member_set_hash` matches; `≥ t` distinct valid sigs; `h' > h`; a consistency proof or the entries `h..h'` show `head'` extends `head` | `Trusted{h', head'}` | `h' ≤ h` (stale — ignore); `h' > h` with a non-extending head (fork — **alarm**, record both) |
 | any | two valid cps with same `h'`, different `head'` | — | `Forked` | equivocation evidence published (accountability rule unspecified) |
 
-None of the fields `net_id`, `member_set_hash`, consistency proof, or the client state exist at this commit.
+Implemented@T15: `Checkpoint` carries `network_id`/`member_set_hash` in its signed message and `consortium::CheckpointClient` is this state machine (net/member-set binding, monotonic-height replay rule, same-height equivocation → `Forked`). The consistency-proof arm of the `h' > h` transition (a higher head that does not extend `head`) is provided by `log::verify_extends` (T14) for a client that also holds the log.
 
 ---
 
@@ -894,7 +894,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 
 | Attack | Result |
 |---|---|
-| Replay of an old checkpoint | UNSOLVED (NET-006) |
+| Replay of an old checkpoint | SOLVED (T15): the client's monotonic-height rule ignores it (`Stale`); cross-network replay rejected by `network_id` binding |
 | Equivocation (two heads at one height, `≥ t` sigs) | UNSOLVED — accepted twice, no detection |
 | Fork by consistent suffix rewrite of a log | DETECTED against a consortium-signed prior head (T14, `verify_extends`); a client without a prior checkpoint still cannot judge history in isolation (inherent) |
 | Partition | undefined (no network) |
@@ -1190,7 +1190,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |
 | NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
 | NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
-| NET-006 | replay/equivocation/net id | — | NOT IMPLEMENTED | — | §9.4 |
+| NET-006 | replay/equivocation/net id | `consortium.rs` (`Checkpoint` v2, `CheckpointClient`, `member_set_hash`), `checkpoint_replay.rs` | RESOLVED@T15 — net/member-set binding in the signed message; client monotonic-height rule; same-height equivocation evidence (AT-NET-03..05) | member-set rotation (T22); higher-height fork via `verify_extends` | §9.4 |
 | NET-007 | erasure | proptest | TESTED | shard auth | AT-NET-06 |
 | NET-008 | OTS verify | `anchoring.rs`, `integrity.rs` | TESTED (format) | fuzz | AT-NET-07 |
 | NET-009 | anchoring liveness | — | NOT IMPLEMENTED | — | roadmap |
