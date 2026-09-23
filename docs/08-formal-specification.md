@@ -193,7 +193,7 @@ Additional invariants this specification introduces (not in `docs/CLAUDE.md`), e
 | # | Invariant | Reason |
 |---|---|---|
 | INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6): `admission::admit` + `deposit_with_identity`/`submit_review` key on `NullifierProof::id()`; PROTO-007 |
-| INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | CRYPTO-008 |
+| INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | ENFORCED (T8): `randomness::Beacon` derives every draw's seed from the signed checkpoint head; the `_from_beacon` wrappers are the entry points; CRYPTO-008 |
 | INV-11 | The uniqueness-label key (OPRF key) MUST NOT be rotated without a documented migration that preserves dedup; the label MUST be stable for the lifetime of the registry. | ID-006 |
 | INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | ENFORCED (T7): `review::commit = H(prob, nonce, committer, item)`; the reveal recomputes against the revealer + item; CRYPTO-007 |
 | INV-13 | The engine input MUST have a canonical serialization (fixed observation order, fixed float encoding) and the reproducibility claim MUST be stated relative to it. | REPRO-002 |
@@ -489,7 +489,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### CRYPTO-008 — Randomness for lottery, assignment, honeypot placement, sortition
 - **Analysis.** `lottery::admit(base_seed, epoch)`, `review::assign_reviewers(item_seed)`, `honeypot::inject(seed)`, `governance::stratified_sortition(seed)`, `blueprint::assemble_test(seed)` are deterministic in a caller-supplied `u64`. The tests use constants. No document says where the seed comes from. If it is derivable from data an author controls (e.g. the draft CID, which the author can grind by editing whitespace), the author can select its reviewers — the brigading the random assignment is meant to prevent. If it is chosen by an operator, that operator can select reviewers for any item.
-- **Evidence status.** NOT ESTABLISHED (INV-10). The specification MUST define the seed as, e.g., `H(consortium checkpoint head at epoch close ‖ item CID)` with the checkpoint fixed after deposits close, or a verifiable random beacon, and MUST specify who computes and publishes it.
+- **Evidence status.** RESOLVED@T8 (was NOT ESTABLISHED). `randomness::Beacon::from_checkpoint` takes a consortium-signed `Checkpoint` and derives every draw's seed as `seed(purpose, index) = H(head ‖ height ‖ purpose ‖ index)`, domain-separated per draw. The `_from_beacon` wrappers (`lottery`, `review`, `honeypot`, `governance`) are the sanctioned entry points; the raw `u64`-seeded draws remain for unit tests. Two properties give AT-BR-05: (1) the seed is a function of the signed head, which commits to every deposit and is fixed only once a threshold co-signs — an author cannot influence or predict it before deposits close; (2) reviewer assignment keys `index` on the item's **byte-independent admitted slot**, not the draft CID, so regenerating the draft cannot move the panel. Tests: `inv10_checkpoint_seed.rs`. Residual: the *publisher/timing* of the checkpoint at epoch close is part of the runtime layer (T13–T18); `blueprint::assemble_test` still takes a raw seed (committee-chosen coverage, not an adversarial draw).
 
 ### 5.7 Privacy
 
@@ -742,7 +742,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
 |---|---|---|---|---|---|
 | — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID; unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✗ T11) |
-| `Deposited` | epoch close → `admit()` | lottery seed = `H(checkpoint_head_at_close ‖ epoch)` (INV-10); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✗ unguarded) |
+| `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
 | `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
 | `InReview` | commit deadline | — | `Revealing` | publish commitments | — |
@@ -862,7 +862,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Sparse-data manipulation (target items with few reviewers) | `k` fixed per item; `n_min` unimplemented | UNSOLVED — a cartel member landing in a 7-reviewer panel has 1/7 of the raw input; the model's robustness to one extreme rating per panel is uncharacterized |
 | Faction impersonation (a cartel member pretends to be of the opposite camp on its history, then "bridges" a partisan item) | bridging estimates `f_u` from history | **UNSOLVED / not analysed**: a patient adversary can build a cross-camp `f_u` cheaply (ratings cost nothing) and then supply "cross-cutting approval" on demand; this is the *designed* trust signal and it is manufacturable at the price of `n_min` sincere-looking ratings |
 | Rating inflation/compression (everyone rates 1.0) | `b_u` absorbs severity | CONTAINED for individual bias; global compression destroys the signal (not analysed) |
-| Seed grinding for reviewer selection | INV-10 | **UNSOLVED** (CRYPTO-008) |
+| Seed grinding for reviewer selection | INV-10 | SOLVED (T8): the seed is the signed checkpoint head; assignment keys on a byte-independent slot (CRYPTO-008) |
 | Commitment copying | INV-12 | SOLVED (T7): the commitment binds committer + item (CRYPTO-007) |
 
 ### 11.4 Psychometrics
@@ -1179,7 +1179,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | CRYPTO-005 | nullifier bound to credential | `nullifier.rs`, `tests/nullifier.rs`, `protocol/tests/inv9_nym_proof.rs` | TESTED; message binding now present (T6) — `prove`/`verify` take an action `context` folded into the Fiat–Shamir challenge, so a proof does not verify under another context (AT-ID-05) | external review (§7.4) | AT-ID-05; §7.4 |
 | CRYPTO-006 | cross-role unlinkability | — | HYPOTHESIS (SXDH) | name the assumption | docs |
 | CRYPTO-007 | commit binding | `review.rs` (`commit`/`reveal`), `lifecycle.rs` (item in `Revealing`), `inv12_commit_binding.rs` | RESOLVED@T7 — binds committer + item; a copied commitment does not open (AT-BR-06) | — | INV-12 |
-| CRYPTO-008 | randomness source | — | NOT ESTABLISHED | — | INV-10 |
+| CRYPTO-008 | randomness source | `randomness.rs` (`Beacon`), `_from_beacon` wrappers, `inv10_checkpoint_seed.rs` | RESOLVED@T8 — every draw seeds from the signed checkpoint head; assignment keys on a byte-independent slot (AT-BR-05) | checkpoint publisher/timing at epoch close (T13–T18) | INV-10 |
 | PRIV-001 | role nyms unlinkable | inequality tests | HYPOTHESIS | secret entropy rule | docs |
 | PRIV-002 | issuer unlinkability | — | HYPOTHESIS (docs contradict) | "label never revealed" | docs |
 | PRIV-003 | stat. deanonymization mitigations | — | NOT IMPLEMENTED | — | roadmap |

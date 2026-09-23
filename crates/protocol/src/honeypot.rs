@@ -3,6 +3,7 @@
 //! direct measure of E_u and catching nodes that vote at random or in blocks.
 //! They must be produced by a sortition committee (defended in `governance`).
 
+use crate::randomness::{Beacon, HONEYPOT};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
@@ -10,6 +11,19 @@ use rand_chacha::ChaCha8Rng;
 use scoring::reputation::{brier_skill_score, crowd_baseline};
 
 pub const HONEYPOT_RATE: f64 = 0.05;
+
+/// Honeypot placement seeded from the signed checkpoint (INV-10, D29, T8): the golden
+/// items' positions are fixed by the beacon, so a reviewer cannot predict which queue
+/// slots are golden. Sanctioned entry point; [`inject`] takes a raw seed for testing.
+pub fn inject_from_beacon<T: Clone>(
+    queue: &[T],
+    golden: &[T],
+    rate: f64,
+    beacon: &Beacon,
+    epoch: u64,
+) -> Vec<T> {
+    inject(queue, golden, rate, beacon.seed(HONEYPOT, epoch))
+}
 
 /// Interleaves golden items into a queue at approximately `rate`, positioned
 /// deterministically per `seed` so they are not distinguishable by order.

@@ -20,6 +20,23 @@ pub struct Reviewer {
     pub f_u: f64,
 }
 
+/// Reviewer assignment seeded from the signed checkpoint (INV-10, D29, T8), keyed on the
+/// item's admitted `slot` — a byte-independent index, never the draft bytes — so an author
+/// cannot regenerate the draft to select a panel (AT-BR-05), and cannot predict the beacon
+/// to steer it. Sanctioned entry point; [`assign_reviewers`] takes a raw seed for testing.
+pub fn assign_from_beacon(
+    reviewers: &[Reviewer],
+    k: usize,
+    beacon: &crate::randomness::Beacon,
+    slot: u64,
+) -> Vec<Reviewer> {
+    assign_reviewers(
+        reviewers,
+        k,
+        beacon.seed(crate::randomness::REVIEW_ASSIGNMENT, slot),
+    )
+}
+
 /// Picks `k` reviewers stratified across f_u: sort by position, split into `k`
 /// strata, draw one per stratum. Deterministic per `(item_seed)`.
 pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec<Reviewer> {
