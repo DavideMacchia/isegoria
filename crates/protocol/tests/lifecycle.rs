@@ -2,7 +2,8 @@
 //! gate + appeal, two-stage pilot, honeypot — and one end-to-end walk of the flow.
 
 use identity::credential::Credential;
-use identity::nym::Role;
+use identity::nym::{Nym, Role};
+use network::cid::cid;
 use network::log::TransparencyLog;
 use protocol::blueprint::{assemble_test, Blueprint};
 use protocol::deposit::{deposit, Draft, NoPrimarySource};
@@ -125,14 +126,15 @@ fn reviewer_assignment_is_stratified_and_deterministic() {
 #[test]
 fn commit_reveal_binds_the_judgment() {
     let nonce = [3u8; 32];
-    let c = commit(0.72, &nonce);
-    assert!(reveal(c, 0.72, &nonce));
+    let (who, item) = (Nym([5u8; 32]), cid(b"item"));
+    let c = commit(0.72, &nonce, who, item);
+    assert!(reveal(c, 0.72, &nonce, who, item));
     assert!(
-        !reveal(c, 0.71, &nonce),
+        !reveal(c, 0.71, &nonce, who, item),
         "changed probability must not verify"
     );
     assert!(
-        !reveal(c, 0.72, &[9u8; 32]),
+        !reveal(c, 0.72, &[9u8; 32], who, item),
         "changed nonce must not verify"
     );
 }

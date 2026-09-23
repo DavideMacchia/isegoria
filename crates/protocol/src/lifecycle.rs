@@ -11,6 +11,7 @@ use crate::exposure::RetirementReason;
 use crate::gate::GateOutcome;
 use crate::review::{reveal, Commit as Commitment};
 use identity::nym::Nym;
+use network::cid::Cid;
 
 /// Why an item left the pipeline without reaching the pool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,10 +32,13 @@ pub enum State {
     Deposited,
     Admitted,
     InReview {
+        /// The item this panel reviews; the commit-reveal binds to it (INV-12, T7).
+        item: Cid,
         panel: Vec<Nym>,
         commits: Vec<(Nym, Commitment)>,
     },
     Revealing {
+        item: Cid,
         commits: Vec<(Nym, Commitment)>,
         reveals: Vec<(Nym, f64)>,
     },
@@ -122,8 +126,9 @@ pub fn deposit(
 pub enum Event {
     /// Epoch close: admitted by the lottery. `seed_from_checkpoint` must hold (INV-10).
     Admit { seed_from_checkpoint: bool },
-    /// Reviewers assigned; `panel` are their judge nyms, `k = panel.len()` odd ∈ [7,11].
-    AssignReviewers { panel: Vec<Nym> },
+    /// Reviewers assigned to `item`; `panel` are their judge nyms, `k = panel.len()` odd
+    /// ∈ [7,11]. The item enters the state so the commit-reveal can bind to it (INV-12).
+    AssignReviewers { panel: Vec<Nym>, item: Cid },
     /// A panelist commits to a judgment before the deadline.
     Commit { nym: Nym, commitment: Commitment },
     /// Commit deadline: commitments are published.
@@ -183,10 +188,11 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
         }
 
         // Admitted → InReview: k odd ∈ [7, 11].
-        (Admitted, AssignReviewers { panel }) => {
+        (Admitted, AssignReviewers { panel, item }) => {
             let k = panel.len();
             if k % 2 == 1 && (7..=11).contains(&k) {
                 Ok(InReview {
+                    item,
                     panel,
                     commits: Vec::new(),
                 })
@@ -196,7 +202,14 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
         }
 
         // InReview: accumulate commits from distinct panelists.
-        (InReview { panel, mut commits }, Commit { nym, commitment }) => {
+        (
+            InReview {
+                item,
+                panel,
+                mut commits,
+            },
+            Commit { nym, commitment },
+        ) => {
             if !panel.contains(&nym) {
                 return Err(Invalid::NotInPanel);
             }
@@ -204,16 +217,24 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
                 return Err(Invalid::AlreadyCommitted);
             }
             commits.push((nym, commitment));
-            Ok(InReview { panel, commits })
+            Ok(InReview {
+                item,
+                panel,
+                commits,
+            })
         }
-        (InReview { commits, .. }, CloseCommits) => Ok(Revealing {
+        (InReview { item, commits, .. }, CloseCommits) => Ok(Revealing {
+            item,
             commits,
             reveals: Vec::new(),
         }),
 
         // Revealing: a reveal must open a stored commitment with an in-range probability.
+        // The opening recomputes the commitment for the revealer and this item, so a
+        // copied commitment cannot be opened by anyone else (INV-12, T7).
         (
             Revealing {
+                item,
                 commits,
                 mut reveals,
             },
@@ -225,11 +246,15 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             if prob.is_nan() || !(0.0..=1.0).contains(&prob) {
                 return Err(Invalid::ProbabilityOutOfRange);
             }
-            if !reveal(*commitment, prob, &nonce) {
+            if !reveal(*commitment, prob, &nonce, nym, item) {
                 return Err(Invalid::RevealMismatch);
             }
             reveals.push((nym, prob));
-            Ok(Revealing { commits, reveals })
+            Ok(Revealing {
+                item,
+                commits,
+                reveals,
+            })
         }
 
         // Revealing → Gated outcome: never on a partial epoch.

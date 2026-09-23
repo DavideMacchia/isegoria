@@ -2,12 +2,18 @@
 //! case is rejected (docs/08 §9.1, PC-1).
 
 use identity::nym::Nym;
+use network::cid::{cid, Cid};
 use protocol::gate::GateOutcome;
 use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State, K_MIN};
 use protocol::review::commit;
 
 fn nym(i: u8) -> Nym {
     Nym([i; 32])
+}
+
+/// The item this panel reviews (the commit-reveal binds to it, INV-12).
+fn item() -> Cid {
+    cid(b"the item under review")
 }
 
 /// A panel of 9 distinct judge nyms (odd, in [7, 11]).
@@ -25,7 +31,14 @@ fn in_review() -> State {
         },
     )
     .unwrap();
-    step(s, Event::AssignReviewers { panel: panel() }).unwrap()
+    step(
+        s,
+        Event::AssignReviewers {
+            panel: panel(),
+            item: item(),
+        },
+    )
+    .unwrap()
 }
 
 /// `InReview` past the commit deadline, so a `Reveal` is in-order.
@@ -48,15 +61,14 @@ fn scored(outcome: GateOutcome) -> State {
 #[test]
 fn a_full_valid_walk_reaches_the_pool_then_retires() {
     let mut s = in_review();
-    // Every panelist commits, then reveals a real opening of that commitment.
+    // Every panelist commits (bound to its own nym and this item), then reveals it.
     let (prob, nonce) = (0.8, [7u8; 32]);
-    let c = commit(prob, &nonce);
     for n in panel() {
         s = step(
             s,
             Event::Commit {
                 nym: n,
-                commitment: c,
+                commitment: commit(prob, &nonce, n, item()),
             },
         )
         .unwrap();
@@ -161,19 +173,31 @@ fn an_even_or_out_of_range_panel_is_rejected() {
     .unwrap();
     let even: Vec<Nym> = (1..=8).map(nym).collect();
     assert_eq!(
-        step(admitted.clone(), Event::AssignReviewers { panel: even }),
+        step(
+            admitted.clone(),
+            Event::AssignReviewers {
+                panel: even,
+                item: item()
+            }
+        ),
         Err(Invalid::PanelSizeInvalid)
     );
     let too_big: Vec<Nym> = (1..=13).map(nym).collect();
     assert_eq!(
-        step(admitted, Event::AssignReviewers { panel: too_big }),
+        step(
+            admitted,
+            Event::AssignReviewers {
+                panel: too_big,
+                item: item()
+            }
+        ),
         Err(Invalid::PanelSizeInvalid)
     );
 }
 
 #[test]
 fn a_commit_from_a_non_panel_nym_is_rejected() {
-    let c = commit(0.5, &[0u8; 32]);
+    let c = commit(0.5, &[0u8; 32], nym(99), item());
     assert_eq!(
         step(
             in_review(),
@@ -188,7 +212,7 @@ fn a_commit_from_a_non_panel_nym_is_rejected() {
 
 #[test]
 fn a_second_commit_by_the_same_nym_is_rejected() {
-    let c = commit(0.5, &[0u8; 32]);
+    let c = commit(0.5, &[0u8; 32], nym(1), item());
     let s = step(
         in_review(),
         Event::Commit {
@@ -227,7 +251,7 @@ fn a_reveal_without_a_commit_is_rejected() {
 #[test]
 fn a_reveal_that_does_not_open_the_commitment_is_rejected() {
     let nonce = [1u8; 32];
-    let c = commit(0.6, &nonce);
+    let c = commit(0.6, &nonce, nym(1), item());
     let s = step(
         in_review(),
         Event::Commit {
@@ -257,7 +281,7 @@ fn an_out_of_range_or_nan_probability_is_rejected() {
         in_review(),
         Event::Commit {
             nym: nym(1),
-            commitment: commit(0.5, &nonce),
+            commitment: commit(0.5, &nonce, nym(1), item()),
         },
     )
     .unwrap();

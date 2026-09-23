@@ -43,23 +43,29 @@ pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec
     chosen
 }
 
-/// A hiding commitment to a judgment probability.
+/// A hiding commitment to a judgment probability, bound to its committer and item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Commit(pub [u8; 32]);
 
-/// commit = H(prob, nonce). The reviewer declares a probability that the item
-/// passes Level B (`docs/02` C.2), not a yes/no.
-pub fn commit(prob: f64, nonce: &[u8; 32]) -> Commit {
+/// `commit = H(prob, nonce, committer, item)`. The reviewer declares a probability that
+/// the item passes Level B (`docs/02` C.2), not a yes/no. The commitment **binds the
+/// committer's nullifier id and the item cid** (`docs/08` CRYPTO-007 / INV-12, T7): a
+/// commitment copied from another reviewer, or lifted onto another item, cannot be opened
+/// — only the same `(committer, item)` recomputes it (AT-BR-06).
+pub fn commit(prob: f64, nonce: &[u8; 32], committer: Nym, item: Cid) -> Commit {
     let mut h = Sha256::new();
-    h.update(b"isegoria/commit/v1");
+    h.update(b"isegoria/commit/v2");
     h.update(prob.to_le_bytes());
     h.update(nonce);
+    h.update(committer.0);
+    h.update(item.0);
     Commit(h.finalize().into())
 }
 
-/// Checks a revealed (prob, nonce) against its commitment.
-pub fn reveal(commitment: Commit, prob: f64, nonce: &[u8; 32]) -> bool {
-    commit(prob, nonce) == commitment
+/// Checks a revealed `(prob, nonce)` against a commitment, for the claimed committer and
+/// item. Fails if the opener is not the committer or the item differs (INV-12, AT-BR-06).
+pub fn reveal(commitment: Commit, prob: f64, nonce: &[u8; 32], committer: Nym, item: Cid) -> bool {
+    commit(prob, nonce, committer, item) == commitment
 }
 
 /// The action context a review proof is bound to: this item and epoch (AT-ID-05). A
