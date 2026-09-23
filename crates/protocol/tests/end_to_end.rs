@@ -25,12 +25,10 @@ use identity::nym::Role;
 use network::log::TransparencyLog;
 #[cfg(feature = "calibration")]
 use protocol::admission::QuotaLedger;
-use protocol::aggregate::{
-    aggregate_pass_probability, resolve_band, review_weights, DECISION_THRESHOLD,
-};
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_with_identity, Draft};
-use protocol::gate::{bridging_gate, GateOutcome};
+#[cfg(feature = "calibration")]
+use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::State;
 #[cfg(feature = "calibration")]
@@ -38,8 +36,8 @@ use protocol::orchestrator::{run_item, weighted_ratings, ItemVerdicts, ReviewerS
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
 use protocol::pilot::{dif_batch, screen, stage2_dif, DifVerdict, N1_MIN};
-use protocol::probation::N_PROBATION;
 use protocol::revalidation::revalidate_pool_latent;
+#[cfg(feature = "calibration")]
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
 #[cfg(feature = "calibration")]
@@ -49,8 +47,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(feature = "calibration")]
 const TAU: f64 = 0.08;
+#[cfg(feature = "calibration")]
 const EPS: f64 = 0.008;
+#[cfg(feature = "calibration")]
 const APPEAL_THRESHOLD: f64 = 0.5;
 
 // Items that reach the pool under the docs-faithful retention criteria (both
@@ -89,45 +90,7 @@ fn column(m: &[Vec<f64>], j: usize) -> Vec<f64> {
     m.iter().map(|row| row[j]).collect()
 }
 
-/// Cluster only near-identical raters (a real cartel), not honest reviewers who merely
-/// share a side of the latent axis.
-///
-/// Fixture artefact (docs/08 COLLUSION-003): the judgment vectors handed to the
-/// correlation step below are the *dense* rows of `R.csv`, which the sim generates for
-/// every cell, observed or not — the `mask` is applied to the probabilities but not to
-/// the vectors. Real ratings are sparse (~9 per reviewer, `k` per item), where Pearson
-/// correlation between two reviewers is undefined or meaningless; nothing here shows
-/// the discount works in that regime.
-const SUPP_CORR: f64 = 0.95;
-
-/// Resolve a bridging-band item `j` with the reviewers who actually rated it: their
-/// rating `R[u][j]` is their pass-probability, weighted (established, unit E_u — the
-/// fixtures carry no per-reviewer E_u) and discounted for collusion over their full
-/// rating rows. Advances iff the weighted probability reaches the decision threshold;
-/// an undecided panel (no eligible weight) does not advance.
-fn resolve_supplementary(r_dense: &[Vec<f64>], mask: &[Vec<f64>], j: usize) -> bool {
-    let mut probs = Vec::new();
-    let mut vectors = Vec::new();
-    for (u, row) in r_dense.iter().enumerate() {
-        if mask[u][j] != 0.0 {
-            probs.push(row[j]);
-            vectors.push(row.clone());
-        }
-    }
-    let n = probs.len();
-    let weights = review_weights(
-        &vec![false; n],
-        &vec![N_PROBATION; n],
-        &vec![1.0; n],
-        1.0,
-        &vectors,
-        SUPP_CORR,
-    );
-    aggregate_pass_probability(&probs, &weights)
-        .map(|p| resolve_band(p, DECISION_THRESHOLD))
-        .unwrap_or(false)
-}
-
+#[cfg(feature = "calibration")]
 fn load_ratings() -> Ratings {
     let r = read_matrix("R.csv");
     let mask: Vec<Vec<bool>> = read_matrix("mask.csv")
@@ -234,20 +197,16 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let bridge = bridge_scores(&ratings, &params, 10, 0.85);
     let f = fit(&ratings, &params);
 
-    // Dense mask, to resolve the uncertainty band with a weighted, anti-collusion-
-    // discounted second look at the same panel (docs/05 [4]/[5]).
-    let mask = read_matrix("mask.csv");
-
     // Gate every item and record whether it advances: a straight pass, a band item the
-    // provisional tie-break carries (resolved by its own weighted, collusion-discounted
-    // panel, not by default), or a polarization reject whose author appeals.
+    // D26 re-decision carries (a re-run bridging fit vs the plain threshold τ — a bridging
+    // decision, not a vote), or a polarization reject whose author appeals.
     let gate: Vec<GateOutcome> = (0..m)
         .map(|j| bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD))
         .collect();
     let band_advances: Vec<bool> = (0..m)
         .map(|j| {
             matches!(gate[j], GateOutcome::SupplementaryReview)
-                && resolve_supplementary(&r_dense, &mask, j)
+                && supplementary_review(&ratings, &params, j, TAU) == GateOutcome::Pass
         })
         .collect();
     let advancing: Vec<usize> = (0..m)
@@ -307,35 +266,6 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
             run_item(&verdicts).unwrap() == State::ActivePool
         })
         .collect()
-}
-
-#[test]
-fn the_bridging_band_is_resolved_by_weighted_review_not_by_default() {
-    // On these fixtures three items land in the bridging uncertainty band; instead of
-    // passing them by default, the panel that rated each one resolves it — weighted and
-    // anti-collusion-discounted. Item 6 (a genuine quality item near the threshold) is
-    // carried upward on merit and is what keeps it in the pool.
-    let ratings = load_ratings();
-    let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
-
-    let band: Vec<usize> = (0..bridge.len())
-        .filter(|&j| {
-            matches!(
-                bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD),
-                GateOutcome::SupplementaryReview
-            )
-        })
-        .collect();
-    assert_eq!(band, vec![1, 5, 6], "the bridging band on these fixtures");
-
-    let r_dense = read_matrix("R.csv");
-    let mask = read_matrix("mask.csv");
-    assert!(
-        resolve_supplementary(&r_dense, &mask, 6),
-        "item 6 advances on the weighted merit of its reviewers, not by default"
-    );
 }
 
 #[cfg(feature = "calibration")]
@@ -448,26 +378,4 @@ fn pool_revalidation_flags_latent_bias() {
         flagged[3..].iter().filter(|&&f| f).count() <= 1,
         "clean items should be mostly unflagged: {flagged:?}"
     );
-}
-
-#[test]
-fn documents_limitation_the_band_tie_break_has_no_cross_axis_requirement() {
-    // docs/08 PROTO-012. The tie-break is a weighted mean of the same ratings, not a
-    // bridging score. Applied to the items bridging *rejects* for polarization (08, 09)
-    // it advances them (unit-weight means 0.59 and 0.71 ≥ 0.5): it carries no
-    // cross-axis requirement. It is only ever reached for band items, but for those it
-    // is the deciding rule — which is why docs/01 D26 replaces it (roadmap T10/T30).
-    let r_dense = read_matrix("R.csv");
-    let mask = read_matrix("mask.csv");
-    for j in [7usize, 8] {
-        assert!(
-            resolve_supplementary(&r_dense, &mask, j),
-            "partisan item {j} would be advanced by the tie-break"
-        );
-    }
-    // And every band item advances too: on these fixtures "resolved by review" and
-    // "passed by default" are not distinguishable (all band means are ≥ 0.83).
-    for j in [1usize, 5, 6] {
-        assert!(resolve_supplementary(&r_dense, &mask, j), "band item {j}");
-    }
 }

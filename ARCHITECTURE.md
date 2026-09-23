@@ -160,14 +160,13 @@ steps are seeded for reproducibility.
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
-| `aggregate` | [4]/[5], §C.2 | `review_weights`, `aggregate_pass_probability`, `resolve_band` | `scoring::collusion`, `probation` |
-| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `settle_appeal` | (scoring outputs) |
+| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30), `settle_appeal` | `scoring::bridging` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
-| `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12) | `gate`, `review`, `exposure`, `identity::nym` |
+| `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
 | `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12) | `lifecycle`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
@@ -227,19 +226,13 @@ Six kinds of test, 156 in total (2 `#[ignore]`d):
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
    item by the pilot screen; a true-but-divisive item recovered via the appeal). The
-   bridging uncertainty band is resolved by `protocol::aggregate` — a *provisional*
-   tie-break: a weighted, anti-collusion-discounted mean of the same ratings, compared
-   to 0.5 (docs/08 PROTO-012). `composed_gate` stress-tests that
-   `bridging_gate → aggregate → resolve_band` path (skilled reviewer carries it, an
-   exact-copy cartel ≤ 400 is √k-discounted and cannot flip it, probationers do not
-   count, an all-probation panel stays undecided) with reviewer skill grounded in the
-   real Level-C oracle profiles. The `documents_limitation_*` tests in
-   `review_aggregation.rs` and `end_to_end.rs` pin what the tie-break is *not*: it has
-   no cross-axis requirement (it advances the partisan fixture items 08/09), a polarized
-   panel is resolved by the larger camp, and the √k line holds only up to k = 576 exact
-   copies (a jittered cartel is not clustered at all). On the fixtures every band item
-   advances, so "resolved by review" and "passed by default" are not distinguishable
-   there.
+   bridging uncertainty band is resolved by the **D26 re-decision** (`gate::supplementary_review`,
+   T10/T30): re-run the bridging fit over the (expanded) panel and decide `b_j` against
+   the plain threshold τ — a bridging decision over the latent axis, not a weighted vote.
+   `supplementary_redecision.rs` pins the improvement: the partisan fixture items 08/09
+   are **not** passed (the retired weighted-mean tie-break carried them), while a genuine
+   near-threshold item is. The √k anti-collusion stays covered at the scoring layer
+   (`anti_collusion.rs`) and in the T5 bridging weights.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
    majority; a long-con's reputation rises slowly, falls fast, and is capped;
@@ -279,16 +272,13 @@ to make the pipeline testable end-to-end.
 - Reputation now enters `bridging::fit`: `orchestrator::{bridging_weights, weighted_ratings}`
   turn prior-epoch reviewer standing into the per-reviewer `w_u` the weighted objective
   minimizes over (docs/08 BRIDGE-007, roadmap T5 — **done**), and `end_to_end.rs::run_epoch`
-  drives each item through the `lifecycle` state machine (T12 — **done**). Two things
-  the composition still lacks: `protocol::aggregate` remains a **provisional tie-break
-  for band items** (a weighted mean of pass-probabilities vs 0.5) — its correlation
-  discount is local to that tie-break, not the fit — rather than the borderline mechanism
-  `docs/01` D26 decided (more reviewers, then a clean re-decision of the bridging score,
-  roadmap T10/T30); and no persistence yet (roadmap T13). Still open in the composition:
-  `governance` sortition feeding the
-  honeypot / blueprint committees; `revalidation` → `exposure` retirement on a
-  schedule. (Reviewer-vote dedup via the M3 ZK nullifier is now done at the boundary —
-  `admission::NullifierSet` — T6.)
+  drives each item through the `lifecycle` state machine (T12 — **done**). The borderline
+  band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide `b_j` against
+  the plain threshold (`gate::supplementary_review`, T10/T30 — **done**), replacing the
+  retired weighted-mean tie-break. Still open: persistence (roadmap T13); `governance`
+  sortition feeding the honeypot / blueprint committees; `revalidation` → `exposure`
+  retirement on a schedule. (Reviewer-vote dedup via the M3 ZK nullifier is done at the
+  boundary — `admission::NullifierSet` — T6.)
 - Optional engine refinements: 3PL IRT (currently 2PL), infit/outfit MNSQ, Bayesian
   Truth Serum.
 - Robustness roadmap from `docs/01` D14: anchoring → erasure coding → multiple

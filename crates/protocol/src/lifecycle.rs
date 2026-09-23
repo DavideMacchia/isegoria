@@ -24,6 +24,9 @@ pub enum RejectReason {
     Screen,
     /// Failed the DIF check (stage 2).
     Dif,
+    /// Borderline: the D26 supplementary re-decision did not lift `b_j` over the
+    /// threshold (roadmap T10/T30).
+    Borderline,
 }
 
 /// The item lifecycle state (`docs/08` §9.1).
@@ -42,8 +45,9 @@ pub enum State {
         commits: Vec<(Nym, Commitment)>,
         reveals: Vec<(Nym, f64)>,
     },
-    /// Borderline band. Its forward transition is deliberately undefined (PROTO-008,
-    /// roadmap T10/T30): the provisional tie-break is not the decided D26 mechanism.
+    /// Borderline band: awaiting the D26 re-decision (`Event::Resolve`), which re-runs
+    /// bridging over the expanded panel and re-decides `b_j` against the plain threshold
+    /// (PROTO-008/PROTO-012 closed, roadmap T10/T30).
     SupplementaryReview,
     AppealEligible,
     Pilot1 {
@@ -145,6 +149,9 @@ pub enum Event {
         all_reveals_in: bool,
         outcome: GateOutcome,
     },
+    /// The D26 supplementary re-decision of a band item: `passed` is `gate::
+    /// supplementary_review` (a re-run bridging fit, `b_j` vs the plain threshold).
+    Resolve { passed: bool },
     /// The author appeals a polarization rejection.
     Appeal {
         within_window: bool,
@@ -275,6 +282,14 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
                 GateOutcome::Reject => Rejected(RejectReason::Defect),
             })
         }
+
+        // SupplementaryReview → the D26 re-decision (T10/T30): the re-run bridging fit
+        // either lifts b_j over the threshold (→ pilot) or it does not (→ borderline reject).
+        (SupplementaryReview, Resolve { passed }) => Ok(if passed {
+            Pilot1 { appealed: false }
+        } else {
+            Rejected(RejectReason::Borderline)
+        }),
 
         // AppealEligible: appeal within the window with reputation to cover the stake.
         (

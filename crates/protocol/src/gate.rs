@@ -3,6 +3,8 @@
 //! supplementary review. An item rejected for POLARIZATION (high |f_j|), not defect,
 //! is eligible to appeal directly to the pilot.
 
+use scoring::bridging::{fit, BridgingParams, Ratings};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GateOutcome {
     Pass,
@@ -23,6 +25,28 @@ pub fn bridging_gate(b_j: f64, f_j: f64, tau: f64, eps: f64, appeal_threshold: f
         GateOutcome::SupplementaryReview
     } else if f_j.abs() >= appeal_threshold {
         GateOutcome::AppealEligible
+    } else {
+        GateOutcome::Reject
+    }
+}
+
+/// D26 borderline re-decision (`docs/01` D26, `docs/08` PROTO-012, roadmap T10/T30).
+///
+/// An item whose robust bootstrap-min score landed in the uncertainty band is re-decided
+/// by **re-running the bridging fit** over the panel — expanded with the extra reviewers
+/// D26 calls for, folded into `ratings` before this call — and comparing its bridge score
+/// `b_j` to the plain threshold `tau`. This is a bridging decision over the latent axis,
+/// **not** a weighted vote of the same ratings (the retired `aggregate::resolve_band`), so
+/// a larger camp does not carry a polarized item: bridging gives such an item a high `|f_j|`
+/// and a `b_j` below `tau`.
+pub fn supplementary_review(
+    ratings: &Ratings,
+    params: &BridgingParams,
+    item: usize,
+    tau: f64,
+) -> GateOutcome {
+    if fit(ratings, params).b_j[item] >= tau {
+        GateOutcome::Pass
     } else {
         GateOutcome::Reject
     }
