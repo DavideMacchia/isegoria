@@ -608,6 +608,7 @@ B_j  = min_{s ∈ {full} ∪ {1..m_boot}} b_j^{(s)}
 
 Two-loop recursion, history `m_hist`, initial scaling `γ = sᵀy/yᵀy`, Armijo backtracking (`c₁ = 1e-4`, halving, ≤ 60 backtracks, `step ≥ 1e-20`), curvature pairs kept iff `sᵀy > 1e-12`, stop on `‖g‖_∞ ≤ g_tol` or relative progress `≤ 1e-12(1+|f|)` or `max_iters`. No bounds (the sim's `L-BFGS-B` is called without bounds, so this is equivalent in intent). Unit tests: quadratic, Rosenbrock, numerical-gradient check.
 **Defects.** No status (OPT-001). Armijo-only line search does not guarantee the strong-Wolfe curvature condition; the `sᵀy > 1e-12` filter compensates for positive-definiteness but the history can starve (no pairs added) and the method degrades to scaled steepest descent silently.
+**Post-audit (T41).** Status now returned (T2). cargo-mutants found that a line search that failed — the step halved 60 times, or `x + step·d` rounded back to `x` so Armijo passed with `f_new == f` — was reported `Converged`, because the relative-progress stall test ran before the failure check; fixed, and the failed trial point is not taken if it raised the cost (`optim::tests::an_uphill_gradient_is_a_failed_line_search_not_convergence`). Efficiency, measured against SciPy L-BFGS-B (`m = 10`): a condition-10⁴ quadratic in 20-D takes ~515 gradients (SciPy ~790), but Rosenbrock from `(−1.2, 1)` takes ~670 (SciPy ~46) — the Armijo-only search is the likely cause (T45). The stall criterion can declare convergence with `‖g‖_∞` far above `g_tol` when `f` is near 0 (3·10⁻⁵ vs 10⁻⁹ on that quadratic).
 
 ### 6.3 Logistic regression (`glm::fit_logistic`)
 
@@ -1141,7 +1142,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | IMPLEMENTED + semantics defined (T10/T30): D26 re-decision | — | G-15 |
 | BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
-| OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected | — | — |
+| OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected. T41: a failed line search is no longer reported as `Converged` (the stall test ran first, and Armijo could pass by rounding with no movement) | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |
 | IRT-003 | 2PL screen | `level_b.rs`, `end_to_end.rs` | TESTED (2 items) | threshold validity; 3PL | G-07 |

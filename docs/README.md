@@ -39,6 +39,10 @@ guaranteed by an external enrollment layer (national eID / CIE / SPID / others),
 | [`04-storage-network.md`](04-storage-network.md) | P2P layer, consortium, erasure coding, anchoring, node types |
 | [`05-question-lifecycle.md`](05-question-lifecycle.md) | Step-by-step protocol, appeal to evidence, lottery, honeypot, cold start |
 | [`06-threat-model.md`](06-threat-model.md) | Attack surface and countermeasures; what the system does NOT solve |
+| [`07-verification-and-assurance.md`](07-verification-and-assurance.md) | Verification, assurance and falsification methodology |
+| [`08-formal-specification.md`](08-formal-specification.md) | Independent audit: what is implemented, tested and still open |
+| [`10-roadmap.md`](10-roadmap.md) | Remediation and build plan (task ids `T#`) |
+| [`11-mutation-testing.md`](11-mutation-testing.md) | Mutation-testing report: how much the tests verify, and every accepted survivor |
 | [`99-glossary.md`](99-glossary.md) | Every concept explained from scratch, from the problem to the formula |
 | [`sim/`](../sim/) | Executable simulations that demonstrate the behavior and the corner cases |
 

@@ -3,6 +3,7 @@
 //! b_j=[0.108, 0.081, -0.117, 0.092, 0.104, 0.080, 0.084, -0.155, -0.262, -0.020].
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Obs, Ratings};
+use scoring::Convergence;
 use std::fs;
 use std::path::PathBuf;
 
@@ -73,15 +74,18 @@ fn fit_reproduces_oracle_on_identical_dataset() {
     let true_f = read_vector("true_f.csv");
 
     let f = fit(&data, &BridgingParams::default());
+    assert_eq!(f.status, Convergence::Converged);
 
-    assert!((f.mu - 0.7552).abs() < 0.02, "mu = {:.4}", f.mu);
+    assert!((f.mu - 0.7552).abs() < 0.002, "mu = {:.4}", f.mu);
 
     let corr = pearson_abs(&true_f, &f.f_u);
     assert!(corr > 0.98, "axis recovery |corr| = {:.4}", corr);
 
+    // Half the gate's uncertainty band ε = 0.008: a fit error the tolerance hid could
+    // flip an item across τ (T41). Rust and SciPy agree to ~0.002 today.
     for (j, bj_exp) in expected.iter().enumerate() {
         assert!(
-            (f.b_j[j] - bj_exp).abs() < 0.03,
+            (f.b_j[j] - bj_exp).abs() < 0.004,
             "b_j[{j}] = {:.4}, expected {:.4}",
             f.b_j[j],
             bj_exp
@@ -129,6 +133,12 @@ fn bootstrap_min_is_pessimistic() {
             full.b_j[j]
         );
     }
+    // "≤ full" holds trivially if the minimum is never updated (it starts at the full
+    // fit): the subsamples must actually pull some scores down (T41).
+    let lowered = (0..bridge.len())
+        .filter(|&j| bridge[j] < full.b_j[j] - 1e-4)
+        .count();
+    assert!(lowered >= bridge.len() / 2, "only {lowered} scores lowered");
     for &j in &[2usize, 7, 8, 9] {
         assert!(bridge[j] < TAU, "bridge[{j}] = {:.4}", bridge[j]);
     }
@@ -178,4 +188,11 @@ fn corner_case_bipartisan_corruption_cost() {
     assert!(s40 < s70, "s40={s40:.3} s70={s70:.3}");
     assert!(s0 < TAU, "s0={s0:.3} should stay < τ");
     assert!(s70 > s0 + 0.2, "s0={s0:.3} s70={s70:.3}");
+}
+
+#[test]
+fn an_empty_rating_matrix_has_no_reviewers_items_or_observations() {
+    let data = Ratings::from_dense(&[], &[]);
+    assert_eq!((data.n, data.m, data.obs.len()), (0, 0, 0));
+    assert!(data.weights.is_empty());
 }

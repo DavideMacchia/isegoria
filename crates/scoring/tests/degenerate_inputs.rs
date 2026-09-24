@@ -53,3 +53,32 @@ fn point_biserial_is_unchanged_on_ordinary_input() {
     let reversed: Vec<f64> = item.iter().map(|x| 1.0 - x).collect();
     assert!((point_biserial(&reversed, &theta) + r).abs() < 1e-12);
 }
+
+/// A hand-computed case pins the formula, not only its range: item [0,0,1,1] against
+/// totals [1,2,3,4] gives cov 2, item variance 1, total variance 5 → r = 2/√5 (T41).
+#[test]
+fn point_biserial_matches_a_hand_computed_value() {
+    let r = point_biserial(&[0.0, 0.0, 1.0, 1.0], &[1.0, 2.0, 3.0, 4.0]);
+    assert!((r - 2.0 / 5.0_f64.sqrt()).abs() < 1e-12, "r = {r}");
+}
+
+/// The 2PL difficulty `b = −intercept/slope` is recovered from data generated with a
+/// known `(a, b)`, not only the discrimination (T41).
+#[test]
+fn fit_2pl_recovers_the_item_difficulty() {
+    let (a, b) = (1.5, 0.4);
+    let mut theta = Vec::new();
+    let mut resp = Vec::new();
+    for i in 0..3000 {
+        let t = -3.0 + 6.0 * i as f64 / 2999.0;
+        let p = 1.0 / (1.0 + (-a * (t - b)).exp());
+        // Deterministic low-discrepancy draw, as in the glm unit test.
+        let u = (i as f64 * 0.618_033_988_75).fract();
+        theta.push(t);
+        resp.push(if u < p { 1.0 } else { 0.0 });
+    }
+    let fit = scoring::irt::fit_2pl_item(&theta, &resp);
+    assert_eq!(fit.status, scoring::LogisticFit::Converged);
+    assert!((fit.a - a).abs() < 0.15, "a = {}", fit.a);
+    assert!((fit.b - b).abs() < 0.1, "b = {}", fit.b);
+}
