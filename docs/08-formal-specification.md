@@ -744,6 +744,8 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 §9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. `end_to_end.rs::run_epoch` (the fixture walk) is now routed through `lifecycle::step` (via `orchestrator::run_item`), so the flow no longer lives twice (RESOLVED@T12). The `SupplementaryReview` forward transition is defined via `Event::Resolve`, the D26 re-decision (RESOLVED@T10/T30, PROTO-008).
 
+**Model-tested (T43).** Random walks of `deposit`/`step` agree at every step with an independent reference model of the §9.1 table: the same next state, or the same `Invalid` (`tests/lifecycle_model.rs`). The walks mix the expected event with events that are out of order, from outsiders, repeated, carry copied, lifted or opaque commitments, or carry out-of-range probabilities. They also keep the invariants: no `Score` before every panelist revealed, no double commit or reveal, a distinct panel of odd size in [7, 11], a rejected event changes nothing, `Rejected`/`Retired` are never left, and `ActivePool` is entered only from `Pilot2` after `Pilot1`. `orchestrator::{review_round, run_item}` agree with a whole-round model for complete, partial, outsider and double-judge rounds (`tests/orchestrator_model.rs`). The model fixes which `Invalid` is reported when several apply at once (the table does not). The walks also pin a gap, not fixed: if a panelist never commits or never reveals, the round can never be scored and has no other way out of `Revealing`. The reveal-deadline row below (`k_min`, the non-revealer penalty) is still unspecified (G-15).
+
 ### 9.1 Item lifecycle
 
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
@@ -987,6 +989,7 @@ verification/
 │   └── verdict_agreement.rs    per-item pass/fail agreement with the sim, or a documented list of divergences
 ├── property_tests/             existing network/protocol proptests +
 │   ├── merkle_leaf_count.rs (AT-NET-02)   log_consistency.rs (AT-NET-01)   checkpoint_replay.rs (AT-NET-03..05)
+│   ├── state machines vs reference models (T43): lifecycle_model.rs  orchestrator_model.rs  checkpoint_model.rs
 │   ├── bss_bounds.rs (AT-REP-03)          quotas.rs (existing)
 ├── metamorphic/
 │   ├── bridging_permutation.rs (AT-BR-03)   bridging_sign_flip.rs (f → −f gives same b_j)
