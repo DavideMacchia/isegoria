@@ -1,0 +1,75 @@
+\section{Coordination and collusion}\label{sec:collusion}
+
+An individual weight cap does not stop a cartel of many modest members. The design therefore
+discounts correlated reviewers as a group, in the spirit of quadratic funding~\cite{buterin2019flexible}.
+
+\subsection{The sublinear discount}
+
+Reviewers are clustered by the connected components of the graph that joins $u$ and $v$ when the
+correlation of their judgment vectors satisfies $|\rho_{uv}|\ge\rho_0$. A cluster $G$ with raw
+weight $s_G=\sum_{u\in G}w_u$ contributes $\min\bigl(s_G,\,s_G^{\alpha}\bigr)$, with $\alpha=0.5$,
+split among members in proportion to their raw weight. Each member's weight is therefore
+multiplied by $\min(1,s_G^{\alpha-1})$. The engine implements and tests this discount; the
+protocol does not yet apply it to the bridging weights.
+
+\begin{lemma}\label{lem:discount}\proved{}
+The discount never increases a weight. A cluster of $k$ members of unit weight counts $k^{\alpha}$
+(500 coordinated reviewers count as $\sqrt{500}\approx22$), and a singleton of weight at most $1$
+is unchanged.
+\end{lemma}
+\begin{proof}
+$\min(1,s^{\alpha-1})\le1$. For $s=k\ge1$ the factor is $k^{\alpha-1}$, and $k\cdot k^{\alpha-1}=k^\alpha$.
+For a singleton with $w\le1$, $s^{\alpha-1}\ge1$, so the factor is $1$.
+\end{proof}
+
+The $\min$ matters. Without it a cluster with total weight below $1$, which is every honest
+singleton with $E_u\in(0,1)$, would be \emph{boosted}; the repository audit found and fixed this
+defect.
+
+\subsection{The discount is only as strong as its detector}
+
+\begin{proposition}[Evasion pays]\label{prop:split}\proved{}
+Let a cartel of total weight $s\ge1$ be detected as $j$ clusters of equal weight $s/j\ge1$. Its
+total influence $j\,(s/j)^{\alpha}=j^{1-\alpha}s^{\alpha}$ is strictly increasing in $j$ for
+$\alpha<1$. It reaches the undiscounted $s$ when every member escapes detection.
+\end{proposition}
+
+The discount thus converts detection recall directly into protection, and every evasion of the
+detector pays. The repository audit reports that small independent noise ($\sigma=0.05$) added
+to identical votes already defeats the correlation clustering. Two further weaknesses are known.
+Honest like-minded reviewers are discounted as if they were a cartel. Connected components chain,
+so intermediaries can merge unrelated groups, which invites griefing. A robust coordination
+statistic, with a false-positive rate stated for honest like-minded reviewers, is open \openq.
+
+\subsection{Within an epoch there is almost nothing to correlate}
+
+\begin{proposition}[Sparse overlap]\label{prop:overlap}\proved{}
+If each reviewer rates $r$ of the $m$ items of an epoch, chosen uniformly at random, then the
+number of items two given reviewers share is hypergeometric with mean $r^2/m$.
+\end{proposition}
+
+With $r=9$ the expected overlap is $1.62$, $0.81$ and $0.27$ items per epoch for $m=50$, $100$
+and $300$. Accumulating $30$ shared items, a modest basis for a correlation, takes about
+$30m/r^2$ epochs: $19$, $37$ and $111$ respectively. The correlation matrix is therefore
+undefined within an epoch at design scale. The discount can act only on long histories, while a
+coalition can form and act within a single epoch. Per epoch, the operative defence is random
+assignment (\cref{ass:assign}). \Cref{tab:assignment} gives the probability that a coalition
+holding a share $s$ of the eligible reviewers wins a majority of a panel of nine drawn uniformly.
+Stratified assignment further confines a one-camp coalition to its camp's share of the seats.
+Under bridging, a one-camp majority is in any case not sufficient, although \cref{prop:leak}
+shows that it helps. The threat that matters is a coalition that spans the divide, which is what
+the capture-cost experiment of \cref{sec:levela} measures.
+
+\begin{table}[t]
+\centering\small
+\caption{Probability that a coalition holding a share $s$ of the eligible reviewers holds at
+least 5 of the 9 seats of a uniformly drawn panel. Source: \texttt{scripts/assignment.py}.}
+\label{tab:assignment}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+share $s$ & 0.1 & 0.2 & 0.3 & 0.4 & 0.5\\
+\midrule
+$P(\ge5\text{ of }9)$ & 0.0009 & 0.020 & 0.099 & 0.267 & 0.500\\
+\bottomrule
+\end{tabular}
+\end{table}

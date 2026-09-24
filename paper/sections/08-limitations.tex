@@ -1,0 +1,45 @@
+\section{Limitations}\label{sec:limitations}
+
+\subsection{Structural limits of the design}
+
+The following are properties of the design, not defects of the implementation.
+\begin{enumerate}[label=L\arabic*.]
+  \item \textbf{True but divisive items.} No rule that reads only ratings separates them from
+    partisan items (\cref{prop:equivalence}). The appeal to evidence recovers them only when the
+    division concerns opinions about the item and not knowledge of the fact
+    (\cref{sec:dif-not-bias}).
+  \item \textbf{Bias of the pool, not of an item.} Every item can pass DIF while the choice of
+    topics is skewed. The design constrains coverage with per-domain quotas set by stratified
+    sortition~\cite{flanigan2021sortition}.
+  \item \textbf{The elite blind spot.} An item can be neutral on the political axis yet distorted
+    on a socio-economic one. Latent classes can find such an axis, but only with at least two
+    items distorted along it in the same batch (\cref{prop:pair}).
+  \item \textbf{Competence is a chosen construct.} Psychometrics checks that a test measures one
+    thing coherently, not that it is the right thing to measure.
+  \item \textbf{The initial consortium.} Whom to trust first is a human decision.
+    Reproducible computation and the freedom to fork make a bad choice survivable, not
+    impossible.
+  \item \textbf{Weighted voting is contested.} If a bank were used to weight votes by
+    competence, the objection is political, not technical: even a neutral test weights
+    participation by variables correlated with education and income~\cite{brennan2016,estlund2008}.
+    Certification, licensing and fact-checking are less contested uses of the same machinery.
+\end{enumerate}
+
+\subsection{Threats to the validity of this analysis}
+
+\begin{itemize}
+  \item \textbf{Stylized models.} \Cref{prop:leak} assumes two camps and an exact fit.
+    \Cref{prop:single,prop:pair} assume exact ability. We test each on the full model, but only
+    with synthetic data generated with the repository's own parameters and a few seeds per
+    configuration.
+  \item \textbf{Respondents are self-selected.} \Cref{ass:sample} is the least defensible
+    assumption. The respondents are members of the network. If they differ from the target
+    population, item parameters and DIF verdicts may not transfer. We have not analysed
+    coordinated respondents who answer strategically (sample poisoning).
+  \item \textbf{Scope.} Statistical deanonymization (stylometry, timing), the security of the
+    identity layer and the behaviour of the network are outside this paper.
+  \item \textbf{Self-review.} The analysis was carried out by the designer, with the assistance
+    of an AI system, and has not been reviewed independently. The repository's own methodology
+    does not accept self-review as primary evidence. This paper is written in part to invite that
+    review.
+\end{itemize}

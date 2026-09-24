@@ -1,0 +1,11 @@
+quantity,value
+grad_inf_norm,7.018888e-07
+sum_b_items,1.937708e-08
+sum_b_reviewers,4.221735e-06
+lam_b_sum_fj_bj,-3.898867e-03
+lam_f_sum_fu,-3.899230e-03
+lam_b_sum_fu_bu,6.425963e-02
+lam_f_sum_fj,6.425960e-02
+sum_fu_sq,8.567630e+00
+sum_fj_sq,8.567635e+00
+mu,7.546808e-01

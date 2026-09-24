@@ -1,0 +1,339 @@
+\section{Level A: bridging}\label{sec:levela}
+
+\subsection{Model and estimator}
+
+Let $\Omega\subseteq U\times J$ be the observed (reviewer, item) pairs of an epoch, with
+$|U|=n$ reviewers and $|J|=m$ items, and let $r_{uj}\in[0,1]$ be the probability that
+reviewer $u$ declares for item $j$. Each reviewer carries a weight $w_u\ge0$ computed from
+the previous epoch: $0$ during probation, $1$ for the founders who bootstrap the network, and
+$\min(w_{\max},E_u)$ afterwards, where $E_u$ is the evaluator score of \cref{sec:levelc}. The design then applies the anti-collusion discount of
+\cref{sec:collusion}; the engine implements it, but the protocol does not yet apply it when it
+computes these weights. The model is the
+one-dimensional ($d=1$) factorization
+\begin{equation}\label{eq:mf}
+  \hat r_{uj} \;=\; \mu + \iota_u + \iota_j + f_u f_j ,
+\end{equation}
+with a global mean $\mu$, reviewer and item intercepts $\iota_u,\iota_j$ (written
+$b_u,b_j$ in the repository), a reviewer position $f_u$ on a latent axis, and an item loading
+$f_j$. The parameters $\xi=(\mu,\iota_U,\iota_J,f_U,f_J)$ minimize
+\begin{equation}\label{eq:loss}
+  L(\xi) = \sum_{(u,j)\in\Omega} w_u\,(r_{uj}-\hat r_{uj})^2
+  + \lambda_b\Bigl(\sum_u \iota_u^2+\sum_j\iota_j^2\Bigr)
+  + \lambda_f\Bigl(\sum_u f_u^2+\sum_j f_j^2\Bigr),
+\end{equation}
+with $\lambda_b=0.15$ and $\lambda_f=0.03$, and $\mu$ unpenalized. The objective is
+non-convex. The reference implementation minimizes it with L-BFGS and a strong-Wolfe line
+search~\cite{liu1989lbfgs,nocedal2006numerical} from eight seeded starts, keeps the lowest
+objective, and fixes the sign of the axis by making the largest $|f_j|$ non-negative.
+
+The \emph{bridge score} is pessimistic: $B_j=\min_s \iota_j^{(s)}$, taken over the full fit and
+$10$ refits on subsamples that keep each observation with probability $0.85$~\cite{efron1993bootstrap}.
+The gate compares $B_j$ with a threshold $\tau\approx0.08$ and a band half-width
+$\varepsilon\approx0.008$, both provisional (\cref{sec:setting}).
+
+The design rationale, taken from Community Notes~\cite{wojcik2022birdwatch}, is that heavy
+penalties on the intercepts force the model to explain approval through the factor term first.
+Approval that a reviewer's side alone explains goes into $f_uf_j$. Only approval that no side
+explains, that is, approval \emph{across} the divide, survives in $\iota_j$. The rest of this
+section examines what the objective actually guarantees.
+
+\subsection{Invariances of the objective}
+
+The data term of \eqref{eq:loss} depends on $\xi$ only through the predictions
+$\hat r_{uj}$. Several transformations leave every prediction unchanged:
+\begin{align*}
+  &\text{(G1)}\;\; \mu\mapsto\mu+c,\;\; \iota_j\mapsto\iota_j-c\;\;\forall j;
+  &&\text{(G2)}\;\; \mu\mapsto\mu+c,\;\; \iota_u\mapsto\iota_u-c\;\;\forall u;\\
+  &\text{(G3)}\;\; f_u\mapsto f_u+c\;\;\forall u,\;\; \iota_j\mapsto\iota_j-c f_j\;\;\forall j;
+  &&\text{(G4)}\;\; f_j\mapsto f_j+c\;\;\forall j,\;\; \iota_u\mapsto\iota_u-c f_u\;\;\forall u;\\
+  &\text{(G5)}\;\; f_u\mapsto s f_u,\;\; f_j\mapsto f_j/s,\;\; s\neq0.
+\end{align*}
+(G3) translates the reviewers' axis and (G4) the items' axis; (G5) rescales the axis and, for
+$s=-1$, flips its sign. Along these directions only the penalties vary, so the penalties alone
+decide where the solution sits. This yields exact identities.
+
+\begin{lemma}[Stationarity identities]\label{lem:gauge}\proved{}
+For any weights $w_u\ge0$ and any stationary point of \eqref{eq:loss} (in particular any local
+minimum),
+\begin{align}
+  &\textstyle\sum_j \iota_j = 0 \quad\text{and}\quad \sum_u \iota_u = 0, \label{eq:zerosum}\\
+  &\textstyle\lambda_b\sum_j f_j\,\iota_j \;=\; \lambda_f\sum_u f_u, \label{eq:gauge-rev}\\
+  &\textstyle\lambda_b\sum_u f_u\,\iota_u \;=\; \lambda_f\sum_j f_j, \label{eq:gauge-item}\\
+  &\textstyle\sum_u f_u^2 \;=\; \sum_j f_j^2. \label{eq:scale}
+\end{align}
+\end{lemma}
+\begin{proof}
+Let $\xi^*$ be stationary and $\xi(c)$ a curve through it along one of the families above. The
+data term is constant along the curve, so $0=\frac{d}{dc}L(\xi(c))|_{c=0}$ is the derivative of
+the penalty alone. For (G1) this derivative is $-2\lambda_b\sum_j\iota_j$, and (G2) is
+symmetric. For (G3) it is
+$\frac{d}{dc}\bigl[\lambda_b\sum_j(\iota_j-cf_j)^2+\lambda_f\sum_u(f_u+c)^2\bigr]_{c=0}
+=-2\lambda_b\sum_j f_j\iota_j+2\lambda_f\sum_u f_u$, and (G4) is symmetric. For (G5) it is
+$\frac{d}{ds}\bigl[\lambda_f(s^2\sum_u f_u^2+s^{-2}\sum_j f_j^2)\bigr]_{s=1}
+=2\lambda_f(\sum_u f_u^2-\sum_j f_j^2)$.
+\end{proof}
+
+On the repository's reference dataset (200 reviewers, 10 items, a 60/40 split between two
+camps; \texttt{sim/bridging\_irt\_dif.py}), the best of eight fits has
+$\|\nabla L\|_\infty=7\times10^{-7}$. Every identity holds to that precision:
+$\sum_j\iota_j=1.9\times10^{-8}$, $\sum_u\iota_u=4.2\times10^{-6}$,
+$\lambda_b\sum_jf_j\iota_j=\lambda_f\sum_uf_u=-3.899\times10^{-3}$,
+$\lambda_b\sum_uf_u\iota_u=\lambda_f\sum_jf_j=6.426\times10^{-2}$ and
+$\sum_uf_u^2=\sum_jf_j^2=8.568$.
+
+Community Notes also penalizes $\mu$~\cite{wojcik2022birdwatch}. Identity~\eqref{eq:zerosum}
+then becomes $\sum_j\iota_j=\mu$ (with a common penalty weight), a constraint that is negligible
+when hundreds of thousands of notes are fitted jointly. Isegoria leaves $\mu$ unpenalized and
+fits one epoch's batch of tens to hundreds of items, so the identity binds.
+
+\subsection{The gate is relative to the batch}
+
+\begin{proposition}[Batch relativity]\label{prop:zerosum}\proved{}
+Let every term of the minimum defining $B_j$ be a stationary point of \eqref{eq:loss}. Then
+$\sum_j B_j\le 0$. Hence the mean bridge score of every batch is non-positive, and if
+$\tau-\varepsilon>0$, every batch contains an item below the band: no batch passes the gate in
+full.
+\end{proposition}
+\begin{proof}
+Fix one fit $s_0$ among those in the minimum. Then $B_j\le\iota_j^{(s_0)}$ for every $j$, and
+$\sum_j\iota_j^{(s_0)}=0$ by \cref{lem:gauge}. If every $B_j\ge\tau-\varepsilon>0$, then
+$\sum_jB_j>0$, a contradiction.
+\end{proof}
+
+The proposition says that the gate does not test ``is this item approved across the divide?''.
+It tests ``is this item approved across the divide at least $\tau$ more than the average
+item fitted with it?''. \Cref{tab:relativity} shows the effect on the repository's dataset. We
+score six consensus items twice: inside the original ten-item batch, which also contains a
+true but divisive item, two partisan items and one mildly partisan item, and alone.
+
+\begin{table}[t]
+\centering\small
+\caption{Bridge scores $B_j$ of the six consensus items of the repository simulation, fitted
+inside the original ten-item batch and fitted alone (same ratings, same estimator). Threshold
+$\tau=0.08$. Source: \texttt{scripts/levelA\_relativity.py}.}
+\label{tab:relativity}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Item & 01 & 02 & 04 & 05 & 06 & 07\\
+\midrule
+In the ten-item batch & $+0.104$ & $+0.081$ & $+0.085$ & $+0.101$ & $+0.077$ & $+0.082$\\
+Alone                 & $+0.014$ & $-0.017$ & $-0.001$ & $+0.011$ & $-0.022$ & $-0.014$\\
+\midrule
+Passes in batch / alone & yes/no & yes/no & yes/no & yes/no & no/no & yes/no\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{finding}\label{find:relativity}\empirical{}
+Five of the six consensus items pass when the batch contains divisive items and none passes
+when they are scored together without them. Their approval did not change; the reference
+point did.
+\end{finding}
+
+Three consequences follow. First, pass rates depend on the composition of the epoch. A
+threshold ``calibrated on the pilot'', as the design prescribes, is calibrated to the pilot's
+mix of items. Second, the design documents found that the reference value of Community Notes
+(0.40) was unusable and that $\tau\approx0.08$ worked, and that scores ``cluster near the
+threshold''. Both observations are consistent with batch-centred scores. Third, whoever
+influences the composition of a batch influences who passes. For example, weak ``decoy''
+items lower the batch average and raise the relative score of a target. The admission lottery
+and the proposal rate limit bound this lever but do not remove it.
+
+Three corrections are possible, and we have not evaluated any of them \openq. One is to penalize $\mu$
+and fit many epochs jointly, which dilutes the constraint. Another is to anchor the scale with reference items of known standing and
+express $\tau$ relative to them; the golden items that already enter every review queue
+(\cref{sec:levelc}) could serve. The third is to declare the gate relative on purpose, as an
+explicit quota. The second fits the rest of the design best.
+
+\subsection{The origin of the axis decides how majoritarian the score is}
+
+The translation (G3) moves the origin of the reviewer axis and trades item intercept against
+loading. This matters because the position of the origin decides what ``approval not explained
+by the axis'' means. We make this precise in a two-camp model.
+
+Consider camps $A$ and $B$ with shares $\pi_A,\pi_B$ and imbalance
+$\kappa=\pi_B-\pi_A\ge0$ (so $B$ is the majority). For item $j$ let $m_{Aj},m_{Bj}$ be the
+camps' mean ratings, $\mbar_j=\tfrac12(m_{Aj}+m_{Bj})$ the \emph{camp-balanced} mean and
+$\Delta_j=\tfrac12(m_{Bj}-m_{Aj})$ the item's lean. The \emph{camp-size-weighted} mean, which
+is what a plain average of all ratings estimates, is $\pi_Am_{Aj}+\pi_Bm_{Bj}=\mbar_j+\kappa\Delta_j$.
+We say a stationary point has the \emph{two-camp form} if:
+\begin{enumerate}[label=(T\arabic*)]
+  \item every reviewer of camp $s$ has $f_u=\varphi_s$ and $\iota_u=0$, with half-distance
+    $h=\tfrac12(\varphi_B-\varphi_A)>0$ and midpoint $c=\tfrac12(\varphi_A+\varphi_B)$; and
+  \item the fit reproduces the camp means: $\mu+\iota_j+\varphi_s f_j=m_{sj}$ for $s\in\{A,B\}$ and every $j$.
+\end{enumerate}
+
+\begin{proposition}[Majoritarian leak]\label{prop:leak}\proved{}
+Let a stationary point of \eqref{eq:loss} have the two-camp form. Let $S=\sum_j\Delta_j^2$ and
+$S_{\Delta m}=\sum_j\Delta_j(\mbar_j-\mu)$. Then:
+\begin{enumerate}[label=(\roman*)]
+  \item $f_j=\Delta_j/h$ and $\iota_j=\mbar_j-\mu-t\,\Delta_j$, where $t=c/h$ is the offset of
+    the origin from the midpoint between the camps;
+  \item $t=\dfrac{\lambda_b S_{\Delta m}-\lambda_f\,n h^2\kappa}{\lambda_b S+\lambda_f\,n h^2}$;
+  \item if $S_{\Delta m}=0$, then
+  \begin{equation}\label{eq:leak}
+    \mu+\iota_j=(1-\ell)\,\mbar_j+\ell\,(\pi_Am_{Aj}+\pi_Bm_{Bj}),\qquad
+    \ell=\frac{1}{1+\rho},\qquad \rho=\frac{\lambda_b S}{\lambda_f\,n\,h^2};
+  \end{equation}
+  \item and, in that case, $\rho=\dfrac{\lambda_b}{\lambda_f}\,\gamma\sqrt{S/n}$ for some
+    $\gamma\in\bigl[\sqrt{1-\kappa^2},\,1\bigr]$.
+\end{enumerate}
+\end{proposition}
+\begin{proof}
+Part (i) follows from subtracting and averaging the two equations of (T2). For (ii),
+substitute (i) and $\sum_uf_u=n_A\varphi_A+n_B\varphi_B=nh(t+\kappa)$ into
+\eqref{eq:gauge-rev}, which gives $\lambda_b(S_{\Delta m}-tS)/h=\lambda_f\,nh\,(t+\kappa)$, and
+solve for $t$. Part (iii) is (i) with $t=-\kappa/(1+\rho)$ from (ii). For (iv), \eqref{eq:scale}
+gives $nh^2(1+t^2+2\kappa t)=S/h^2$. On $t\in[-\kappa,0]$ the factor $1+t^2+2\kappa t$ lies in
+$[1-\kappa^2,1]$, so $h^2=\sqrt{S/(n(1+t^2+2\kappa t))}$, and substituting into the definition
+of $\rho$ gives (iv).
+\end{proof}
+
+The \emph{leak} $\ell$ is the fraction of the majority's weight that passes into the bridge
+score. At $\ell=0$ the score is camp-balanced: each camp counts once, whatever its size. This is
+the property that motivates bridging. At $\ell=1$ the score is the size-weighted mean, which
+is exactly what a plain average gives. The asymmetric penalty pushes $\ell$ toward $0$, but
+$\lambda_b\gg\lambda_f$ is not the relevant condition. The relevant quantity is
+$\rho\approx(\lambda_b/\lambda_f)\sqrt{S/n}$, which compares how stiffly the penalty holds the
+item intercepts (summed over the batch's leans) with how stiffly it holds the reviewer positions
+(summed over the reviewers). At a fixed ratio $\lambda_b/\lambda_f$, the leak grows with the
+number of reviewers and falls only with the square root of the batch's total lean.
+
+Assumptions (T1)--(T2) are idealizations. With regularization no fit is exact, and reviewers of a camp
+do not share one position. \Cref{tab:leak} therefore tests \eqref{eq:leak} on the full model:
+all parameters free, rating noise and reviewer severity as in the repository simulation,
+within-camp spread of positions, and nine ratings per reviewer. The design uses mirror pairs:
+ten consensus items and five pairs of partisan items with identical quality and opposite lean
+($\Delta=\pm0.36$), camps of 60\% and 40\% ($\kappa=0.2$). The measured leak is
+$(\iota_{P^+}-\iota_{P^-})/(2\kappa\Delta)$, which is $0$ for a camp-balanced score and $1$ for a
+size-weighted one.
+
+\begin{table}[t]
+\centering\small
+\caption{Majoritarian leak $\ell$ of the bridge score: measured on the full model (mean of three
+datasets; standard deviation in parentheses) against the prediction $1/(1+\rho)$ of
+\cref{prop:leak} with $\gamma=1$. Mirror-pair design, 60/40 camps. The default penalties are
+$\lambda_b/\lambda_f=5$. Source: \texttt{scripts/levelA\_leak.py}.}
+\label{tab:leak}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={ratio,N,leak_mean,leak_sd,predicted},
+  columns/ratio/.style={column name={$\lambda_b/\lambda_f$},int detect},
+  columns/N/.style={column name={reviewers $n$},int detect},
+  columns/leak_mean/.style={column name={measured $\ell$},fixed,fixed zerofill,precision=2},
+  columns/leak_sd/.style={column name={(sd)},fixed,fixed zerofill,precision=2,
+    postproc cell content/.append style={/pgfplots/table/@cell content/.add={(}{)}}},
+  columns/predicted/.style={column name={predicted $1/(1+\rho)$},fixed,fixed zerofill,precision=2},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+  every row no 6/.style={after row=\midrule},
+  every row no 13/.style={after row=\midrule},
+]{data/levelA_leak.csv}
+\end{table}
+
+\begin{finding}\label{find:leak}\empirical{}
+At the default penalties most of the camp-size effect survives in the bridge score: the leak is
+0.53 with 50 reviewers and rises to 0.87 with 3{,}200. The closed form predicts every configuration within
+0.1 and overestimates the leak in most of them; within-camp spread, absent from (T1), adds to
+$\sum_uf_u^2$ and hence to $\rho$. Raising $\lambda_b/\lambda_f$ to 500 keeps the leak below 0.1
+up to 3{,}200 reviewers.
+\end{finding}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{semilogxaxis}[
+  width=0.58\linewidth, height=5.2cm,
+  xlabel={reviewers $n$}, ylabel={leak $\ell$},
+  ymin=-0.05, ymax=1.0, xmin=40, xmax=4000,
+  legend style={font=\scriptsize, at={(1.03,1)}, anchor=north west, draw=none, fill=none},
+  grid=major, grid style={gray!20}, tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[only marks, mark=*, mark size=1.6pt, color=blue!70!black, skip coords between index={7}{21}]
+  table[col sep=comma, x=N, y=leak_mean] {data/levelA_leak.csv};
+\addlegendentry{$\lambda_b/\lambda_f=5$}
+\addplot[only marks, mark=square*, mark size=1.5pt, color=orange!80!black, skip coords between index={0}{7}, skip coords between index={14}{21}]
+  table[col sep=comma, x=N, y=leak_mean] {data/levelA_leak.csv};
+\addlegendentry{$\lambda_b/\lambda_f=50$}
+\addplot[only marks, mark=triangle*, mark size=1.8pt, color=green!45!black, skip coords between index={0}{14}]
+  table[col sep=comma, x=N, y=leak_mean] {data/levelA_leak.csv};
+\addlegendentry{$\lambda_b/\lambda_f=500$}
+\addplot[thick, color=blue!70!black, forget plot, skip coords between index={7}{21}]
+  table[col sep=comma, x=N, y=predicted] {data/levelA_leak.csv};
+\addplot[thick, color=orange!80!black, forget plot, skip coords between index={0}{7}, skip coords between index={14}{21}]
+  table[col sep=comma, x=N, y=predicted] {data/levelA_leak.csv};
+\addplot[thick, color=green!45!black, skip coords between index={0}{14}]
+  table[col sep=comma, x=N, y=predicted] {data/levelA_leak.csv};
+\addlegendentry{prediction $1/(1+\rho)$ (lines)}
+\end{semilogxaxis}
+\end{tikzpicture}
+\caption{Majoritarian leak against the number of reviewers (points: full model; lines:
+$1/(1+\rho)$ from \cref{prop:leak}). Data as in \cref{tab:leak}.}
+\label{fig:leak}
+\end{figure}
+
+\Cref{prop:leak} also explains an asymmetry in the repository simulation. There $n=200$,
+$S\approx0.39$ and $\kappa=0.2$, so $\rho\approx0.22$ and $\ell\approx0.82$. The majority's
+partisan item and the minority's mirror-image item have the same quality and opposite lean. In
+the full fit they score $-0.155$ and $-0.260$. The proposition predicts a gap of
+$\ell\kappa(\Delta_{08}-\Delta_{09})\approx0.82\times0.2\times0.72\approx0.12$; the measured
+gap is $0.105$. Both items fail here. For items closer to $\tau$, however, which of two mirror
+images passes depends on which camp is larger, which is what bridging is meant to prevent.
+
+The normative content of bridging, ``each side counts once'', therefore sits in a gauge. The
+objective reaches it only in the limit $\rho\to\infty$, and with more than two groups or a
+continuum of positions the ``midpoint'' is itself a choice. We see three remedies
+\openq:
+\begin{enumerate}[label=(\alph*)]
+  \item scale the penalty ratio with $\sqrt{n/S}$; for example, $\rho\ge9$ keeps $\ell\le0.1$;
+  \item fix the gauge explicitly, for instance by imposing $\sum_jf_j\iota_j=0$, the
+    $\rho\to\infty$ limit of \eqref{eq:gauge-rev}. The origin then depends on $S_{\Delta m}$, the
+    correlation between lean and approval within the batch, which is a new lever for anyone
+    who controls the batch's composition;
+  \item replace the intercept by a gauge-invariant statistic of the predictions, such as the
+    smaller of the mean predicted ratings $\hat r_{uj}$ among reviewers in the lowest and in the
+    highest decile of $f_u$. Predictions are invariant under (G1)--(G5), so any function of
+    them is too, and a minimum across the spectrum does not depend on camp sizes.
+\end{enumerate}
+
+\subsection{What ratings cannot distinguish}
+
+\begin{proposition}[Observational equivalence]\label{prop:equivalence}\proved{}
+Let $D$ be any decision rule, deterministic or randomized, that depends on the data only
+through the assignment $\Omega$ and the ratings $(r_{uj})$. If two items induce the same
+distribution of ratings from every reviewer, then $D$ has the same distribution of outcomes on
+both.
+\end{proposition}
+\begin{proof}
+The distribution of $D$'s output is a function of the joint distribution of its inputs, which is
+the same for both items.
+\end{proof}
+
+The proposition is elementary, but it settles the most serious limitation of Level~A. A true
+fact that one camp rejects and a false claim that the other camp accepts can polarize the same
+camps in the same way. When they do, no function of the ratings separates them, and every
+threshold trades lost true items for admitted partisan ones. The repository simulation shows
+this: at every $\tau$ in $[0.02,0.12]$ the true but divisive item fails, while no partisan item
+passes. The remedy has to bring in information the ratings do not contain. That is the role of
+the appeal to evidence, which sends a polarization rejection to the pilots at the author's risk.
+\Cref{sec:dif-not-bias} discusses how far that remedy reaches.
+
+\subsection{Capture cost in the reference simulation}
+
+In the repository simulation, 40 members of the majority camp rate the majority's partisan
+item at $1$, and members of the opposing camp are added one group at a time. The bridge score
+moves from $-0.14$ (no opposing raters) through $-0.10$, $-0.06$, $-0.02$, $+0.02$ and $+0.07$ to
+$+0.13$ (10, 20, 30, 40, 55 and 70 opposing raters). The crossing of $\tau=0.08$ therefore lies
+between 55 and 70 of the 80 opposing reviewers (69--88\%); linear interpolation gives about 57
+(71\%). The design documents quote ``70 of 80 (87\%)'', which is the upper end of this bracket
+\empirical. This is one dataset and one seed. A capture-cost curve with confidence bands is
+part of the evaluation plan (\cref{sec:plan}). \Cref{prop:leak} adds that votes from the
+majority's own camp are not neutralized: they act through the leak.
+
+\subsection{Further identifiability conditions}
+
+The sign of the axis is fixed as described above. If the bipartite graph of $\Omega$ is
+disconnected, each component has its own gauge and the scores of different components are not
+comparable. Random assignment with $k\ge7$ reviewers per item makes this unlikely, but the
+engine does not check it. The specification states that reviewers with fewer than $n_{\min}=30$
+ratings should not define the axis. This rule and the two-dimensional model are not
+implemented; the second is deferred by design decision D31~\cite{isegoria-repo}.

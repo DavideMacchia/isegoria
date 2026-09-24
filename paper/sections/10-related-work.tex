@@ -1,0 +1,42 @@
+\section{Related work}\label{sec:related}
+
+\paragraph{Bridging.} Community Notes (formerly Birdwatch) scores crowd-written notes with the
+matrix factorization that Level~A adopts, with a heavier penalty on intercepts than on factors. It
+reports that the notes selected this way are, on average, strongly
+informative~\cite{wojcik2022birdwatch}. Polis clusters opinion spaces in order to surface statements
+that find agreement across groups~\cite{small2021polis}. \citet{ovadya2023bridging} frame both as
+``bridging systems'' and list open problems. Matrix factorization for ratings is standard in
+recommender systems~\cite{koren2009matrix}. Our contribution here is analytic. We show that in the
+bridging objective the intercept is fixed only by the regularization, through a gauge, and we
+quantify how much of the majority's weight leaks into it (\cref{prop:leak}). We also show that
+with an unpenalized mean the scores are relative to the batch (\cref{prop:zerosum}).
+
+\paragraph{Psychometrics.} The 2PL and 3PL models go back to \citet{birnbaum1968}; see
+\citet{lord1980} and \citet{hambleton1991}. DIF methods include Mantel--Haenszel with the ETS
+classification~\cite{mantel1959,holland1988mh,zieky1993} and logistic
+regression~\cite{swaminathan1990}; \citet{holland1993dif} survey the field. SIBTEST treats DIF as
+multidimensionality and corrects the matching variable for measurement
+error~\cite{shealy1993sibtest}, which is the observed-score counterpart of our \cref{prop:proxy}.
+Mixture Rasch and mixture IRT models~\cite{rost1990}, and their use for detecting DIF without
+observed groups~\cite{cohen2005mixture}, are the basis of Level~B. The irregularity of likelihood
+ratios for mixtures is classical~\cite{self1987,mclachlan2000}.
+
+\paragraph{Elicitation and scoring.} Proper scoring rules are surveyed by
+\citet{gneiting2007scoring}, after \citet{brier1950} and \citet{savage1971}; skill scores are
+discussed by \citet{murphy1988skill}. When predictions influence which outcome is observed,
+strict propriety requires randomized decision rules~\cite{othman2010decision,chen2014eliciting}; this is
+why Isegoria scores forecasts on golden items only. Without ground truth, peer-prediction
+mechanisms elicit honest reports~\cite{miller2005peer,prelec2004bts,dasgupta2013crowdsourced,shnayder2016informed}.
+That skill scores are improper and encourage hedging was shown by \citet{murphy1973hedging}.
+\Cref{prop:bss} gives the hedge in closed form against a crowd baseline and shows that in this
+design it pushes dissenters toward the crowd, the reverse of the intended incentive.
+
+\paragraph{Identity, reputation and collusion.} The Sybil attack~\cite{douceur2002sybil} and the
+social cost of cheap pseudonyms~\cite{friedman2001pseudonyms} motivate external uniqueness and
+non-rotatable pseudonyms. The identity layer builds on oblivious pseudorandom
+functions~\cite{rfc9497,jarecki2017toppss}, BBS-family
+signatures~\cite{boneh2004short,camenisch2004signature,au2006bbsplus,tessaro2023bbs}, secret
+sharing and distributed key generation~\cite{shamir1979,gennaro2007dkg}, and equality-of-discrete-log
+proofs~\cite{chaum1992wallet}. Sublinear group weights echo quadratic
+funding~\cite{buterin2019flexible}. Stratified sortition for governance roles follows the
+literature on citizens' assemblies~\cite{flanigan2021sortition}.

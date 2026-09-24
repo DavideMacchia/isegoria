@@ -1,0 +1,281 @@
+\section{Level B: evidence}\label{sec:levelb}
+
+Level~B decides. Items that pass the gate, or that are appealed, are trialled on respondents
+who answer them mixed with validated items. The verdict comes from the responses alone.
+
+\subsection{Ability and item screening}
+
+Respondent $i$'s ability is estimated as $\theta_i=(T_i-\bar T)/\mathrm{sd}(T)$, the
+standardized total score over a set of anchor items already certified free of DIF (30 in the
+repository simulations). For each trial item, a two-parameter logistic model
+(2PL)~\cite{birnbaum1968,lord1980}
+\begin{equation}\label{eq:2pl}
+  P(X_{ij}=1\mid\theta_i)=\sig\bigl(a_j(\theta_i-b_j)\bigr),
+\end{equation}
+is fitted by logistic regression on the fixed $\theta$, giving a discrimination $a_j$ and a
+difficulty $b_j$. A fit that does not converge, for example under complete separation, is
+treated as undetermined. Stage~1 of the pilot keeps an item if its point-biserial correlation
+with $\theta$ is at least $0.20$, its fit converged, and $a_j\ge0.6$. A negative point-biserial
+reveals an inverted answer key, and the simulations catch one. Two gaps are acknowledged in the
+repository and remain open \openq. First, $\theta$ is a proxy on the standardized-total metric,
+while the thresholds come from a literature that uses an IRT metric~\cite{hambleton1991}.
+Second, no guessing parameter is fitted, although multiple-choice items with four options are
+exactly where guessing matters (design decision D25).
+
+\subsection{DIF with observed groups: calibration only}
+
+With an observed group $g_i\in\{-1,+1\}$, DIF is tested by the logistic
+model~\cite{swaminathan1990}
+$\logit P(X_{ij}=1)=\beta_0+\beta_1\theta_i+\beta_2g_i+\beta_3\theta_ig_i$, rejecting at
+$|\beta_2|>0.40$, and by the Mantel--Haenszel common odds ratio with the ETS
+classes~\cite{mantel1959,holland1988mh,zieky1993}. Both need a per-respondent group label.
+\Cref{req:anon} forbids that label in production, so these tests are compiled only into closed
+calibration pilots with declared attributes (design decision D20). Production uses the latent
+variant below.
+
+\subsection{DIF on latent classes}
+
+The anonymity-compatible detector is a mixture IRT model~\cite{rost1990,cohen2005mixture}. Each
+respondent belongs to an unobserved class $Z_i\in\{1,\dots,G\}$ with proportions $\pi_g$, and
+responses are independent given $(\theta_i,Z_i)$:
+\begin{equation}\label{eq:mixture}
+  P(X_{ij}=1\mid\theta_i,Z_i=g)=\sig\bigl(a_{jg}(\theta_i-b_{jg})\bigr),\qquad
+  \ell(\cdot)=\sum_i\log\sum_g\pi_g\prod_j P(x_{ij}\mid\theta_i,g).
+\end{equation}
+The implementation tries $G\in\{1,\dots,4\}$, each with a shared discrimination
+($a_{jg}=a_j$, uniform DIF) and with a per-class one. Every candidate is fitted from seeded
+starts with an analytic gradient, and the candidate with the lowest
+BIC~\cite{schwarz1978} is kept. The search stops once an extra class no longer lowers the BIC.
+The item statistic is $\mathrm{DIF}_j=\max_{g,h}|b_{jg}-b_{jh}|$ over classes holding at least 5\%
+of the respondents. An item is flagged if the selected fit converged, has at least two classes,
+and $\mathrm{DIF}_j>1.0$. The literature value for this gap is $0.5$. The repository reports
+that $0.5$ flags every item of a batch with one biased item, keeps $1.0$ as provisional, and
+defers the choice to a planned false-positive study. Batches must hold at least two items and
+3{,}000 respondents. Mixture likelihood ratios are not $\chi^2$-distributed under the
+null~\cite{self1987,mclachlan2000}, so the BIC comparison is a heuristic, not a calibrated test.
+
+\subsection{Identification: why a single biased item is invisible}
+
+The repository simulation found that one distorted item in a batch of eight is invisible and
+two are detected. The following two propositions explain this.
+
+\begin{proposition}[One class-dependent item]\label{prop:single}\proved{}
+Let $\theta$ be observed without error and $Z$ independent of $\theta$, and suppose only item
+$j$'s response function depends on $Z$. Then the likelihood factorizes as
+$\prod_{k\neq j}P_k(x_k\mid\theta)\cdot\bigl[\sum_g\pi_gP_{jg}(x_j\mid\theta)\bigr]$, so the
+class parameters are identified only through the marginal response curve
+$m_j(\theta)=\sum_g\pi_g\,\sig(a_{jg}(\theta-b_{jg}))$. For a symmetric two-class shift
+($\pi=\tfrac12$, $b_{j\pm}=b_j\pm\delta$, common $a$), with $x=a(\theta-b_j)$,
+\begin{equation}\label{eq:single-expansion}
+  m_j(\theta)=\sig(x)+\tfrac12(a\delta)^2\sig''(x)+O(\delta^4)
+  =\sig\bigl((1-\tfrac14(a\delta)^2)\,x\bigr)
+   +\tfrac12(a\delta)^2\,\sig'(x)\bigl(\tfrac{x}{2}-\tanh\tfrac{x}{2}\bigr)+O(\delta^4).
+\end{equation}
+\end{proposition}
+\begin{proof}
+With only item $j$ depending on $Z$, summing over $Z$ acts on item $j$'s factor alone. The
+expansion averages $\sig(x\pm a\delta)$, so odd orders cancel. It then uses
+$\sig''(x)=-\sig'(x)\tanh(x/2)$ and $\sig((1+\eta)x)=\sig(x)+\eta x\sig'(x)+O(\eta^2)$ with
+$\eta=-\tfrac14(a\delta)^2$.
+\end{proof}
+
+In words, a single class-dependent item looks, to second order, like a 2PL item with a lower
+discrimination. The residual $\tfrac{x}{2}-\tanh\tfrac{x}{2}=x^3/24+O(x^5)$ vanishes to third
+order where the item is most informative. The same flattening is produced by error in
+$\theta$, so the two are confounded in practice.
+
+\begin{proposition}[Pairs of class-dependent items]\label{prop:pair}\proved{}
+Under conditional independence given $(\theta,Z)$,
+\begin{equation}\label{eq:pair-cov}
+  \Cov(X_j,X_k\mid\theta)=\sum_g\pi_g\,\bigl(P_{jg}(\theta)-m_j(\theta)\bigr)\bigl(P_{kg}(\theta)-m_k(\theta)\bigr),
+\end{equation}
+which for two classes equals $\pi(1-\pi)\,\Delta_j(\theta)\Delta_k(\theta)$ with
+$\Delta_j=P_{j2}-P_{j1}$. Any one-class model implies $\Cov(X_j,X_k\mid\theta)=0$. Hence two items
+whose class-dependence overlaps in $\theta$ leave a signature that no one-class model absorbs.
+\end{proposition}
+\begin{proof}
+$\E[X_jX_k\mid\theta]=\sum_g\pi_gP_{jg}P_{kg}$ and $\E[X_j\mid\theta]=m_j$. Expanding the
+covariance gives \eqref{eq:pair-cov}. For two classes, substitute $m_j=(1-\pi)P_{j1}+\pi P_{j2}$.
+\end{proof}
+
+Both signals are of fourth order in $\delta$ for small $\delta$, but their constants differ
+greatly. \Cref{tab:information} gives the expected likelihood-ratio contribution
+($2N\times$ the per-respondent information) at $N=3000$. For one item, this is the minimal
+expected Kullback--Leibler divergence between the mixture curve and any 2PL. For a pair, it is
+the conditional mutual information $I(X_j;X_k\mid\theta)$.
+
+\begin{table}[t]
+\centering\small
+\caption{Expected likelihood-ratio contribution at $N=3000$ of one biased item (the part no 2PL
+absorbs) and of one biased pair (conditional mutual information), for $a=1.25$, $b=0$,
+$\pi=\tfrac12$ and exact $\theta$. For comparison, the BIC penalty per extra parameter is
+$\ln 3000\approx8$. Source: \texttt{scripts/levelB\_information.py}.}
+\label{tab:information}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={delta,lr_single,lr_pair,ratio},
+  columns/delta/.style={column name={shift $\delta$},fixed,fixed zerofill,precision=2},
+  columns/lr_single/.style={column name={one biased item},fixed,fixed zerofill,precision=3},
+  columns/lr_pair/.style={column name={one biased pair},fixed,fixed zerofill,precision=2},
+  columns/ratio/.style={column name={ratio},fixed,precision=0},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/levelB_information.csv}
+\end{table}
+
+\begin{finding}\label{find:information}\empirical{}
+A biased pair carries 245--306 times the information of a single biased item. At $\delta=0.9$
+and $N=3000$, a single item contributes $0.5$ to the expected likelihood ratio, far below any
+penalty, while a pair contributes $130$. The repository simulation, which uses a proxy $\theta$,
+measures about $100$ per biased pair. For small shifts, pairwise information scales as
+$\approx0.048\,\delta^4$ per respondent (the constant falls to $0.033$ at $\delta=0.9$, where the
+classes start to separate), so halving the shift requires about sixteen times the respondents for
+the same power. The production detector agrees. With exact $\theta$ it selects no mixture in 8
+null batches and detects nothing in 8 batches with one biased item ($N\in\{3000,6000\}$), and it
+flags exactly the biased items in all 8 batches with two, with no false flag.
+\end{finding}
+
+\Cref{prop:single,prop:pair} turn \cref{req:batch} from an empirical rule into a structural one.
+The latent classes are identified by \emph{covariation between items} given ability, so they need
+at least two items that share a distortion. A campaign to tilt the bank leaves this signature. An
+isolated distortion does not, and neither does a single biased item repeated across batches that
+never contain another item biased the same way.
+
+\subsection{A confound: error in the ability proxy}\label{sec:proxy}
+
+The detector conditions on $\hat\theta$, a standardized anchor total, not on $\theta$.
+
+\begin{proposition}[Proxy-induced dependence]\label{prop:proxy}\proved{}
+Let $\hat\theta$ be computed from anchor responses that are independent of the trial items
+given $\theta$, and let every trial item's response function be non-decreasing in $\theta$.
+Then, with no DIF at all,
+\begin{equation}
+  \Cov(X_j,X_k\mid\hat\theta)=\Cov\bigl(P_j(\theta),P_k(\theta)\bigm|\hat\theta\bigr)\;\ge\;0,
+\end{equation}
+with strict inequality whenever $\Var(\theta\mid\hat\theta)>0$ and both functions are strictly
+increasing.
+\end{proposition}
+\begin{proof}
+Conditional independence gives $\E[X_jX_k\mid\hat\theta]=\E[P_j(\theta)P_k(\theta)\mid\hat\theta]$
+and $\E[X_j\mid\hat\theta]=\E[P_j(\theta)\mid\hat\theta]$. Two non-decreasing functions of the
+same random variable are non-negatively correlated (Chebyshev's association inequality), and
+strictly so if both are strictly increasing and the variable is not degenerate.
+\end{proof}
+
+Local dependence therefore exists whenever the proxy is imperfect, with or without DIF. A
+mixture whose classes shift all items in the same direction absorbs part of it, as a ``higher
+than measured'' and a ``lower than measured'' class. The likelihood ratio then grows linearly
+in $N$, while the BIC penalty grows like $\ln N$, so for large enough samples the BIC selects a
+mixture on data that contain none. The estimated gap of \emph{every} item then equals the size of
+the common shift. This is the observed-score version of a problem known in DIF research:
+matching on an unreliable total inflates DIF, which is why SIBTEST corrects the matching
+variable by regression~\cite{shealy1993sibtest}.
+
+\begin{table}[t]
+\centering\small
+\caption{Likelihood ratio of the two-class uniform-DIF mixture against one class, with $\theta$
+from 30 anchors (proxy) or exact, for batches of 8 items of which 0, 1 or 2 are biased
+($\delta=0.9$). Mean of three datasets. Last row: BIC penalty $8\ln N$ used by the repository
+simulation. Source: \texttt{scripts/levelB\_proxy.py}.}
+\label{tab:proxy}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+$\theta$ & biased items & $N=1500$ & $3000$ & $6000$ & $12000$\\
+\midrule
+proxy & 0 & 53.7 & 91.2 & 169.0 & 281.9\\
+proxy & 1 & 48.2 & 84.5 & 152.7 & 239.3\\
+proxy & 2 & 67.1 & 219.7 & 433.4 & 568.8\\
+\midrule
+exact & 0 & 15.5 & 17.8 & 15.9 & 20.0\\
+exact & 1 & 13.6 & 12.1 & 18.9 & 18.2\\
+exact & 2 & 47.8 & 170.2 & 324.1 & 419.1\\
+\midrule
+\multicolumn{2}{@{}l}{penalty $8\ln N$} & 58.5 & 64.1 & 69.6 & 75.1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Cref{tab:proxy} shows the effect in a re-implementation of the repository simulation's model.
+With exact $\theta$ the likelihood ratio stays flat when there is nothing to find, and also when
+there is one biased item, as \cref{prop:single} predicts. With the proxy it grows linearly in
+$N$ even with zero biased items, and it exceeds the penalty from $N=3000$ on. The mean
+estimated gap of clean items is then $0.71$--$0.86$.
+
+To measure the consequence for the production detector, we ran the Rust engine and the
+protocol's verdict rule on null batches (no biased item, $N=6000$) whose $\theta$ comes from 10,
+20, 30 or 60 anchors (\cref{tab:anchors}).
+
+\begin{table}[t]
+\centering\small
+\caption{Production detector (Rust engine and verdict rule) on null batches: eight clean items,
+$N=6000$, four datasets per row, $\theta$ from the stated number of anchors. A flag here is a
+false positive. Source: \texttt{scripts/levelB\_detector.py}.}
+\label{tab:anchors}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+anchors & mixture selected & largest clean gap & batches with a false flag & items flagged per batch\\
+\midrule
+10 & 4/4 & 1.27--1.41 & 4/4 & 8 of 8\\
+20 & 4/4 & 1.04--1.16 & 4/4 & 1--3\\
+30 & 4/4 & 0.94--0.99 & 0/4 & 0\\
+60 & 0/4 & --- & 0/4 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{finding}\label{find:proxy}\empirical{}
+On null batches the production detector selects a spurious mixture whenever the proxy is
+imperfect enough. With 10 or 20 anchors it flags clean items in every batch. With 30 anchors,
+the configuration of the repository simulations, it flags none, but the largest clean gap
+reaches $0.94$--$0.99$ against a threshold of $1.0$. The provisional threshold is therefore
+calibrated, implicitly, to one anchor configuration. With the same 30 anchors and one biased
+item at $N=6000$, the detector flags the biased item in 2 of 4 batches (gaps $1.15$ and $1.03$).
+It does so because the item rides on the artefactual class, not because its own shift is
+identified; with exact $\theta$ it is never detected.
+\end{finding}
+
+Three remedies are available \openq.
+\begin{enumerate}[label=(\alph*)]
+  \item Put the anchors inside the likelihood with class-invariant parameters and integrate
+    $\theta$ out, which gives a full mixture IRT model. The anchors then identify class-specific
+    ability distributions, and a class-wide shift is no longer mistaken for DIF. This is the
+    principled fix. Its cost is computational.
+  \item Allow a class-specific ability shift and measure each item's departure from the batch's
+    common class shift. In the two-class parametrization $b_{j\pm}=b_j\pm\delta_j$ of the
+    repository simulation this is $2|\delta_j-\operatorname{median}_k\delta_k|$. In our re-implementation
+    this ``differential gap'' separates biased items (at least $1.65$) from clean ones (at most
+    $0.32$) at both sample sizes, with 30 anchors
+    (\texttt{scripts/levelB\_differential.py}). A campaign that biases most of a batch in
+    one direction would, however, be absorbed into the common shift, so this can only
+    complement (a).
+  \item At a minimum, make the threshold a documented function of anchor reliability and
+    calibrate it by simulation, as the evaluation plan requires.
+\end{enumerate}
+
+\subsection{Sample sizes and the minimum network}
+
+The pilot sizes of about $300$ (screen) and $1500$--$3000$ (DIF) are calibration targets taken
+from the psychometric literature, not derived results. The repository labels them a
+hypothesis \openq. \Cref{find:information} gives a first handle: for small shifts a biased pair
+contributes an expected likelihood ratio of about $2N\times0.048\,\delta^4$ for $a\approx1.25$. Detection needs
+this to exceed the penalty of the extra class, which is roughly $(K+1)\ln N$ for a batch of $K$
+items. The respondent requirement sets a floor on the network's size. A batch needs a few
+thousand \emph{distinct} respondents in its validation window, and anonymity is weak in a small
+crowd. The repository estimates that the network cannot run as specified below about $2{,}000$
+active participants.
+
+\subsection{DIF is not bias}\label{sec:dif-not-bias}
+
+DIF shows that, at equal measured ability, an item's difficulty depends on something else: the
+item measures a secondary dimension on which the classes differ~\cite{shealy1993sibtest}.
+Whether that secondary dimension is a nuisance is a judgment, not a statistical fact. For civic
+knowledge the judgment matters. Suppose one camp is systematically misinformed about a
+true fact. Then an item stating that fact shows DIF by construction, and Level~B rejects it for
+the same reason Level~A did. The appeal to evidence therefore recovers a true but divisive item
+only when the division lies in \emph{opinions about the item}, and not when it lies in
+\emph{knowledge of the fact}. The design currently treats every politically aligned secondary
+dimension as a nuisance. That is a normative choice, and we argue it should be made explicitly
+\designchoice. The same mechanism detects distortions on axes nobody chose to look for. In the
+repository simulation, an item neutral on the political axis shows DIF of $0.66$ on education.
+Latent classes can surface such an axis, but only when a batch contains at least two items
+distorted along it.

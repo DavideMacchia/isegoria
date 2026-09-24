@@ -46,6 +46,7 @@ guaranteed by an external enrollment layer (national eID / CIE / SPID / others),
 | [`12-panic-audit.md`](12-panic-audit.md) | Panic audit and fuzzing report: every `unwrap`/`expect`/`assert` classified, every crash on hostile input fixed |
 | [`99-glossary.md`](99-glossary.md) | Every concept explained from scratch, from the problem to the formula |
 | [`sim/`](../sim/) | Executable simulations that demonstrate the behavior and the corner cases |
+| [`paper/`](../paper/) | Working paper: formal statement and analysis of the scoring mechanism, with proofs, reproducible experiments and open problems |
 
 ## Recommended implementation order
 

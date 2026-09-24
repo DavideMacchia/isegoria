@@ -282,6 +282,8 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
   - [`06-threat-model.md`](docs/06-threat-model.md) — threat model
   - [`99-glossary.md`](docs/99-glossary.md) — glossary, from scratch
 - **[`sim/`](sim/)** — the executable specification (research prototypes).
+- **[`paper/`](paper/)** — working paper on the mathematics of the mechanism: formal statement,
+  proofs, reproducible experiments and open problems ([PDF](paper/main.pdf)).
 
 ---
 

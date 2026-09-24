@@ -1,0 +1,63 @@
+\section{Reference implementation and evidence}\label{sec:implementation}
+
+\subsection{Architecture and determinism}
+
+The reference implementation~\cite{isegoria-repo} is a Rust workspace of four crates. The
+\code{scoring} crate holds Levels A, B and C and the anti-collusion discount. It has no dependency
+on the identity or network crates, so the compiler guarantees that the engine runs offline on
+recorded inputs. \code{identity} implements enrollment, credentials and nullifiers; \code{network}
+implements content addressing, Merkle trees, a transparency log~\cite{crosby2009tamper,rfc6962},
+threshold checkpoints, erasure coding~\cite{reed1960} and anchoring; \code{protocol} orchestrates
+the lifecycle as a state machine that rejects invalid transitions.
+
+\Cref{req:repro} is enforced by construction. Observations are sorted into a canonical order
+before every fit. Every random draw comes from a seeded ChaCha8 stream with a fixed consumption
+order. No computation iterates over a hash map. Floating-point sorts use a total order.
+Reproducibility is tested bit for bit within a platform; cross-platform agreement has not yet been
+tested.
+
+\subsection{Oracles and tests}
+
+The Python simulations in \code{sim/} are the executable specification. Their outputs are
+exported as fixtures that the Rust engine must reproduce, and a drift check regenerates them under
+a pinned NumPy/SciPy environment. The engine departs from the simulations deliberately, and the
+repository documents where: eight starts with the lowest objective kept, a strong-Wolfe line
+search, and warm-started bootstrap refits whose minimum includes the full fit. Line coverage is
+about 97\%, but coverage measures execution, not verification. For that reason the repository adds
+property-based tests (determinism, invariance to input order, zero weight equals absence,
+sign symmetry, analytic gradients against finite differences) and mutation testing. Of 1{,}482
+mutants, the remaining survivors are 32 mutants justified as equivalent. The byte decoders are also
+fuzzed. None of this checks that the \emph{design} is right. The analyses of
+\cref{sec:levela,sec:levelb,sec:levelc,sec:collusion} are meant to fill that gap.
+
+\subsection{Evidence status}
+
+\Cref{tab:evidence} merges the repository's own audit with the results of this paper. No claim
+has been independently reviewed, and none is scientifically characterized in the sense of having
+false-positive and power tables with confidence intervals.
+
+\begin{table}[t]
+\centering\small
+\caption{Evidence status of the main claims. ``Audit'' is the repository's claim/evidence matrix
+at the described commit; ``This paper'' is what the analysis above adds.}
+\label{tab:evidence}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}p{0.22\linewidth}>{\raggedright\arraybackslash}p{0.36\linewidth}@{}}
+\toprule
+Claim & Audit & This paper\\
+\midrule
+Bridging objective as specified ($d=1$) & tested & identities of \cref{lem:gauge} hold to optimizer precision\\
+Latent axis recovered ($|r|=0.99$) & tested, one seed & ---\\
+Polarized items rejected & tested, one dataset & score is batch-relative (\cref{prop:zerosum}) and partly majoritarian (\cref{prop:leak})\\
+Capture needs 87\% of the other camp & tested qualitatively & crossing lies at 69--88\%, $\approx71\%$ interpolated\\
+Reputation weights enter the fit & implemented & cap never binds (\cref{prop:cap})\\
+Mixture DIF detects $\ge2$ biased of 8 & tested, reproduced & explained by \cref{prop:pair}\\
+One biased item of 8 is invisible & tested & explained by \cref{prop:single}\\
+False-positive rate of latent DIF & not established & proxy-induced false flags (\cref{find:proxy})\\
+Pilot sizes 300 / 1500 / 3000 & hypothesis & pair information $\propto N\delta^4$\\
+Evaluator score rewards correct dissent & resolved (crowd baseline) & not proper (\cref{prop:bss}); proper fix (\cref{prop:loo})\\
+Identical cartel counts $\sqrt{k}$ & tested & evasion pays (\cref{prop:split})\\
+Jittered cartel detected & unsolved & per-epoch overlap $r^2/m$ (\cref{prop:overlap})\\
+Randomness cannot be ground & partial (T37) & \cref{ass:assign} not yet met\\
+\bottomrule
+\end{tabular}
+\end{table}

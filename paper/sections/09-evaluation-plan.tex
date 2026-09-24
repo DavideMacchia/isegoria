@@ -1,0 +1,42 @@
+\section{Evaluation plan}\label{sec:plan}
+
+The findings above are single-regime results. We commit in advance to the following study
+before any threshold is declared final. It extends roadmap items T24 and T25 of the repository.
+All code, seeds and results will be versioned in the repository. We will report estimates with
+confidence intervals, never only point values.
+
+\paragraph{Level A.}
+\emph{Factors:} number of reviewers (50--5{,}000); items per batch (10--300); camp split
+(50/50 to 90/10) and number of camps; rating noise; ratings per reviewer and reviewers per item;
+penalty ratio (5--500); and three gauge variants: implicit (current), explicit
+$\sum_jf_j\iota_j=0$, and the gauge-invariant decile minimum. We will also vary batch composition:
+the share of divisive items and the presence of decoys.
+\emph{Metrics:} the leak $\ell$; false negatives on consensus items; false positives on partisan
+items; capture-cost curves; stability across seeds.
+\emph{Decision rule:} adopt the variant and penalties that keep $\ell\le0.1$ and the
+false-negative rate on consensus items at or below 5\% across all batch compositions. If none
+does, report that bridging cannot meet both targets at that scale.
+
+\paragraph{Level B.}
+\emph{Factors:} respondents (1{,}500--12{,}000); items per batch (4--16); number of biased items
+(0 to all); shift $\delta$ (0.2--1.2); class balance (0.1--0.5); uniform and non-uniform DIF;
+number and reliability of anchors (10--60); ability treatment (proxy, anchors in the likelihood,
+differential gap); one or two distorting axes.
+\emph{Metrics:} item-level false-positive rate with \emph{zero} biased items (the primary
+target); power surfaces; the threshold as a function of anchor reliability.
+\emph{Decision rule:} choose the threshold that holds the item-level false-positive rate at or
+below 5\% at the lowest anchor reliability the deployment will accept, with a multiplicity
+correction across the batch, and report the power at that threshold. The pilot sizes follow from
+the power tables, not from prose.
+
+\paragraph{Level C.}
+Simulated reviewer populations with heterogeneous skill and strategic types: truthful, herding,
+contrarian, and saboteur coalitions. We will compare the ratio score with the leave-one-out
+difference score, each under the logistic map and the asymmetric update.
+\emph{Metrics:} drift of reports toward the crowd; rank correlation between $E_u$ and true
+skill; time to detect a long-con reviewer.
+
+\paragraph{Coordination.}
+Jittered cartels, sparse histories, honest like-minded groups and chaining attacks.
+\emph{Metrics:} the detection ROC, and the influence a coalition obtains within one epoch and over
+many epochs.

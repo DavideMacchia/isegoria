@@ -1,0 +1,76 @@
+\documentclass[11pt,a4paper]{article}
+
+\input{preamble}
+
+\title{Opinion as Filter, Evidence as Verdict:\\
+The Mathematics of Isegoria, an Authority-Free Mechanism\\ for Validating Test Items}
+\author{Davide Macchia}
+\date{Working paper, version 0.1 --- September 2026\\[0.3em]
+\small Describes the reference implementation at commit \texttt{2ee5e79} of
+\url{https://github.com/DavideMacchia/isegoria}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Who decides whether a quiz question is fair when no institution is credibly impartial?
+Majority voting hands control to the largest faction, and naive reputation systems hand it
+over faster. Isegoria is a design for producing banks of test items without a trusted
+authority. It rests on three pillars: externally certified uniqueness of anonymous
+participants, a peer-review filter that rewards approval \emph{across} a latent divide
+(``bridging'') instead of approval \emph{by many}, and a final verdict computed from
+response data with item response theory and differential item functioning (DIF) detected on
+latent classes, so that no personal attribute is ever collected. This paper states the
+mechanism formally and analyses it. We establish five results, each with a proof or a
+reproducible experiment.
+(i)~In the bridging model with an unpenalized global mean, item intercepts sum to zero at
+every stationary point, so the acceptance gate ranks items against their own batch. In the
+reference simulation, five of six consensus items pass when fitted alongside four divisive
+items, and none of the six passes when they are fitted alone.
+(ii)~The origin of the latent axis is a gauge that only the regularization fixes. In a
+two-camp model the intercept interpolates between the camp-balanced and the camp-size-weighted
+mean approval with weight $1/(1+\rho)$, $\rho\approx(\lambda_b/\lambda_f)\sqrt{S/n}$. At the
+default penalties, 53--87\% of the majoritarian effect leaks into the bridge score for $n$
+between 50 and 3{,}200 reviewers.
+(iii)~Latent-class DIF is identified through conditional covariance between biased items:
+a single biased item carries 250 to 300 times less information than a biased pair, which
+explains why isolated distortions are invisible. Measurement error in the ability proxy
+creates spurious latent classes. On null batches the production detector flags clean items
+when ability is estimated from 10 or 20 anchors, and passes at 30 anchors by a margin of 0.01--0.06.
+(iv)~As is known for skill scores, the ratio-form Brier skill score used for evaluators is not
+proper. With one scored item and a crowd baseline $b$, the optimal report satisfies
+$\operatorname{logit}p^{*}=\operatorname{logit}q+2\operatorname{logit}b$, which pushes
+dissenters toward the crowd.
+A leave-one-out difference score is strictly proper and still gives exactly zero to a reviewer
+who copies the crowd.
+(v)~The sublinear anti-collusion discount is only as strong as its detector, and at design
+scale two reviewers share under one item per epoch, so random assignment, not the discount,
+carries the per-epoch defence.
+We state the evidence level of every claim, list what remains open, and give an evaluation plan.
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\input{sections/01-introduction}
+\input{sections/02-setting}
+\input{sections/03-level-a}
+\input{sections/04-level-b}
+\input{sections/05-level-c}
+\input{sections/06-collusion}
+\input{sections/07-implementation}
+\input{sections/08-limitations}
+\input{sections/09-evaluation-plan}
+\input{sections/10-related-work}
+\input{sections/11-conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\input{sections/appendix-proofs}
+\input{sections/appendix-parameters}
+\input{sections/appendix-reproducibility}
+
+\end{document}
