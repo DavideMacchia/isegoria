@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Task** | T44 in `docs/10-roadmap.md`: fuzz every byte decoder, classify every `unwrap`/`expect`/`assert` in `src/`, and turn the ones that external input can reach into errors |
-| **Audited** | master `6c61263`, 2026-09-24; the inventory re-checked after rebasing onto T41 (`dd7a6b6`): unchanged in `protocol` and `scoring` |
+| **Audited** | master `6c61263`, 2026-09-24; the inventory re-checked after rebasing onto T41 (`dd7a6b6`): unchanged in `protocol` and `scoring`; and after merging T48 (`57bdca1`): one new internal-invariant site in `scoring` (§2.3) |
 | **Changed** | `crates/network`, `crates/identity` |
 | **Classified only** | `crates/protocol`, `crates/scoring`: being changed in parallel at the time (T41, the scoring half of T42, T48), so their sites are recorded here and not touched |
 | **Status of the "done when"** | no panic on arbitrary bytes: met for every decoder of `network` and `identity` (§3, §4); classification recorded: §2 |
@@ -33,7 +33,8 @@ other nodes, and a quorum's answers come from committee members.
 
 35 sites outside `#[cfg(test)]` at `6c61263` (86 counting test modules): identity 28,
 network 4, protocol 2, scoring 1. After this audit: 30, none of them reachable from
-external input. Sites are named by function; line numbers drift.
+external input. T48, merged afterwards, adds one internal-invariant site in `scoring`
+(§2.3), for 31. Sites are named by function; line numbers drift.
 
 ### 2.1 `identity`
 
@@ -71,6 +72,7 @@ external input. Sites are named by function; line numbers drift.
 | `protocol::randomness::Beacon::seed` | `d[..8].try_into().expect` | internal: SHA-256 yields 32 bytes | — |
 | `protocol::review::assign_reviewers` | `stratum.choose(..).unwrap()` | internal: every stratum is non-empty (`lo < n`, `hi >= lo + 1`) | — |
 | `scoring::bridging::Ratings::with_weights` | `assert_eq!(weights.len(), self.n)` | caller precondition: the weights are the protocol's own `E_u` | T46 |
+| `scoring::bridging::fit` (T48) | `best.expect("at least one start")` | internal: the loop runs `n_starts.max(1)` times, and the first start always sets `best` | — |
 
 Not an `unwrap`, but noted while reading: `scoring::bridging::Ratings::from_dense` indexes
 `mask[u][j]` and `r[u][j]` with the width of row 0, so a ragged or short matrix panics.
