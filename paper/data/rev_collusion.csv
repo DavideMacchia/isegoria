@@ -1,0 +1,3 @@
+method,honest_same_camp,honest_cross_camp,cartel,threshold_90pct,honest_flagged_share,honest_flagged_pairs
+raw,0.9415,-0.3893,0.9256,0.8934,0.5057,9080
+residual,0.0152,0.0130,0.8762,0.8386,0.0000,0

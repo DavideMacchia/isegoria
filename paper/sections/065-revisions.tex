@@ -1,0 +1,373 @@
+\section{Adopted revisions}\label{sec:revisions}
+
+The findings of \cref{sec:levela,sec:levelb,sec:levelc,sec:collusion} were reviewed with the
+maintainer, and one correction per finding was adopted. The repository records the choices as
+design decisions D32--D41 and plans them as roadmap tasks T49--T57~\cite{isegoria-repo}. At the
+described commit none of them is implemented yet. This section states each revision and the
+evidence that supports it. \Cref{tab:revisions} gives the map, and every number comes from the
+\code{revisions\_*.py} scripts of \cref{app:reproducibility}.
+
+\begin{table}[t]
+\centering\small
+\caption{Findings, the decisions adopted in response, and the roadmap tasks that implement
+them in the repository.}
+\label{tab:revisions}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.38\linewidth}>{\raggedright\arraybackslash}p{0.40\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}@{}}
+\toprule
+Finding & Revision & Decision / task\\
+\midrule
+Gate relative to the batch; score partly majoritarian (\cref{prop:zerosum,prop:leak}) & side-balanced predicted approval, absolute threshold & D32 / T49\\
+Skill score not proper; cap never binds (\cref{prop:bss,prop:cap}) & leave-one-out difference score; odds weights with shrinkage & D33 / T50\\
+Asymmetric update rewards herding (\cref{sec:levelc}) & long-window mean plus a change detector & D34 / T51\\
+Too few scored outcomes per reviewer & live outcomes with randomized exploration & D35 / T52\\
+Probation of 200 outcomes lasts years & probation of 30 outcomes, then shrinkage & D36 / T50\\
+Spurious latent classes (\cref{prop:proxy}) & anchor-reliability precondition; $\theta$ inside the likelihood & D37 / T53, T54\\
+DIF is not bias (\cref{sec:dif-not-bias}) & contested facts in a balanced pool & D38 / T55\\
+Raw correlations and sparse overlap (\cref{prop:overlap}) & residual correlation over long histories & D39 / T56\\
+Evasion pays under the discount (\cref{prop:split}) & detected clusters constrain panels, not weights & D40 / T57\\
+Grindable beacon (\cref{ass:assign}) & commit-reveal now, threshold signature later & D41 / T37\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Bridging: a side-balanced score (D32)}
+
+The fit \eqref{eq:loss} is unchanged. Only the quantity the gate reads changes. Split the
+reviewers into two sides with a one-dimensional 2-means on $f_u$, initialized at
+$\min_uf_u$ and $\max_uf_u$, which makes the split deterministic. Let $A_j$ and $B_j$ be the mean
+predicted ratings $\hat r_{uj}$ over the two sides. The \emph{side-balanced score} is
+\begin{equation}\label{eq:side}
+  S_j=\tfrac12\,(A_j+B_j),
+\end{equation}
+so each side counts once, whatever its size. The pessimistic bootstrap minimum, the band and the
+supplementary re-decision apply to $S_j$ as they did to $\iota_j$. The threshold becomes absolute,
+on the scale of the declared probability (provisionally $\tau\approx0.80$). Eligibility for an
+appeal still reads $|f_j|$.
+
+\begin{proposition}[Invariance and camp balance]\label{prop:side}\proved{}
+(i) $S_j$ is invariant under the transformations (G1)--(G5). (ii) If a stationary point has the
+two-camp form (T1)--(T2), then $S_j=\mbar_j$, the camp-balanced mean, for every camp imbalance
+$\kappa$ and every choice of penalties.
+\end{proposition}
+\begin{proof}
+(i) The predictions are invariant by definition of (G1)--(G5). The 2-means partition of the
+points $f_u$, with the stated initialization, is unchanged by a translation or a positive
+rescaling of the axis. A sign flip exchanges the two sides, and \eqref{eq:side} is symmetric in
+them. (ii) Under (T1) the reviewers of each camp share one position, so 2-means separates the
+camps. Under (T2) every prediction for a reviewer of camp $s$ equals $m_{sj}$, so $A_j$ and $B_j$
+are the camp means and $S_j=\mbar_j$.
+\end{proof}
+
+\Cref{tab:rev-leak} repeats the mirror-pair experiment of \cref{tab:leak} with the new score.
+\Cref{tab:rev-batch} repeats the batch experiment of \cref{tab:relativity} and adds ten weak
+``decoy'' items (approval $\approx0.3$, no lean) to the batch.
+
+\begin{table}[t]
+\centering\small
+\caption{Majoritarian leak of the item intercept and of the side-balanced score on the
+mirror-pair design (mean of three datasets; default penalties). Source:
+\texttt{scripts/revisions\_bridging.py}.}
+\label{tab:rev-leak}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={share_majority,n,leak_intercept,leak_side},
+  columns/share_majority/.style={column name={majority camp},fixed,precision=1,
+    postproc cell content/.append code={\pgfkeysalso{@cell content/.add={}{\,}}}},
+  columns/n/.style={column name={reviewers $n$},int detect},
+  columns/leak_intercept/.style={column name={intercept $\iota_j$},fixed,fixed zerofill,precision=2},
+  columns/leak_side/.style={column name={side-balanced $S_j$},fixed,fixed zerofill,precision=2},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+  every row no 3/.style={after row=\midrule},
+]{data/rev_bridging_leak.csv}
+\end{table}
+
+\begin{table}[t]
+\centering\small
+\caption{The six consensus items of the repository simulation, scored in their batch, alone, and
+in the batch with ten weak decoy items: item intercept (relative scale) against the
+side-balanced score (probability scale). Source: \texttt{scripts/revisions\_bridging.py}.}
+\label{tab:rev-batch}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={item,intercept_batch,intercept_alone,intercept_decoys,side_batch,side_alone,side_decoys},
+  columns/item/.style={column name={item},string type},
+  columns/intercept_batch/.style={column name={$\iota_j$ batch},fixed,fixed zerofill,precision=3,showpos},
+  columns/intercept_alone/.style={column name={alone},fixed,fixed zerofill,precision=3,showpos},
+  columns/intercept_decoys/.style={column name={+ decoys},fixed,fixed zerofill,precision=3,showpos},
+  columns/side_batch/.style={column name={$S_j$ batch},fixed,fixed zerofill,precision=3},
+  columns/side_alone/.style={column name={alone},fixed,fixed zerofill,precision=3},
+  columns/side_decoys/.style={column name={+ decoys},fixed,fixed zerofill,precision=3},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_bridging_batch.csv}
+\end{table}
+
+\begin{finding}\label{find:side}\empirical{}
+The side-balanced score cuts the leak from $0.53$--$0.87$ to between $-0.08$ and $0.00$ with
+60/40 camps, and to about zero with 80/20 camps. The consensus items keep their scores within
+$\pm0.01$ in all three conditions, while their intercepts move from about $+0.09$ to about
+$0.00$ when scored alone and to about $+0.32$ next to the decoys.
+\end{finding}
+
+On the ten items of the repository simulation, the consensus items score $0.83$--$0.86$. The
+mildly partisan item scores $0.70$, the true but divisive item $0.57$ and the two partisan items
+$0.53$ and $0.56$ (\code{data/rev\_bridging\_sides.csv}). A threshold of $0.80$ therefore
+separates them with a margin more than ten times wider than the $0.08$ blade of
+\cref{tab:relativity}. The item with an inverted answer key passes Level~A and is stopped at
+Level~B by its negative point-biserial, as intended.
+
+We chose the mean of the two sides over their minimum. The minimum would give each side a veto
+over items it merely tolerates, whereas Level~A is only an upstream filter and the verdict belongs
+to Level~B. The main remaining risks are left to the evaluation plan: 2-means could split a wide
+majority camp instead of isolating a small minority (for example 90/10 with overlapping camps),
+positions may form a continuum rather than two camps, and the model has one dimension.
+
+\subsection{Evaluator scores that learn, and learn honestly (D33--D36)}
+
+\paragraph{Score and weights (D33).} The evaluator score becomes the leave-one-out difference
+score of \cref{prop:loo}. Weights move to the odds scale, with shrinkage toward zero according to
+the number $k_u$ of scored items:
+\begin{equation}\label{eq:odds-weight}
+  w_u=\exp\!\Bigl(\gamma\,S_u\,\frac{k_u}{k_u+k_0}\Bigr),\qquad k_0\approx100,\quad\gamma\approx35,
+\end{equation}
+capped at $3\operatorname{median}(w)$, which on this unbounded scale can bind. With
+$\gamma\approx35$, a reviewer who is reliably $0.02$ better than the crowd weighs twice the median.
+Shrinkage prevents luck from buying weight. With 16 scored items, the standard error of $S_u$ is
+about $0.025$, and one standard error of luck is worth a factor $2.4$ without shrinkage but $1.13$
+with it.
+
+\paragraph{How many scored items a reviewer needs.} \Cref{tab:rev-learning} simulates panels of
+nine forecasters in two regimes. In the first, skill differs through independent forecast noise
+(standard deviation $0.05$--$0.30$). In the second, skill differs through the degree to which a
+forecaster shares an error common to the crowd (exposure $0$--$1$). In both regimes skill
+differences of $0.01$--$0.02$ face a per-item noise of about $0.1$. The value $k_0\approx100$ in
+\eqref{eq:odds-weight} reflects this ratio of noise to signal.
+
+\begin{table}[t]
+\centering\small
+\caption{Rank correlation between reviewers' mean leave-one-out scores over $k$ scored items and
+their true skill (panels of nine, 300 replications). Source:
+\texttt{scripts/revisions\_evaluator.py}.}
+\label{tab:rev-learning}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={k,rank_corr_marked,rank_corr_subtle},
+  columns/k/.style={column name={scored items $k$},int detect},
+  columns/rank_corr_marked/.style={column name={marked differences},fixed,fixed zerofill,precision=2},
+  columns/rank_corr_subtle/.style={column name={subtle differences},fixed,fixed zerofill,precision=2},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_eval_learning.csv}
+\end{table}
+
+\paragraph{A change detector instead of the asymmetric update (D34).} The asymmetric update, which
+rises slowly and falls fast, penalizes variance rather than error. Its stationary level sits far
+below the true mean (\cref{tab:rev-ema}): a cautious reviewer who beats the crowd is held below a
+reviewer who copies it. The revision uses a symmetric long-window mean for the weight and a
+one-sided CUSUM on each reviewer's per-item scores, measured against the reviewer's own mean. On
+an alarm the reviewer returns to probation.
+
+\begin{table}[t]
+\centering\small
+\caption{Left: stationary level of the reputation update against the true mean score (asymmetric:
+rises at rate 0.02, falls at 0.2; symmetric: rate 0.05). Right: CUSUM on the per-item scores:
+false alarms for an honest reviewer, and median delay to catch a reviewer who starts flipping 20\%
+of forecasts. Source: \texttt{scripts/revisions\_evaluator.py}.}
+\label{tab:rev-ema}
+\begin{minipage}[t]{0.52\linewidth}\centering
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={reviewer,true_mean,ema_asymmetric,ema_symmetric},
+  columns/reviewer/.style={column name={reviewer},string type,
+    string replace={cautious}{cautious, noise 0.05},
+    string replace={bold}{bold, noise 0.20},
+    string replace={crowd_copier}{copies the crowd}},
+  columns/true_mean/.style={column name={true},fixed,fixed zerofill,precision=3,showpos},
+  columns/ema_asymmetric/.style={column name={asym.},fixed,fixed zerofill,precision=3,showpos},
+  columns/ema_symmetric/.style={column name={sym.},fixed,fixed zerofill,precision=3,showpos},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_eval_ema.csv}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.44\linewidth}\centering
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={k,h,false_alarms_per_1000,median_delay},
+  columns/k/.style={column name={$k$},fixed,precision=2},
+  columns/h/.style={column name={$h$},fixed,precision=1},
+  columns/false_alarms_per_1000/.style={column name={alarms/1000},fixed,fixed zerofill,precision=2},
+  columns/median_delay/.style={column name={delay},int detect},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_eval_cusum.csv}
+\end{minipage}
+\end{table}
+
+\paragraph{Scored outcomes with randomized exploration (D35).} Golden items alone are too few. The
+revision also scores every live item a reviewer judged that reaches a pilot. To keep the score
+proper when the gate decides which outcomes are observed, it adds randomized exploration: a random
+fraction $\varepsilon=5\%$ of gate rejections, drawn from the public beacon, is piloted for
+measurement only and never enters the pool.
+
+\begin{proposition}[Exploration restores properness]\label{prop:ipw}\proved{}
+Let the outcome of each reviewed item be observed with probability $\pi_j\in(0,1]$. The
+probability may depend on the gate's decision, and hence on the reports, but conditional on the
+decision the observation is independent of $o_j$. Let
+$\hat S_u=\sum_j\frac{I_j}{\pi_j}\,d_{uj}(p_{uj})$, where $I_j$ indicates that $o_j$ is observed
+and $d_{uj}$ is a strictly proper per-item score. Then
+$\E[\hat S_u]=\sum_j\E[d_{uj}(p_{uj})]$, which truthful reports maximize.
+\end{proposition}
+\begin{proof}
+Conditional on the decision and on $o_j$, $\E[I_j/\pi_j]=1$. Hence
+$\E[I_jd_{uj}/\pi_j]=\E[d_{uj}]$ whatever the decision, and truthfulness maximizes each term.
+\end{proof}
+
+Properness covers the score, not a reviewer's stake in an item's fate. The defences against
+cartels and long cons therefore remain necessary.
+
+To judge speed, assume 1{,}000 active reviewers, about 667 items reviewed per month (the number
+that fills the roughly 333 monthly pilot slots when half of the items pass the gate), 9 reviewers
+per item and golden items at 5\% of the queue. Under these assumptions a reviewer accumulates
+scored outcomes at the following rates:
+
+\begin{center}\small
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={scenario,scored_per_month,months_to_100,months_to_36},
+  columns/scenario/.style={column name={scored items},string type,
+    string replace={golden_5pct}{golden items at 5\%},
+    string replace={golden_20pct}{golden items at 20\%},
+    string replace={live_plus_exploration}{golden 5\% + live + exploration}},
+  columns/scored_per_month/.style={column name={per month},fixed,fixed zerofill,precision=2},
+  columns/months_to_100/.style={column name={months to 100},int detect},
+  columns/months_to_36/.style={column name={months to 36 (CUSUM)},int detect},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_eval_scenarios.csv}
+\end{center}
+
+When half of the reviewed items pass the gate, exploring a fraction $\varepsilon$ of the rejections
+costs about $\varepsilon$ of the pilot capacity. Exploration also measures, for the first time on
+real data, the gate's false-negative rate: how many rejected items would have passed Level~B.
+
+\paragraph{Probation (D36).} New evaluators keep weight zero until they have 30 scored outcomes
+instead of 200. Shrinkage then handles the rest. Whitewashing is prevented by non-rotatable
+pseudonyms (\cref{req:norotate}), not by the length of probation.
+
+\subsection{Latent DIF: a reliability precondition and a better model (D37)}
+
+The latent re-check will run only when the anchors' KR-20, computed on the batch's own
+respondents, is at least $0.90$; otherwise the batch is refused, like the existing floors on
+respondents and items. \Cref{tab:rev-kr20} relates the anchor count to KR-20 for the null batches
+of \cref{tab:anchors}. A floor of $0.90$ needs about 40 anchors, which means 48 questions per
+respondent with 8 trial items.
+
+\begin{table}[t]
+\centering\small
+\caption{KR-20 of the anchor total and its true reliability (squared correlation with $\theta$)
+for the null batches of \cref{tab:anchors} ($N=6000$, four datasets). Source:
+\texttt{scripts/revisions\_dif.py}.}
+\label{tab:rev-kr20}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={anchors,kr20,true_reliability},
+  columns/anchors/.style={column name={anchors},int detect},
+  columns/kr20/.style={column name={KR-20},fixed,fixed zerofill,precision=3},
+  columns/true_reliability/.style={column name={true reliability},fixed,fixed zerofill,precision=3},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_dif_kr20.csv}
+\end{table}
+
+The differential gap of \cref{sec:proxy} is kept as a diagnostic, not as a verdict.
+\Cref{tab:rev-campaign} shows why. When most of a batch is shifted in one direction, the common
+shift absorbs the campaign and the differential gap accuses the clean items.
+
+\begin{table}[t]
+\centering\small
+\caption{Raw and differential gaps when 2, 4 or 6 of 8 items are shifted the same way ($\delta=0.9$,
+30 anchors, $N=6000$, three datasets): smallest gap among biased items and largest among clean
+items. Source: \texttt{scripts/revisions\_dif.py}.}
+\label{tab:rev-campaign}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={n_biased,raw_min_biased,raw_max_clean,diff_min_biased,diff_max_clean},
+  columns/n_biased/.style={column name={biased of 8},int detect},
+  columns/raw_min_biased/.style={column name={raw: biased (min)},fixed,fixed zerofill,precision=2},
+  columns/raw_max_clean/.style={column name={raw: clean (max)},fixed,fixed zerofill,precision=2},
+  columns/diff_min_biased/.style={column name={diff.: biased (min)},fixed,fixed zerofill,precision=2},
+  columns/diff_max_clean/.style={column name={diff.: clean (max)},fixed,fixed zerofill,precision=2},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_dif_campaign.csv}
+\end{table}
+
+The target model removes the confound instead of guarding against it. The anchors enter the
+likelihood with class-invariant parameters, each class has its own ability distribution, and
+$\theta$ is integrated out:
+\begin{equation}\label{eq:full-mixture}
+  P(\mathbf x_i)=\sum_g\pi_g\int\prod_{a\in\mathcal A}P_a(x_{ia}\mid\theta)
+  \prod_{j\in\mathcal J}P_{jg}(x_{ij}\mid\theta)\,\phi(\theta;\eta_g,1)\,d\theta,
+  \qquad \eta_1=0.
+\end{equation}
+The anchors identify the class means $\eta_g$, so a class-wide shift is attributed to ability,
+not to the items. DIF is then an item's departure from the anchors' account of the classes. The
+integral is computed by quadrature. The verdict threshold will be re-derived on this model within
+the evaluation plan, because the provisional value of $1.0$ was tuned to the proxy.
+
+\subsection{Contested facts (D38)}
+
+An item whose DIF concerns knowledge of a fact established by a primary source is no longer
+discarded (\cref{sec:dif-not-bias}). It is classified as a \emph{contested fact}. The
+classification follows an evidentiary procedure on the source, not a vote. Contested facts enter a
+separate pool, and a test draws them only in balanced sets, so that the test as a whole favours no
+latent class: its differential test functioning, the aggregate of item DIF over the test, stays
+within a tolerance~\cite{shealy1993sibtest}. Items with DIF for any other reason are rejected as
+before. Two points are open \openq: the DTF statistic across items fitted in different batches, and
+the classification procedure itself.
+
+\subsection{Coordination and randomness (D39--D41)}
+
+\paragraph{Residual correlation (D39).} Coordination between two reviewers is measured by the
+correlation of their residuals $r_{uj}-\hat r_{uj}$ on the items both rated. Histories accumulate
+across epochs, a pair is considered only after at least 30 shared items, the correlation is tested
+against a permutation null, and clusters use average linkage. The model already explains the
+agreement of honest reviewers who share a position; a cartel agrees beyond it
+(\cref{tab:rev-collusion}).
+
+\begin{table}[t]
+\centering\small
+\caption{Mean pairwise correlation on a long history (200 reviewers $\times$ 60 items, camps 40/60)
+with a cartel of 10 minority-camp members who rate 5 majority-favoured items at $1.0$ plus jitter
+$\sigma=0.05$. Last columns: share and number of honest pairs flagged at the threshold that catches
+90\% of cartel pairs. Source: \texttt{scripts/revisions\_collusion.py}.}
+\label{tab:rev-collusion}
+\pgfplotstabletypeset[
+  col sep=comma,
+  columns={method,honest_same_camp,honest_cross_camp,cartel,honest_flagged_share,honest_flagged_pairs},
+  columns/method/.style={column name={correlation of},string type},
+  columns/honest_same_camp/.style={column name={honest, same camp},fixed,fixed zerofill,precision=2,showpos},
+  columns/honest_cross_camp/.style={column name={honest, opposite},fixed,fixed zerofill,precision=2,showpos},
+  columns/cartel/.style={column name={cartel},fixed,fixed zerofill,precision=2,showpos},
+  columns/honest_flagged_share/.style={column name={flagged share},fixed,fixed zerofill,precision=3},
+  columns/honest_flagged_pairs/.style={column name={flagged pairs},int detect},
+  every head row/.style={before row=\toprule,after row=\midrule},
+  every last row/.style={after row=\bottomrule},
+]{data/rev_collusion.csv}
+\end{table}
+
+\paragraph{Panels, not weights (D40).} A detected cluster no longer loses weight. Instead, a panel
+may hold at most one member of each cluster. Take 1{,}000 reviewers, a cluster of 50 and panels of
+nine: uniform assignment places two or more members on about 7\% of panels and three or more on
+about 0.8\% (\code{data/rev\_panels.csv}). The constraint makes both zero, at no cost to anyone's
+weight. The discount would instead have cut every member, false positives included, to
+$\sqrt{50}/50\approx14\%$ of its weight, and evasion restores full weight anyway
+(\cref{prop:split}).
+
+\paragraph{The beacon (D41).} Until the committees have a real distributed key generation, the
+beacon is produced by commit-reveal among consortium members, and a member who does not reveal is
+excluded for the epoch and recorded publicly. The last revealer can still withhold in order to
+choose between two outcomes. Against a one-shot chance of $9/1000$ of landing on a target's panel,
+this at most doubles it to about $1.8\%$, once per epoch, and visibly. After the key generation the
+beacon becomes a unique threshold signature over the epoch number, which cannot be biased.

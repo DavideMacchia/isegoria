@@ -670,8 +670,8 @@ discount. This supersedes D7 for the protocol; the engine keeps the discount fun
 analysis.
 
 **Why.** Assignment is the per-epoch defence. Take 1,000 reviewers, a cluster of 50 and
-panels of 9: uniform assignment puts two or more members of the cluster on 7.1% of
-panels, and three or more on 0.8%. The constraint makes both zero, at no cost to
+panels of 9: uniform assignment puts two or more members of the cluster on about 7% of
+panels, and three or more on about 0.8%. The constraint makes both zero, at no cost to
 anyone's weight. The discount would instead cut every member, false positives included,
 to 14% of their weight (√50/50). And splitting the cluster to evade detection restores
 full weight anyway (`paper/`, Prop. 17).

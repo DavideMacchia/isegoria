@@ -1,0 +1,4 @@
+n_biased,raw_min_biased,raw_max_clean,diff_min_biased,diff_max_clean
+2,1.915,0.512,1.551,0.148
+4,1.984,0.358,0.813,1.006
+6,2.010,0.269,0.016,1.856

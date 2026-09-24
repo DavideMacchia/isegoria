@@ -74,6 +74,11 @@ features of the design.
   \item \textbf{Coordination} (\cref{sec:collusion}). The sublinear discount rewards evading
     its detector (\cref{prop:split}). At design scale reviewers share almost no items within
     an epoch (\cref{prop:overlap}), so the per-epoch defence is random assignment.
+  \item \textbf{Adopted revisions} (\cref{sec:revisions}, new in version 0.2). Each finding comes
+    with the correction adopted in the repository (decisions D32--D41) and the experiments that
+    support it. Among them are a side-balanced bridge score, invariant under every gauge and exactly
+    camp-balanced in the two-camp model (\cref{prop:side}), and randomized exploration that keeps
+    the evaluator score proper when outcomes are selected by the gate (\cref{prop:ipw}).
   \item \textbf{Evidence and plan} (\cref{sec:implementation,sec:limitations,sec:plan}).
     The evidence level of every claim, the structural limits, and an evaluation plan with
     decision rules fixed in advance.
