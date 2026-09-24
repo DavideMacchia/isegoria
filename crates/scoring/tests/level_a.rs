@@ -196,3 +196,72 @@ fn an_empty_rating_matrix_has_no_reviewers_items_or_observations() {
     assert_eq!((data.n, data.m, data.obs.len()), (0, 0, 0));
     assert!(data.weights.is_empty());
 }
+
+/// T48: the verdict does not depend on the seed. With the default multi-start, fits from
+/// disjoint seed sets agree on every `b_j` to 1e-4 and on the sign convention of `f`.
+#[test]
+fn bridging_scores_do_not_depend_on_the_seed() {
+    let data = load_ratings();
+    let base = fit(&data, &BridgingParams::default());
+    for seed in 1..8u64 {
+        let f = fit(
+            &data,
+            &BridgingParams {
+                seed: seed * 1000,
+                ..BridgingParams::default()
+            },
+        );
+        for j in 0..data.m {
+            assert!(
+                (f.b_j[j] - base.b_j[j]).abs() < 1e-4,
+                "seed {}: b_j[{j}] = {:.5} vs {:.5}",
+                seed * 1000,
+                f.b_j[j],
+                base.b_j[j]
+            );
+            assert!(
+                (f.f_j[j] - base.f_j[j]).abs() < 1e-3,
+                "seed {}: f_j[{j}]",
+                seed * 1000
+            );
+        }
+    }
+}
+
+/// Why T48 needed the multi-start: on this very dataset a single start from seed 5 stops
+/// in a worse local minimum (objective ~4× the best) that makes item 08 bridge
+/// (`b_j` ≈ 1.08 instead of −0.26). The default fit from the same seed does not.
+#[test]
+fn a_single_start_can_land_in_a_worse_minimum() {
+    let data = load_ratings();
+    let single = fit(
+        &data,
+        &BridgingParams {
+            seed: 5,
+            n_starts: 1,
+            ..BridgingParams::default()
+        },
+    );
+    assert!(single.b_j[8] > 0.5, "b_j[8] = {:.3}", single.b_j[8]);
+    let multi = fit(
+        &data,
+        &BridgingParams {
+            seed: 5,
+            ..BridgingParams::default()
+        },
+    );
+    assert!(multi.b_j[8] < 0.0, "b_j[8] = {:.3}", multi.b_j[8]);
+}
+
+/// Everyone on probation (all weights 0): no rating counts, so the fit is the prior —
+/// finite, with no NaN from a 0/0 start value.
+#[test]
+fn a_fit_with_every_weight_zero_is_finite() {
+    let data = load_ratings();
+    let n = data.n;
+    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default());
+    assert!(f.mu.is_finite());
+    for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
+        assert!(v.is_finite());
+    }
+}

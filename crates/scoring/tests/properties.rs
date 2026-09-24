@@ -94,6 +94,15 @@ proptest! {
         }
     }
 
+    /// `f` is returned in a canonical sign (T48): its largest-magnitude item loading is
+    /// non-negative, so draws that order reviewers by `f_u` do not flip with the start.
+    #[test]
+    fn the_latent_axis_has_a_canonical_sign(data in ratings()) {
+        let f = fit(&data, &BridgingParams::default());
+        let lead = f.f_j.iter().copied().fold(0.0_f64, |b, v| if v.abs() > b.abs() { v } else { b });
+        prop_assert!(lead >= 0.0, "leading f_j = {lead}");
+    }
+
     /// The robust score is pessimistic: never above the full-data fit.
     #[test]
     fn the_bootstrap_minimum_never_exceeds_the_full_fit(data in ratings()) {

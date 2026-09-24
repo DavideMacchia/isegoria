@@ -59,6 +59,10 @@ testing the critical band was ~0.008 wide).
 
 ### A.4 Robustness
 
+- The objective is non-convex and has distinct local minima: a single start can land in
+  a worse one, sometimes on the other side of `τ`. Fit from several deterministic
+  starts (8 in the reference implementation) and keep the lowest objective; report `f`
+  in a canonical sign (it is identified only up to sign).
 - Run the fit on `m = 10` bootstrap subsamples (random removal of ~15% of judgments)
   and take `B_j = min_s b_j^(s)` (pessimistic estimate): a question must pass in all
   repetitions.

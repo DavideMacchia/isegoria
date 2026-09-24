@@ -12,3 +12,13 @@ rust-version = "1.86"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# Mutation testing (docs/11): the test profile, optimized. The scoring tests (mixture
+# fits, the 8-start bridging fit, golden outputs) dominate each mutant's run and are
+# several times faster at opt-level 3. Overflow checks and debug assertions stay on, so a
+# mutant that overflows still panics; Rust does no fast-math, so results are the same bits
+# (the golden test runs under this profile too).
+[profile.mutants]
+inherits = "test"
+opt-level = 3
+debug = false
