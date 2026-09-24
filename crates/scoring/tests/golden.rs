@@ -81,11 +81,17 @@ fn current() -> Vec<String> {
         let x = read_matrix(&format!("mixture_{set}_X.csv"));
         let res = mixture_dif(&theta, &x, 8, 0);
         let tag = format!("mixture_{set}");
-        record(&mut rows, &format!("{tag}.pi"), &[res.pi]);
+        let shape = [res.classes as f64, res.non_uniform as i32 as f64];
+        record(&mut rows, &format!("{tag}.model"), &shape);
+        record(&mut rows, &format!("{tag}.pi"), &res.pi);
         record(&mut rows, &format!("{tag}.dif"), &res.dif);
-        record(&mut rows, &format!("{tag}.lr"), &[res.lr]);
-        record(&mut rows, &format!("{tag}.bic"), &[res.bic]);
-        record(&mut rows, &format!("{tag}.posterior"), &res.class_posterior);
+        record(&mut rows, &format!("{tag}.a_gap"), &res.a_gap);
+        record(&mut rows, &format!("{tag}.bic_gain"), &[res.bic_gain]);
+        record(
+            &mut rows,
+            &format!("{tag}.posterior"),
+            &res.posterior.concat(),
+        );
     }
     rows
 }

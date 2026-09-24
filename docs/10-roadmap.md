@@ -115,7 +115,7 @@ measure *verification*, not execution. Only property-based tests exist today in
 | Task | What it means (plain) | Audit refs | Size |
 |---|---|---|---|
 | T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2` | BRIDGE-00x, PROTO-003, `docs/02` §A.4 | M |
-| T40 | Mixture DIF: multi-start with deterministically derived seeds (keep the best converged likelihood), per-class discrimination (non-uniform DIF), `G > 2` selected by BIC, analytic gradient | DIF-004, §6.6 | M |
+| T40 | Mixture DIF: multi-start with deterministically derived seeds (keep the best converged likelihood), per-class discrimination (non-uniform DIF), `G > 2` selected by BIC, analytic gradient **Done:** the specified model `σ(a_jg(θ − b_jg))` with `G ∈ {1..4}` and uniform/non-uniform chosen by BIC (staged), 4 seeded starts per candidate, analytic gradient, classes < 5% excluded from the gap; `latent_flags` requires ≥ 2 classes. ~4 s per 3000×8 batch; `scoring` is built optimized in dev/test (same bits). *Open:* a threshold for the discrimination gap (`a_gap`, reported, not yet a verdict) — T24/T25 | DIF-004, §6.6 | M |
 
 **Test consolidation (what gives confidence beyond coverage):**
 

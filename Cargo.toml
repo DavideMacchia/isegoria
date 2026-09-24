@@ -22,3 +22,10 @@ codegen-units = 1
 inherits = "test"
 opt-level = 3
 debug = false
+
+# The scoring engine is numerically heavy (the latent-class DIF fits thousands of
+# respondents per candidate model), and unoptimized it made the test suite take minutes.
+# Optimize it in dev/test builds too; there is no fast-math, so results are the same bits
+# (the golden test checks it).
+[profile.dev.package.scoring]
+opt-level = 3

@@ -159,9 +159,17 @@ correlation 0.5–0.8 without ever observing it.
 *Threshold.* The literature value for `DIF_j` is 0.5 logit. On this estimator it is
 not usable yet: with one distorted question in eight, every question's estimated gap
 lands in 0.5–1.0, so 0.5 would retire the seven clean ones too. The reference
-implementation therefore rejects at **1.0** on the gap, and only when the two-class
-fit converged and its BIC favours two classes. The value is provisional until the
+implementation therefore rejects at **1.0** on the gap, and only when the selected
+fit converged and the BIC prefers a mixture (two or more classes) over one class. The value is provisional until the
 false-positive / power study (`10` T24/T25) sets it (`08` DIF-006).
+
+*Reference implementation (T40).* `G ∈ {1, …, 4}` and uniform (shared `a_j`) vs
+non-uniform (per-class `a_jg`) DIF are chosen together by BIC, each candidate fitted from
+several seeded starts with an analytic gradient; a class holding under 5% of the
+respondents does not define `DIF_j` (its difficulties are unidentified). The verdict
+reads the difficulty gap only, as above: a per-class *discrimination* gap is estimated
+and reported (`a_gap`) but has no threshold yet (to be set with the uniform one by the
+false-positive / power study).
 
 **Critical requirement: validate in batches.** A single distorted question in
 isolation is unidentifiable (in testing: 1 of 8 → invisible; 2 of 8 → detected). The
