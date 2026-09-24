@@ -10,8 +10,10 @@ use identity::nullifier::prove;
 use identity::nym::Role;
 use network::log::TransparencyLog;
 use protocol::admission::QuotaLedger;
-use protocol::deposit::{deposit_with_identity, DepositRejected, Draft};
+use protocol::deposit::{deposit_context, deposit_with_identity, DepositRejected, Draft};
 use scoring::reputation::proposal_rate;
+
+const EPOCH: u64 = 7;
 
 fn issued(secret: [u8; 32]) -> (Issuer, AnonymousCredential) {
     let issuer = Issuer::new([1u8; 32]);
@@ -33,8 +35,13 @@ fn propose(
         item: tag.as_bytes().to_vec(),
         primary_source: b"Gazzetta Ufficiale".to_vec(),
     };
-    let proof = prove(cred, &issuer.public(), Role::Propose, &draft.content_id().0);
-    deposit_with_identity(log, &draft, &proof, &issuer.public(), ledger, quota).map(|_| ())
+    let proof = prove(
+        cred,
+        &issuer.public(),
+        Role::Propose,
+        &deposit_context(draft.content_id(), EPOCH),
+    );
+    deposit_with_identity(log, &draft, &proof, &issuer.public(), EPOCH, ledger, quota).map(|_| ())
 }
 
 #[test]

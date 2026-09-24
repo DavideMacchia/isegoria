@@ -109,14 +109,19 @@ An independent review of master at `30fb02e` (fmt, clippy `-D warnings`, the wor
 tests with and without `calibration`, and `fixture_drift` under the pinned environment
 all green) wrote one probe test per suspected weakness. Each probe asserts the *current*
 behaviour, so a probe that passes confirms the weakness; all thirteen pass on `30fb02e`
-(re-run 2026-09-24). None is fixed yet. Each is planned in `docs/10`, and each fix starts
-from its probe with the assertion inverted.
+(re-run 2026-09-24). Each is planned in `docs/10`, and each fix starts from its probe
+with the assertion inverted; a finding is marked RESOLVED below once its fix and its
+regression test are on master.
 
 - **PROTO-007 (update) — a deposit can be replayed.** `deposit_with_identity` does not
   check whether the CID is already on the log: the same `(draft, proof)` is appended
   again and charged against the proposer's quota each time, so whoever sees a proposal in
   transit can drain its author's quota. §9.1 lists a duplicate CID as invalid; only
-  `lifecycle::deposit` checks it, from a caller-supplied flag. **OPEN** → T64.
+  `lifecycle::deposit` checks it, from a caller-supplied flag. **RESOLVED** (T64):
+  `TransparencyLog::contains`; `deposit` and `deposit_with_identity` return
+  `DepositRejected::DuplicateCid` before the identity check and the quota charge, and the
+  `Propose` proof is bound to `(cid, epoch)` (`deposit::deposit_context`), so it does not
+  outlive its epoch — `proto007_deposit_replay.rs`.
 - **PROTO-013 — respondents are not identity-gated.** `Role::Respond` appears nowhere in
   `protocol/src`, and the pilot and re-validation gates count `theta.len()` rows as
   distinct respondents: 300 rows from one person satisfy `N1_MIN`. Level B, the final
@@ -849,7 +854,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
 |---|---|---|---|---|---|
-| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID (✗ not checked by `deposit_with_identity`: a replay is appended and charged — T64); unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
+| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid and the epoch (INV-9 ✓ T6/T64); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID (✓ T64, `DepositRejected::DuplicateCid` before the identity check and the quota charge); unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
 | `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
 | `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
@@ -1326,7 +1331,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED; a polarized band item cannot appeal (§0-quinquies) | escrow semantics; band appeal | T59, T61, G-15 |
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
 | PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
-| PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A deposit can be replayed: duplicate CID appended and charged (§0-quinquies) | duplicate-CID check before the quota charge (T64); cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04, T64 |
+| PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A replayed deposit is refused before the identity check and the quota charge, and the `Propose` proof is bound to the epoch (T64, `proto007_deposit_replay.rs`) | cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04 |
 | PROTO-008 | supplementary review | `gate.rs` (`supplementary_review`), `lifecycle.rs` (`Resolve`), `supplementary_redecision.rs` | PARTIAL — defined terminal (T10/T30), but the re-decision re-fits the first panel's ratings, so it relaxes the robust threshold rather than adding reviewers (§0-quinquies) | expanded panel | T60, G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics); always injects the first `n` golden items (§0-quinquies) | ground truth; self-review; random golden subset | T67, G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
