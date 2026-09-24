@@ -11,3 +11,7 @@ __pycache__/
 # Editor
 .idea/
 .vscode/
+
+# cargo-mutants output (docs/11)
+mutants.out/
+mutants.out.old/
