@@ -189,8 +189,9 @@ fn purification_reaches_a_stable_flagged_set() {
 #[test]
 fn mixture_detects_bias_in_a_batch() {
     // 3 of 8 items biased on a never-observed axis (edu). The detector should
-    // recover high |δ| on the biased items, ~0 on the clean ones, BIC>0, and
-    // reconstruct the hidden axis (docs/02, §B.3).
+    // recover a large difficulty gap on the biased items, a small one on the clean
+    // ones, prefer a two-class mixture by BIC, and reconstruct the hidden axis
+    // (docs/02, §B.3).
     let theta = read_vector("mixture_batch_theta.csv");
     let x = read_matrix("mixture_batch_X.csv");
     let edu = read_vector("mixture_batch_edu.csv");
@@ -201,14 +202,31 @@ fn mixture_detects_bias_in_a_batch() {
     let clean_mean = res.dif[3..].iter().sum::<f64>() / 5.0;
     assert!(biased_mean > 1.2, "biased DIF mean = {biased_mean:.3}");
     assert!(clean_mean < 0.8, "clean DIF mean = {clean_mean:.3}");
-    assert!(
-        res.bic > 0.0,
-        "BIC = {:.1} should favor two classes",
-        res.bic
+    assert_eq!(
+        res.classes, 2,
+        "BIC should select two classes: {:?}",
+        res.candidates
     );
+    assert!(
+        !res.non_uniform,
+        "the planted DIF is uniform: {:?}",
+        res.candidates
+    );
+    assert!(res.bic_gain > 0.0);
 
-    let axis = pearson_abs(&res.class_posterior, &edu);
+    let axis = best_axis(&res.posterior, &edu);
     assert!(axis > 0.4, "hidden axis recovery |corr| = {axis:.3}");
+}
+
+/// The class whose posterior tracks the hidden axis best: `max_g |corr(r_·g, axis)|`.
+fn best_axis(posterior: &[Vec<f64>], axis: &[f64]) -> f64 {
+    let classes = posterior.first().map_or(0, |r| r.len());
+    (0..classes)
+        .map(|g| {
+            let col: Vec<f64> = posterior.iter().map(|r| r[g]).collect();
+            pearson_abs(&col, axis)
+        })
+        .fold(0.0, f64::max)
 }
 
 #[test]
@@ -220,7 +238,7 @@ fn mixture_misses_a_single_biased_item() {
     let edu = read_vector("mixture_single_edu.csv");
     let res = mixture_dif(&theta, &x, 8, 0);
 
-    let axis = pearson_abs(&res.class_posterior, &edu);
+    let axis = best_axis(&res.posterior, &edu);
     assert!(
         axis < 0.35,
         "single biased item should stay invisible, axis = {axis:.3}"

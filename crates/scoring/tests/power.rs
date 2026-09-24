@@ -78,7 +78,7 @@ fn detection_rate(nt: usize, seeds: u64) -> f64 {
         let res = mixture_dif(&th, &x, k, s);
         let biased = res.dif[..n_biased].iter().sum::<f64>() / n_biased as f64;
         let clean = res.dif[n_biased..].iter().sum::<f64>() / (k - n_biased) as f64;
-        if biased > MIXTURE_DIF_MAX && clean < MIXTURE_DIF_MAX && res.bic > 0.0 {
+        if biased > MIXTURE_DIF_MAX && clean < MIXTURE_DIF_MAX && res.classes >= 2 {
             hits += 1;
         }
     }

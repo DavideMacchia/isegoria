@@ -2,7 +2,7 @@
 //! only on a trustworthy fit (T35, `docs/08` DIF-006).
 //!
 //! - `dif` is the b-gap `|b⁺ − b⁻| = 2|δ|`, not the half-gap the code used to threshold;
-//! - a fit that did not converge, or whose BIC does not favour two classes, flags nothing;
+//! - a fit that did not converge, or for which the BIC selects one class, flags nothing;
 //! - the threshold is the provisional 1.0 on the b-gap: the literature 0.5 would retire
 //!   every clean item of the one-biased-item fixture.
 
@@ -28,13 +28,18 @@ fn read_vector(name: &str) -> Vec<f64> {
     read_matrix(name).into_iter().map(|r| r[0]).collect()
 }
 
-fn fit(dif: Vec<f64>, bic: f64, status: Convergence) -> MixtureDif {
+/// A selected fit with `classes` classes and the given per-item gaps.
+fn fit(dif: Vec<f64>, classes: usize, status: Convergence) -> MixtureDif {
+    let k = dif.len();
     MixtureDif {
-        pi: 0.5,
+        classes,
+        non_uniform: false,
+        pi: vec![1.0 / classes as f64; classes],
         dif,
-        class_posterior: Vec::new(),
-        lr: 0.0,
-        bic,
+        a_gap: vec![0.0; k],
+        posterior: Vec::new(),
+        bic_gain: if classes > 1 { 10.0 } else { 0.0 },
+        candidates: Vec::new(),
         status,
     }
 }
@@ -44,7 +49,7 @@ fn a_trustworthy_fit_flags_exactly_the_items_above_the_threshold() {
     let t = MIXTURE_DIF_MAX;
     let res = fit(
         vec![0.0, t - 1e-9, t, t + 1e-9, 2.0 * t],
-        10.0,
+        2,
         Convergence::Converged,
     );
     assert_eq!(latent_flags(&res), vec![false, false, false, true, true]);
@@ -55,27 +60,24 @@ fn a_fit_that_did_not_converge_flags_nothing() {
     let dif = vec![0.2, 3.0, 3.0];
     for status in [Convergence::MaxIters, Convergence::LineSearchFailed] {
         assert_eq!(
-            latent_flags(&fit(dif.clone(), 50.0, status)),
+            latent_flags(&fit(dif.clone(), 2, status)),
             vec![false; 3],
             "{status:?}"
         );
     }
     // Contrast: the same gaps on a converged fit are flagged.
     assert_eq!(
-        latent_flags(&fit(dif, 50.0, Convergence::Converged)),
+        latent_flags(&fit(dif, 2, Convergence::Converged)),
         vec![false, true, true]
     );
 }
 
 #[test]
-fn a_fit_whose_bic_does_not_favour_two_classes_flags_nothing() {
-    for bic in [0.0, -1.2, -500.0] {
-        assert_eq!(
-            latent_flags(&fit(vec![3.0, 3.0], bic, Convergence::Converged)),
-            vec![false, false],
-            "bic = {bic}"
-        );
-    }
+fn a_fit_for_which_the_bic_selects_one_class_flags_nothing() {
+    assert_eq!(
+        latent_flags(&fit(vec![3.0, 3.0], 1, Convergence::Converged)),
+        vec![false, false]
+    );
 }
 
 #[test]
@@ -106,7 +108,7 @@ fn the_literature_threshold_would_retire_every_item_of_the_single_bias_fixture()
     let theta = read_vector("mixture_single_theta.csv");
     let x = read_matrix("mixture_single_X.csv");
     let res = mixture_dif(&theta, &x, 8, 0);
-    assert!(res.bic > 0.0, "bic = {:.1}", res.bic);
+    assert!(res.classes >= 2 && res.bic_gain > 0.0, "{res:?}");
     assert!(
         res.dif.iter().all(|&d| d > 0.5),
         "at 0.5 every item is flagged: {:?}",

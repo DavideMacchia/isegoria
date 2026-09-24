@@ -263,6 +263,7 @@ fn interpolate(lo: &End, hi: &End) -> f64 {
     }
 }
 
+#[cfg(test)]
 /// Central-difference gradient, for objectives whose analytic gradient is not
 /// worth deriving (matches SciPy's numerical gradient in `sim/latent_dif_and_capacity.py`).
 pub fn numerical_gradient<C>(cost: &C, x: &[f64], h: f64) -> Vec<f64>

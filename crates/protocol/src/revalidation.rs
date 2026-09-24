@@ -69,12 +69,12 @@ pub fn revalidate_pool_latent(theta: &[f64], responses: &[Vec<f64>], seed: u64) 
     latent_flags(&mixture_dif(theta, responses, m, seed))
 }
 
-/// The per-item verdict of a mixture fit (T35). Per-item gaps are read only off a fit
-/// that is evidence of two classes: if the free fit did not converge, or the BIC does
-/// not favour two classes over one, no item is flagged — the gaps are then optimizer
-/// output, not an estimate.
+/// The per-item verdict of a mixture fit (T35, T40). Per-item gaps are read only off a
+/// fit that is evidence of a mixture: if the selected fit did not converge, or the BIC
+/// selected a single class, no item is flagged — the gaps are then optimizer output,
+/// not an estimate.
 pub fn latent_flags(res: &MixtureDif) -> Vec<bool> {
-    let trustworthy = res.status == Convergence::Converged && res.bic > 0.0;
+    let trustworthy = res.status == Convergence::Converged && res.classes >= 2;
     res.dif
         .iter()
         .map(|&d| trustworthy && d > MIXTURE_DIF_MAX)
