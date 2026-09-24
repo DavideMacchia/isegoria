@@ -52,7 +52,7 @@ proptest! {
     #[test]
     fn bridging_is_deterministic(data in ratings()) {
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&data, &p), &fit(&data, &p)));
+        prop_assert!(same_fit(&fit(&data, &p).unwrap(), &fit(&data, &p).unwrap()));
     }
 
     /// INV-13: the order observations arrive in cannot change the result.
@@ -64,7 +64,7 @@ proptest! {
             (o.u as u64 ^ key).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (o.j as u64)
         });
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&data, &p), &fit(&shuffled, &p)));
+        prop_assert!(same_fit(&fit(&data, &p).unwrap(), &fit(&shuffled, &p).unwrap()));
     }
 
     /// Weight 0 (probation) means absent: zeroing a reviewer's weight gives exactly the
@@ -81,13 +81,13 @@ proptest! {
         let mut absent = data.clone().with_weights(w);
         absent.obs.retain(|o| o.u != u);
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&zeroed, &p), &fit(&absent, &p)));
+        prop_assert!(same_fit(&fit(&zeroed, &p).unwrap(), &fit(&absent, &p).unwrap()));
     }
 
     /// Finite ratings and weights give finite scores.
     #[test]
     fn bridging_outputs_are_finite(data in ratings()) {
-        let f = fit(&data, &BridgingParams::default());
+        let f = fit(&data, &BridgingParams::default()).unwrap();
         prop_assert!(f.mu.is_finite());
         for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
             prop_assert!(v.is_finite());
@@ -98,7 +98,7 @@ proptest! {
     /// non-negative, so draws that order reviewers by `f_u` do not flip with the start.
     #[test]
     fn the_latent_axis_has_a_canonical_sign(data in ratings()) {
-        let f = fit(&data, &BridgingParams::default());
+        let f = fit(&data, &BridgingParams::default()).unwrap();
         let lead = f.f_j.iter().copied().fold(0.0_f64, |b, v| if v.abs() > b.abs() { v } else { b });
         prop_assert!(lead >= 0.0, "leading f_j = {lead}");
     }
@@ -107,8 +107,8 @@ proptest! {
     #[test]
     fn the_bootstrap_minimum_never_exceeds_the_full_fit(data in ratings()) {
         let p = BridgingParams::default();
-        let full = fit(&data, &p);
-        let robust = bridge_scores(&data, &p, 5, 0.85);
+        let full = fit(&data, &p).unwrap();
+        let robust = bridge_scores(&data, &p, 5, 0.85).unwrap();
         for (j, (b, f)) in robust.iter().zip(&full.b_j).enumerate() {
             prop_assert!(b <= f, "item {j}: bootstrap {b} > full {f}");
         }

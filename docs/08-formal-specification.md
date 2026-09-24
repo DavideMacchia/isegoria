@@ -158,7 +158,9 @@ regression test are on master.
   with D40): on the protocol path the cartel defence is the T5 weight alone. → D39, T56.
 - **Type holes.** A `Revealing` state built by hand with an empty panel can be scored
   (vacuously "all revealed") → T66, T46. A `Ratings` with an out-of-range observation
-  panics inside the objective instead of returning an error → T62. `honeypot::inject`
+  panicked inside the objective instead of returning an error → **RESOLVED** (T62):
+  `Ratings::validate`, `fit`/`bridge_scores` return `RatingsError`,
+  `malformed_ratings.rs`. `honeypot::inject`
   always injects the *first* `n` golden items, so the traps repeat across epochs → T67.
 - **Roadmap id.** `T49` was used twice; the no-show rule is now **T58**.
 - **Confirmed residual.** An author can be drawn onto the panel of their own item (§9.1

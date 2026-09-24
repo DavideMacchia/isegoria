@@ -49,11 +49,51 @@ impl Ratings {
         }
     }
 
-    /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007).
+    /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007). One weight per reviewer:
+    /// a vector of another length is refused by [`Ratings::validate`] at the fit
+    /// (`RatingsError::WeightCount`), not asserted here (T62).
     pub fn with_weights(mut self, weights: Vec<f64>) -> Self {
-        assert_eq!(weights.len(), self.n, "one weight per reviewer");
         self.weights = weights;
         self
+    }
+
+    /// Checks the input the fit relies on (T62, `docs/12` §2.3): one finite, non-negative
+    /// weight per reviewer; every observation inside `[0, n) × [0, m)` with a finite
+    /// rating; no `(u, j)` pair observed twice (it would count twice in the objective).
+    /// [`fit`] and [`bridge_scores`] run it first, so malformed input is an error, never
+    /// a panic inside the objective. The first problem found is reported, in this order.
+    pub fn validate(&self) -> Result<(), RatingsError> {
+        if self.weights.len() != self.n {
+            return Err(RatingsError::WeightCount {
+                expected: self.n,
+                found: self.weights.len(),
+            });
+        }
+        if let Some(u) = self.weights.iter().position(|w| !w.is_finite() || *w < 0.0) {
+            return Err(RatingsError::BadWeight { u });
+        }
+        for o in &self.obs {
+            if o.u >= self.n || o.j >= self.m {
+                return Err(RatingsError::IndexOutOfRange {
+                    u: o.u,
+                    j: o.j,
+                    n: self.n,
+                    m: self.m,
+                });
+            }
+            if !o.r.is_finite() {
+                return Err(RatingsError::NonFiniteRating { u: o.u, j: o.j });
+            }
+        }
+        let mut pairs: Vec<(usize, usize)> = self.obs.iter().map(|o| (o.u, o.j)).collect();
+        pairs.sort_unstable();
+        if let Some(w) = pairs.windows(2).find(|w| w[0] == w[1]) {
+            return Err(RatingsError::DuplicateObservation {
+                u: w[0].0,
+                j: w[0].1,
+            });
+        }
+        Ok(())
     }
 
     /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so
@@ -70,6 +110,58 @@ impl Ratings {
         }
     }
 }
+
+/// Why a [`Ratings`] cannot be fitted (T62): the engine refuses malformed input with an
+/// error instead of panicking inside the objective.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RatingsError {
+    /// An observation names a reviewer or item outside `[0, n) × [0, m)`.
+    IndexOutOfRange {
+        u: usize,
+        j: usize,
+        n: usize,
+        m: usize,
+    },
+    /// `weights` does not hold one weight per reviewer.
+    WeightCount { expected: usize, found: usize },
+    /// A rating that is not a finite number.
+    NonFiniteRating { u: usize, j: usize },
+    /// A weight that is not a finite, non-negative number.
+    BadWeight { u: usize },
+    /// The same `(u, j)` pair observed twice.
+    DuplicateObservation { u: usize, j: usize },
+    /// A requested item index outside `[0, m)`.
+    ItemOutOfRange { j: usize, m: usize },
+}
+
+impl std::fmt::Display for RatingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RatingsError::IndexOutOfRange { u, j, n, m } => {
+                write!(
+                    f,
+                    "observation ({u}, {j}) outside {n} reviewers × {m} items"
+                )
+            }
+            RatingsError::WeightCount { expected, found } => {
+                write!(f, "{found} weights for {expected} reviewers")
+            }
+            RatingsError::NonFiniteRating { u, j } => write!(f, "rating ({u}, {j}) is not finite"),
+            RatingsError::BadWeight { u } => {
+                write!(
+                    f,
+                    "weight of reviewer {u} is not a finite, non-negative number"
+                )
+            }
+            RatingsError::DuplicateObservation { u, j } => {
+                write!(f, "observation ({u}, {j}) appears twice")
+            }
+            RatingsError::ItemOutOfRange { j, m } => write!(f, "item {j} outside {m} items"),
+        }
+    }
+}
+
+impl std::error::Error for RatingsError {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct BridgingParams {
@@ -144,8 +236,15 @@ pub const DEFAULT_STARTS: usize = 8;
 /// data, which a single seeded start reaches depending on the seed — sometimes on
 /// either side of `τ` (`docs/08` BRIDGE-001, T48). So the fit runs `n_starts` seeded
 /// starts and keeps the lowest objective (the earliest start on a tie): deterministic,
-/// and the verdict no longer hinges on one start's basin.
-pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
+/// and the verdict no longer hinges on one start's basin. Malformed input is refused with
+/// a [`RatingsError`] before anything is computed (T62).
+pub fn fit(data: &Ratings, p: &BridgingParams) -> Result<Fit, RatingsError> {
+    data.validate()?;
+    Ok(fit_validated(data, p))
+}
+
+/// [`fit`] on input [`Ratings::validate`] has accepted.
+fn fit_validated(data: &Ratings, p: &BridgingParams) -> Fit {
     // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
     let data = data.canonical();
     let mut best: Option<(f64, Fit)> = None;
@@ -288,20 +387,22 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
 }
 
 /// Robust bridge score (`docs/02`, §A.4): bootstrap-min over `n_bootstrap`
-/// subsamples (each observation kept with probability `keep_frac`).
+/// subsamples (each observation kept with probability `keep_frac`). Malformed input is
+/// refused with a [`RatingsError`] (T62).
 pub fn bridge_scores(
     data: &Ratings,
     p: &BridgingParams,
     n_bootstrap: usize,
     keep_frac: f64,
-) -> Vec<f64> {
+) -> Result<Vec<f64>, RatingsError> {
+    data.validate()?;
     // Canonicalize: the bootstrap subsampling walks `obs` in order (INV-13, REPRO-002).
     let data = data.canonical();
 
     // Warm-start each subsample from the full fit: the bilinear term makes the
     // objective non-convex, so independent random inits would let some subsamples
     // land in a different minimum, polluting the min with optimizer noise.
-    let full = fit(&data, p);
+    let full = fit_validated(&data, p);
     let anchor = pack(&full);
 
     let mut best = full.b_j.clone();
@@ -330,7 +431,7 @@ pub fn bridge_scores(
             }
         }
     }
-    best
+    Ok(best)
 }
 
 // Standard normal via Box–Muller, to control exact RNG consumption order.

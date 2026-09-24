@@ -21,7 +21,7 @@ use crate::probation::effective_review_weight;
 use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
-use scoring::bridging::Ratings;
+use scoring::bridging::{Ratings, RatingsError};
 
 /// A reviewer's standing carried from the previous epoch, in the same order as the
 /// ratings rows the fit will see. `e_u` is the evaluator score from that epoch
@@ -66,14 +66,17 @@ pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
 }
 
 /// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the
-/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`.
+/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`: a standing count
+/// that differs from the rows, or a malformed matrix, is refused (`RatingsError`, T62).
 pub fn weighted_ratings(
     r: &[Vec<f64>],
     mask: &[Vec<bool>],
     prev: &[ReviewerStanding],
     w_max: f64,
-) -> Ratings {
-    Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max))
+) -> Result<Ratings, RatingsError> {
+    let ratings = Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max));
+    ratings.validate()?;
+    Ok(ratings)
 }
 
 /// The gate and pilot verdicts an epoch computes for one item, handed to the state

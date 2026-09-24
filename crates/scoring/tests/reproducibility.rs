@@ -39,8 +39,8 @@ fn ratings() -> Ratings {
 fn bridging_fit_is_bit_for_bit_reproducible() {
     let data = ratings();
     let p = BridgingParams::default();
-    let a = fit(&data, &p);
-    let b = fit(&data, &p);
+    let a = fit(&data, &p).unwrap();
+    let b = fit(&data, &p).unwrap();
     assert_eq!(a.mu.to_bits(), b.mu.to_bits());
     assert_eq!(bits(&a.b_j), bits(&b.b_j));
     assert_eq!(bits(&a.f_j), bits(&b.f_j));
@@ -53,8 +53,8 @@ fn bridge_scores_are_bit_for_bit_reproducible() {
     let data = ratings();
     let p = BridgingParams::default();
     assert_eq!(
-        bits(&bridge_scores(&data, &p, 10, 0.85)),
-        bits(&bridge_scores(&data, &p, 10, 0.85))
+        bits(&bridge_scores(&data, &p, 10, 0.85).unwrap()),
+        bits(&bridge_scores(&data, &p, 10, 0.85).unwrap())
     );
 }
 

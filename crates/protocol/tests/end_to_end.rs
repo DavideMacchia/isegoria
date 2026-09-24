@@ -200,11 +200,11 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .map(|row| row.iter().map(|&v| v != 0.0).collect())
         .collect();
     let standings = vec![ReviewerStanding::founder(); r_dense.len()];
-    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0);
+    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0).unwrap();
 
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
+    let f = fit(&ratings, &params).unwrap();
 
     // Gate every item and record whether it advances: a straight pass, a band item the
     // D26 re-decision carries (a re-run bridging fit vs the plain threshold τ — a bridging
@@ -215,7 +215,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let band_advances: Vec<bool> = (0..m)
         .map(|j| {
             matches!(gate[j], GateOutcome::SupplementaryReview)
-                && supplementary_review(&ratings, &params, j, TAU) == GateOutcome::Pass
+                && supplementary_review(&ratings, &params, j, TAU).unwrap() == GateOutcome::Pass
         })
         .collect();
     let advancing: Vec<usize> = (0..m)
@@ -360,8 +360,8 @@ fn esm_passes_bridging_and_is_stopped_by_dif_not_review() {
     // review does not see the bias, the data does.
     let ratings = load_ratings();
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
+    let f = fit(&ratings, &params).unwrap();
     assert_eq!(
         bridging_gate(bridge[ESM], f.f_j[ESM], TAU, EPS, APPEAL_THRESHOLD),
         GateOutcome::Pass,
@@ -397,8 +397,8 @@ fn appeal_recovers_a_true_but_divisive_item() {
     // lost, but the evidence vindicates it, so the appeal channel brings it back.
     let ratings = load_ratings();
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
+    let f = fit(&ratings, &params).unwrap();
     assert_eq!(
         bridging_gate(
             bridge[REAL_HEALTH],

@@ -4,8 +4,8 @@
 |---|---|
 | **Task** | T44 in `docs/10-roadmap.md`: fuzz every byte decoder, classify every `unwrap`/`expect`/`assert` in `src/`, and turn the ones that external input can reach into errors |
 | **Audited** | master `6c61263`, 2026-09-24; the inventory re-checked after rebasing onto T41 (`dd7a6b6`): unchanged in `protocol` and `scoring`; and after merging T48 (`57bdca1`): one new internal-invariant site in `scoring` (§2.3) |
-| **Changed** | `crates/network`, `crates/identity` |
-| **Classified only** | `crates/protocol`, `crates/scoring`: being changed in parallel at the time (T41, the scoring half of T42, T48), so their sites are recorded here and not touched |
+| **Changed** | `crates/network`, `crates/identity`; `crates/scoring` (`bridging`) with T62, 2026-09-24 |
+| **Classified only** | `crates/protocol`, and `crates/scoring` outside `bridging`: being changed in parallel at the time (T41, the scoring half of T42, T48), so their sites are recorded here and not touched; the shape preconditions of the other `scoring` entry points were probed with T62 (§2.3) and are T46's |
 | **Status of the "done when"** | no panic on arbitrary bytes: met for every decoder of `network` and `identity` (§3, §4); classification recorded: §2 |
 
 ## 1. What was looked for, and the classes
@@ -71,14 +71,33 @@ external input. T48, merged afterwards, adds one internal-invariant site in `sco
 |---|---|---|---|
 | `protocol::randomness::Beacon::seed` | `d[..8].try_into().expect` | internal: SHA-256 yields 32 bytes | — |
 | `protocol::review::assign_reviewers` | `stratum.choose(..).unwrap()` | internal: every stratum is non-empty (`lo < n`, `hi >= lo + 1`) | — |
-| `scoring::bridging::Ratings::with_weights` | `assert_eq!(weights.len(), self.n)` | caller precondition: the weights are the protocol's own `E_u` | T46 |
+| `scoring::bridging::Ratings::with_weights` | `assert_eq!(weights.len(), self.n)` | was a caller precondition; **gone** (T62): `Ratings::validate` reports the mismatch as `RatingsError::WeightCount` at `fit`/`bridge_scores` | RESOLVED (T62) |
 | `scoring::bridging::fit` (T48) | `best.expect("at least one start")` | internal: the loop runs `n_starts.max(1)` times, and the first start always sets `best` | — |
-| `scoring::bridging` objective and gradient | slice indexing by `Obs { u, j }` | external input: `Ratings` has public fields, and an observation with `u ≥ n` or `j ≥ m` panics on the bounds check (third review, 2026-09-24) | T62 |
+| `scoring::bridging` objective and gradient | slice indexing by `Obs { u, j }` | external input: `Ratings` has public fields, and an observation with `u ≥ n` or `j ≥ m` panicked on the bounds check (third review, 2026-09-24). **RESOLVED** (T62): `Ratings::validate` runs first in `fit` and `bridge_scores`, which return `Result<_, RatingsError>` — out-of-range index, wrong weight count, non-finite rating, non-finite or negative weight, duplicate `(u, j)` pair; `scoring/tests/malformed_ratings.rs` pins each case and a property over arbitrary `Ratings`; `scoring/fuzz/bridging` (§4) | RESOLVED (T62) |
 
 Not an `unwrap`, but noted while reading: `scoring::bridging::Ratings::from_dense` indexes
 `mask[u][j]` and `r[u][j]` with the width of row 0, so a ragged or short matrix panics.
 A caller precondition today; T46's `ValidatedRatings` makes it unrepresentable. The
-public entry points of `scoring` and `protocol` were not fuzzed here (§6).
+public entry points of `protocol` were not fuzzed here (§6).
+
+**Shape preconditions of the other `scoring` entry points (probed with T62, 2026-09-24).**
+Each slice- or matrix-taking entry point was called with mismatched lengths, ragged
+matrices and empty input under `catch_unwind` (a scratch test, not committed). Their
+inputs are built by the protocol crate from its own data, so a mismatch is a caller
+precondition of the same kind as `from_dense`'s, recorded here and left to T46's validated
+types (a sample with one row per admitted respondent, a square correlation matrix):
+
+| Entry point | Mismatched input | Effect |
+|---|---|---|
+| `irt::point_biserial` | `item.len() ≠ total.len()` | panic (index) |
+| `irt::fit_2pl_item` | empty input | panic; a shorter `theta` or `responses` is zip-truncated |
+| `dif::logistic_dif` (calibration) | `theta` shorter than `item`; empty input | panic |
+| `dif::mantel_haenszel` (calibration) | `theta` shorter than `item` | panic; `n_strata = 0` and empty input tolerated |
+| `dif::mixture_dif` | `theta` shorter than the rows of `x` | panic; ragged `x`, `k` past the row length, `k = 0` and empty input tolerated |
+| `collusion::correlation_matrix` | ragged `judgments` | panic |
+| `collusion::discount_weights` | fewer `cluster_ids` than `weights` | panic; more are ignored |
+| `reputation::crowd_baseline` | ragged `predictions` | panic; a weight vector of another length is zip-truncated |
+| `irt::theta_from_anchors`, `collusion::cluster_by_correlation`, `reputation::{brier_skill_score, author_score}` | ragged, non-square or mismatched input | tolerated (zip truncation or a defined degenerate value) |
 
 ## 3. External-input crashes found, and fixes
 
@@ -112,9 +131,9 @@ F1–F4 are worth reporting upstream.
 
 ## 4. Fuzz targets
 
-Eight `cargo fuzz` targets, in `crates/{network,identity}/fuzz/` (outside the workspace:
-libFuzzer needs nightly). Each README says how to run them. Besides "no panic, no abort,
-bounded memory", each asserts a property of its entry point:
+Nine `cargo fuzz` targets, in `crates/{network,identity,scoring}/fuzz/` (outside the
+workspace: libFuzzer needs nightly). Each README says how to run them. Besides "no panic,
+no abort, bounded memory", each asserts a property of its entry point:
 
 | Target | Entry point | Also asserted |
 |---|---|---|
@@ -126,6 +145,7 @@ bounded memory", each asserts a property of its entry point:
 | `identity/enrollment` | `EnrollmentRegistry::enroll` through the reference, VOPRF and threshold oracles | the same person via the other source is a duplicate |
 | `identity/voprf_wire` | RFC 9497 messages decoded from arbitrary bytes, at the server and at the client | no decoded evaluation verifies without the server key |
 | `identity/nullifier_proof` | `nullifier::verify` of proofs decoded from arbitrary bytes or spliced into a genuine one | only the untouched genuine proof verifies, for its own role and context |
+| `scoring/bridging` (T62) | `bridging::fit`, `bridging::bridge_scores` on a `Ratings` assembled field by field: indices past `n`/`m`, any rating, any number of weights of any value | an error exactly when `Ratings::validate` refuses the input; a validated input always fits |
 
 Two targets reach private code through `--cfg fuzzing` (set by cargo-fuzz):
 `ThresholdOprfOracle::fuzz_label_with_quorum` and `NullifierProof::{to_bytes, from_bytes}`,
@@ -144,6 +164,10 @@ AddressSanitizer, 4 cores, 2 GiB RSS limit):
 | `identity/enrollment` (`-max_len=70000`) | 77 016 | 16 198 | 0 |
 | `identity/voprf_wire` | 5 529 289 | 1 224 479 | 0 |
 | `identity/nullifier_proof` | 91 962 | 18 663 | 0 |
+
+`scoring/bridging` was added with T62 (2026-09-24) and has not been run yet: that session
+had no nightly toolchain. `scoring/tests/malformed_ratings.rs` covers the same entry points
+on every push (§5).
 
 The 15-minute runs predate two final edits — `pok_challenge` made fallible, and the
 `merkle` harness's input turned into a named struct — so every target was run again on
@@ -173,12 +197,18 @@ entry points:
 - `identity::nullifier::proptests::hostile_proof_bytes_never_verify` and the T42
   byte-flip properties in `credential` and `nullifier`.
 - One unit test per finding (§3).
+- `scoring/tests/malformed_ratings.rs` (T62): a `Ratings` with an out-of-range index, a
+  wrong weight count, a non-finite rating, a non-finite or negative weight or a duplicate
+  pair returns its `RatingsError` from `fit` and `bridge_scores`; and 192 arbitrary
+  `Ratings` (indices past `n`/`m`, NaN and infinite values, negative weights, any weight
+  count) either fit or return an error, exactly as `validate` decides — never a panic.
 
 ## 6. Left open
 
-- **`scoring` and `protocol`**: fuzz their public entry points and act on §2.3 (T62 for
-  `scoring`, T46 for the caller preconditions of both). Not done here because those crates were being changed in
-  parallel.
+- **`scoring` and `protocol`**: `bridging` now validates its input (T62, §2.3, §4). The
+  other `scoring` entry points keep shape preconditions on their slices and matrices
+  (the table in §2.3), and the `protocol` entry points were not fuzzed: both are T46's,
+  whose validated types make the mismatches unrepresentable.
 - **Network codecs**: none exist yet. Transport (T18) will add wire formats for
   checkpoints, signatures, receipts, shards, nullifier proofs and OPRF partials; each needs
   a fuzz target of the same kind, and the `credential` sites marked "becomes external"

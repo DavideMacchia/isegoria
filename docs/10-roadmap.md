@@ -53,10 +53,10 @@ reference implementation / testnet.
   gates into the protocol; signed-log consistency, checkpoint hardening and shard
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
-  (T64) and the respondent gate (T65). Details and evidence:
-  [Completed work](#completed-work).
+  (T64), the respondent gate (T65) and the engine's input validation (T62). Details and
+  evidence: [Completed work](#completed-work).
 - **Open:** the design revisions D32–D41 (none implemented); the defects found by the
-  third review (2026-09-24), all but T64 and T65; the network runtime (persistence,
+  third review (2026-09-24), all but T64, T65 and T62; the network runtime (persistence,
   transport, live anchoring); distributed identity; privacy hardening; everything
   external.
 
@@ -109,7 +109,6 @@ the caller's word.
 
 | Task | What it means (plain) | Refs | Done when | Size |
 |---|---|---|---|---|
-| T62 | **The engine rejects malformed ratings instead of panicking.** *Pulled ahead of T49 (2026-09-24):* it changes `fit`'s signature in the file T49 rewrites, so it goes first and T49 is written against the final API. `Ratings` has public fields; an observation with `u ≥ n` or `j ≥ m` panics on a bounds check inside the objective (`bridging.rs` gradient, reached through `lbfgs`). Nothing checks `weights.len() == n`, finite ratings and weights, non-negative weights, or duplicate `(u, j)` pairs, which today count twice in the objective. `Ratings::validate() -> Result<(), RatingsError>` at the start of `fit` and `bridge_scores`; `fit` returns a `Result` (the direction of T46); `gate::supplementary_review` and `orchestrator::weighted_ratings` propagate it. Then fuzz the public entry points of `scoring` (the `scoring` part of T44) | `docs/12` §2.3, T44, T46 | out-of-range index, wrong weight count, non-finite or negative value and duplicate pair each return an error, no panic; a property test: arbitrary `Ratings` never panics | S |
 | T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2`. *Recommended (2026-09-24):* descope `d = 2` — D31 already keeps `d = 1` — and record it in `docs/02` §A.4; only `n_min` remains, size S | BRIDGE-001, PROTO-003, `docs/02` §A.4, D31 | the new-reviewer path of PROTO-003 exists; `d = 2` implemented or descoped in the docs | M (S if descoped) |
 | T45 | **Wider differential oracles:** random datasets vs SciPy (not only the fixed fixture), analytic vs numerical gradient for the mixture, `lbfgs` on functions with known minima (Rosenbrock, ill-conditioned quadratics). Known from T41: Rosenbrock needed ~670 gradients vs SciPy's ~46 (fixed by the strong-Wolfe search of T48: ~51), and the relative-progress stall can report `Converged` with `‖g‖_∞ ≫ g_tol` near `f = 0` | OPT-001, REPRO-003 | the oracle suite runs under the pinned sim env | M |
 | — | **Cross-platform reproducibility** (`AT-BR-04`, RP-2): the same input gives bit-equal output on two platforms and in the release profile (INV-7) | REPRO-001 | `AT-BR-04` runs in CI | S |
@@ -132,8 +131,8 @@ Fixed on 2026-09-24, after the reordering. The sections above are thematic; this
 order the work is done in. Sizes are the ones in the rows.
 
 1. T65 (M) — done (2026-09-24), as T64 before it.
-2. T62 (S) — the engine returns errors; `fit` becomes a `Result` before T49 rewrites
-   the file.
+2. T62 (S) — done (2026-09-24): `fit` and `bridge_scores` return a `Result`; T49 is
+   written against that API.
 3. T49 (M) — the side-balanced score; sim, fixtures, golden outputs and the README warning
    change in the same commit. Then `AT-BR-04` (S): the new golden bits on two platforms.
 4. The D26 amendment, then T59 (M).
@@ -266,10 +265,10 @@ Not a phase; done alongside every task.
 
 ## Dependency notes
 
-- **Phase 1.** T64 and T65, the two severe defects, are done. Then T62, then T49: T62
-  changes `fit`'s signature in the file T49 rewrites; T49 restores the central claim
-  (bridging instead of majority) and changes the golden outputs, the fixtures and `sim/`
-  on purpose, with `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
+- **Phase 1.** T64 and T65, the two severe defects, are done, and so is T62, which
+  changed `fit`'s signature in the file T49 rewrites. Then T49: it restores the central
+  claim (bridging instead of majority) and changes the golden outputs, the fixtures and
+  `sim/` on purpose, with `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
   polarization by T49's side gap; T60 changes the score anyway). T61 is independent and
   small, after the D27 decision. T50 before T51 and T52. T53 before T54. T55 needs its
   evidence procedure specified first and comes last. T57 needs T56. T24/T25 close the
@@ -297,6 +296,12 @@ other documents and commit messages refer to these ids and block names.
 |---|---|---|---|---|
 | T64 | **A deposit is accepted once. Done (2026-09-24):** `TransparencyLog::contains` (a set kept by `append`); `deposit` and `deposit_with_identity` return `DepositRejected::DuplicateCid` **before** `admit` and the quota charge, so a replay appends nothing and costs the author nothing; the `Propose` proof is bound to the draft *and* the epoch (`deposit::deposit_context(cid, epoch)`, as `review::review_context`), so a proof of epoch `e` is refused in `e + 1`. `proto007_deposit_replay.rs`: a byte replay and a fresh re-proof of the same draft → `DuplicateCid`, `log.len() == 1`, one quota unit used, the author's next draft still accepted; a proof presented in the next epoch → `Unproven(BadProof)` with nothing appended or charged. *Was:* `deposit_with_identity` appended and charged every copy, so whoever saw a proposal in transit could drain its author's quota. `lifecycle::deposit` keeps its `fresh_cid` input (the machine takes the check's result, the entry points now compute it) | `docs/08` §9.1 row 1, PROTO-007, ID-008 | a second deposit of the same pair → `DuplicateCid`, `log.len() == 1`, one quota unit used; a `Propose` proof of epoch e is refused in e+1 | S |
 | T65 | **Respondents pass the identity gate; the pilot counts persons, not rows. Done (2026-09-24):** `pilot::submit_response(proof, issuer, batch, epoch, &mut NullifierSet)` admits a `Respond` proof bound to the batch (`pilot::batch_id`, the content id of the sorted item cids) and the epoch (`pilot::response_context`), refusing a second sheet by the same person (`ResponseRejected::Duplicate`); `screen`, `dif_batch` and `revalidate_batch_latent` take the respondent count from that set (`NullifierSet::len`) and refuse rows that are not the admitted respondents one to one (`PilotError::RowCountMismatch`); `end_to_end.rs::run_epoch` issues one credential per fixture row and admits it through the gate (1,500 persons, ≈14 ms each with `identity` optimized in the dev profile, `Cargo.toml`). `proto013_respondent_gate.rs` (AT-PRO-09): the same nullifier twice on one batch → `Duplicate`; 300 rows (3,000 for the latent re-check) from one respondent → `NotEnoughRespondents { have: 1 }`; a proof for batch A on batch B, or in another epoch → `Unproven(BadProof)`; a `Judge` proof → `WrongRole`; one row more than the admitted respondents → `RowCountMismatch`. *Was:* `Role::Respond` appeared nowhere in `protocol/src` and the floors counted `theta.len()` rows, so 300 rows from one person satisfied `N1_MIN` | `docs/08` §9.1 `Pilot1` row, INV-9, `docs/02` §B.6 | `AT-PRO-09`: the same nullifier twice on one batch → `Duplicate`; 300 rows from one respondent → `NotEnoughRespondents`; a proof for batch A is refused on batch B | M |
+
+### Phase 1.3 · Engine robustness
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T62 | **The engine rejects malformed ratings instead of panicking. Done (2026-09-24):** `Ratings::validate() -> Result<(), RatingsError>` — an observation with `u ≥ n` or `j ≥ m` (`IndexOutOfRange`), `weights.len() ≠ n` (`WeightCount`), a non-finite rating (`NonFiniteRating`), a non-finite or negative weight (`BadWeight`), a duplicate `(u, j)` pair (`DuplicateObservation`) — runs first in `fit` and `bridge_scores`, which return `Result` (the direction of T46); `gate::supplementary_review` propagates it and refuses an item index past the batch (`ItemOutOfRange`); `orchestrator::weighted_ratings` returns `Result` (a standing count that differs from the rows is `WeightCount`; the `assert` in `with_weights` is gone). `scoring/tests/malformed_ratings.rs`: each case returns its error from both entry points, and a property over arbitrary `Ratings` (indices past `n`/`m`, NaN and infinite values, negative weights, any weight count, duplicates) never panics — `fit` and `bridge_scores` succeed exactly when `validate` accepts. `crates/scoring/fuzz/bridging` (cargo-fuzz; not yet run, no nightly in the session) explores the same entry points. *Was:* `Ratings` has public fields and an out-of-range observation panicked on a bounds check inside the objective; duplicates counted twice. *Left to T46* (`docs/12` §2.3): `Ratings::from_dense` on a ragged matrix, and the slice-taking entry points of `irt`, `dif`, `collusion` and `reputation`, which index out of bounds on mismatched lengths or ragged matrices — caller preconditions, probed and recorded | `docs/12` §2.3, T44, T46 | out-of-range index, wrong weight count, non-finite or negative value and duplicate pair each return an error, no panic; a property test: arbitrary `Ratings` never panics | S |
 
 ### P1.1 · Quick fixes (audit block 1)
 

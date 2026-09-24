@@ -64,7 +64,7 @@ fn current() -> Vec<String> {
         .collect();
     let data = Ratings::from_dense(&r, &mask);
     let p = BridgingParams::default();
-    let f = fit(&data, &p);
+    let f = fit(&data, &p).unwrap();
     record(&mut rows, "fit.mu", &[f.mu]);
     record(&mut rows, "fit.b_j", &f.b_j);
     record(&mut rows, "fit.f_j", &f.f_j);
@@ -73,7 +73,7 @@ fn current() -> Vec<String> {
     record(
         &mut rows,
         "bridge_scores",
-        &bridge_scores(&data, &p, 10, 0.85),
+        &bridge_scores(&data, &p, 10, 0.85).unwrap(),
     );
 
     for set in ["batch", "single"] {

@@ -6,7 +6,7 @@
 
 use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
 use protocol::lifecycle::{step, Event, RejectReason, State};
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
+use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings, RatingsError};
 use std::fs;
 use std::path::PathBuf;
 
@@ -39,8 +39,8 @@ fn ratings() -> Ratings {
 fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
     let ratings = ratings();
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
+    let f = fit(&ratings, &params).unwrap();
 
     // The uncertainty band on these fixtures.
     let band: Vec<usize> = (0..bridge.len())
@@ -55,7 +55,7 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
 
     // A genuine near-threshold quality item is carried up by the re-decision.
     assert_eq!(
-        supplementary_review(&ratings, &params, 6, TAU),
+        supplementary_review(&ratings, &params, 6, TAU).unwrap(),
         GateOutcome::Pass,
         "item 6 (quality item near the threshold) passes the re-decision"
     );
@@ -65,7 +65,7 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
     // `b_j` far below τ, so a larger camp does not carry a polarized item (docs/01 D2).
     for j in [7usize, 8] {
         assert_eq!(
-            supplementary_review(&ratings, &params, j, TAU),
+            supplementary_review(&ratings, &params, j, TAU).unwrap(),
             GateOutcome::Reject,
             "polarized item {j} must not be carried by the larger camp"
         );
@@ -83,5 +83,16 @@ fn a_borderline_item_reaches_a_defined_terminal() {
     assert_eq!(
         step(State::SupplementaryReview, Event::Resolve { passed: false }).unwrap(),
         State::Rejected(RejectReason::Borderline)
+    );
+}
+
+#[test]
+fn a_re_decision_of_an_item_outside_the_batch_is_an_error_not_a_panic() {
+    // T62: the gate refuses an item index past the batch, as it refuses malformed ratings.
+    let ratings = ratings();
+    let m = ratings.m;
+    assert_eq!(
+        supplementary_review(&ratings, &BridgingParams::default(), m, TAU),
+        Err(RatingsError::ItemOutOfRange { j: m, m })
     );
 }

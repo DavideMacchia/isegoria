@@ -73,7 +73,7 @@ fn fit_reproduces_oracle_on_identical_dataset() {
     let expected = read_expected_bj();
     let true_f = read_vector("true_f.csv");
 
-    let f = fit(&data, &BridgingParams::default());
+    let f = fit(&data, &BridgingParams::default()).unwrap();
     assert_eq!(f.status, Convergence::Converged);
 
     assert!((f.mu - 0.7552).abs() < 0.002, "mu = {:.4}", f.mu);
@@ -96,7 +96,7 @@ fn fit_reproduces_oracle_on_identical_dataset() {
 #[test]
 fn asymmetric_regularization_separates_bridging_from_majority() {
     let data = load_ratings();
-    let f = fit(&data, &BridgingParams::default());
+    let f = fit(&data, &BridgingParams::default()).unwrap();
 
     // Polarized items (large |f_j|) are rejected even when heavily voted.
     for &j in &[2usize, 7, 8, 9] {
@@ -122,8 +122,8 @@ fn asymmetric_regularization_separates_bridging_from_majority() {
 fn bootstrap_min_is_pessimistic() {
     let data = load_ratings();
     let p = BridgingParams::default();
-    let full = fit(&data, &p);
-    let bridge = bridge_scores(&data, &p, 10, 0.85);
+    let full = fit(&data, &p).unwrap();
+    let bridge = bridge_scores(&data, &p, 10, 0.85).unwrap();
 
     for (j, &b) in bridge.iter().enumerate() {
         assert!(
@@ -179,7 +179,7 @@ fn corner_case_bipartisan_corruption_cost() {
             obs,
             weights: base.weights.clone(),
         };
-        fit(&data, &BridgingParams::default()).b_j[item]
+        fit(&data, &BridgingParams::default()).unwrap().b_j[item]
     };
 
     let (s0, s20, s40, s70) = (scored(0), scored(20), scored(40), scored(70));
@@ -202,7 +202,7 @@ fn an_empty_rating_matrix_has_no_reviewers_items_or_observations() {
 #[test]
 fn bridging_scores_do_not_depend_on_the_seed() {
     let data = load_ratings();
-    let base = fit(&data, &BridgingParams::default());
+    let base = fit(&data, &BridgingParams::default()).unwrap();
     for seed in 1..8u64 {
         let f = fit(
             &data,
@@ -210,7 +210,8 @@ fn bridging_scores_do_not_depend_on_the_seed() {
                 seed: seed * 1000,
                 ..BridgingParams::default()
             },
-        );
+        )
+        .unwrap();
         for j in 0..data.m {
             assert!(
                 (f.b_j[j] - base.b_j[j]).abs() < 1e-4,
@@ -241,7 +242,8 @@ fn a_single_start_can_land_in_a_worse_minimum() {
             n_starts: 1,
             ..BridgingParams::default()
         },
-    );
+    )
+    .unwrap();
     assert!(single.b_j[8] > 0.5, "b_j[8] = {:.3}", single.b_j[8]);
     let multi = fit(
         &data,
@@ -249,7 +251,8 @@ fn a_single_start_can_land_in_a_worse_minimum() {
             seed: 5,
             ..BridgingParams::default()
         },
-    );
+    )
+    .unwrap();
     assert!(multi.b_j[8] < 0.0, "b_j[8] = {:.3}", multi.b_j[8]);
 }
 
@@ -259,7 +262,7 @@ fn a_single_start_can_land_in_a_worse_minimum() {
 fn a_fit_with_every_weight_zero_is_finite() {
     let data = load_ratings();
     let n = data.n;
-    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default());
+    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default()).unwrap();
     assert!(f.mu.is_finite());
     for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
         assert!(v.is_finite());

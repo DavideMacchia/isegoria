@@ -1,0 +1,27 @@
+# cargo-fuzz targets for the scoring entry points (T62, the scoring part of T44). Outside
+# the main workspace on purpose: fuzzing needs a nightly toolchain and libFuzzer. See
+# README.md.
+[package]
+name = "scoring-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "EUPL-1.2"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+scoring = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "bridging"
+path = "fuzz_targets/bridging.rs"
+test = false
+doc = false
+bench = false

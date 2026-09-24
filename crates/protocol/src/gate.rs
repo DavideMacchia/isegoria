@@ -3,7 +3,7 @@
 //! supplementary review. An item rejected for POLARIZATION (high |f_j|), not defect,
 //! is eligible to appeal directly to the pilot.
 
-use scoring::bridging::{fit, BridgingParams, Ratings};
+use scoring::bridging::{fit, BridgingParams, Ratings, RatingsError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GateOutcome {
@@ -39,17 +39,25 @@ pub fn bridging_gate(b_j: f64, f_j: f64, tau: f64, eps: f64, appeal_threshold: f
 /// **not** a weighted vote of the same ratings (the retired `aggregate::resolve_band`), so
 /// a larger camp does not carry a polarized item: bridging gives such an item a high `|f_j|`
 /// and a `b_j` below `tau`.
+///
+/// Malformed ratings, or an item index past the batch, are an error (T62), not a panic.
 pub fn supplementary_review(
     ratings: &Ratings,
     params: &BridgingParams,
     item: usize,
     tau: f64,
-) -> GateOutcome {
-    if fit(ratings, params).b_j[item] >= tau {
+) -> Result<GateOutcome, RatingsError> {
+    if item >= ratings.m {
+        return Err(RatingsError::ItemOutOfRange {
+            j: item,
+            m: ratings.m,
+        });
+    }
+    Ok(if fit(ratings, params)?.b_j[item] >= tau {
         GateOutcome::Pass
     } else {
         GateOutcome::Reject
-    }
+    })
 }
 
 /// Appeal to the evidence filter (`docs/05` [5b], `docs/02` D8): the author stakes

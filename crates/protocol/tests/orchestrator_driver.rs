@@ -15,7 +15,7 @@ use protocol::orchestrator::{
     ReviewerStanding,
 };
 use protocol::probation::N_PROBATION;
-use scoring::bridging::{fit, BridgingParams};
+use scoring::bridging::{fit, BridgingParams, RatingsError};
 
 // ------------------------------- T5: weights from standing -------------------------------
 
@@ -70,7 +70,12 @@ fn lower_reputation_moves_the_bridge_score_less() {
     let params = BridgingParams::default();
 
     let b_t = |standings: &[ReviewerStanding]| {
-        fit(&weighted_ratings(&rows, &mask, standings, 1.0), &params).b_j[t]
+        fit(
+            &weighted_ratings(&rows, &mask, standings, 1.0).unwrap(),
+            &params,
+        )
+        .unwrap()
+        .b_j[t]
     };
 
     // Case A: the bloc are founders (full weight 1).
@@ -261,4 +266,22 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
     );
+}
+
+#[test]
+fn a_standing_short_of_the_rows_is_refused_before_the_fit() {
+    // T62: the weights come from the standings, one per reviewer row; a mismatch is a
+    // `RatingsError`, not a panic inside the fit.
+    let rows = vec![vec![0.5; 3]; 4];
+    let mask = vec![vec![true; 3]; 4];
+    let short = vec![ReviewerStanding::founder(); 3];
+    assert_eq!(
+        weighted_ratings(&rows, &mask, &short, 1.0).map(|_| ()),
+        Err(RatingsError::WeightCount {
+            expected: 4,
+            found: 3
+        })
+    );
+    let full = vec![ReviewerStanding::founder(); 4];
+    assert!(weighted_ratings(&rows, &mask, &full, 1.0).is_ok());
 }
