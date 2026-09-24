@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8f4d56a6d98561cefe4ee00158af95e9274e5171cf6e4920bcf70d5c5450000a # shrinks to w = Walk { n: 1, t: 1, histories: [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], steps: [Step { source: History(0), height: Step(1), foreign_network: false, foreign_member_set: false, signers: None, rotate: 0, forged: None, extra: [], log: None }, Step { source: History(0), height: Step(1), foreign_network: false, foreign_member_set: false, signers: None, rotate: 0, forged: None, extra: [], log: Some((Incoming, -2)) }] }

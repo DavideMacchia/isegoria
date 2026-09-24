@@ -124,6 +124,31 @@ fn a_log_that_has_not_caught_up_defers_rather_than_decides() {
     );
 }
 
+/// A local log shorter than the *trusted* checkpoint has not caught up; nothing shows it
+/// left the trusted history. Found by the T43 model: after trusting a checkpoint without
+/// the log (or on first use), a log that was an honest prefix of it was reported as
+/// `LocalLogDiverged` — the local copy at fault — instead of `LogBehind`.
+#[test]
+fn a_local_log_behind_the_trusted_checkpoint_is_behind_not_diverged() {
+    let (members, msh, mut client) = trusting_prefix();
+    let (_, honest, _) = histories();
+    let (cp5, s5) = signed(&members, msh, &honest);
+
+    // Two entries, or none, against a trusted height of 3.
+    for short in [log_of(&["a", "b"]), TransparencyLog::new()] {
+        assert_eq!(
+            client.ingest_with_log(&cp5, &s5, &short),
+            CheckpointUpdate::Rejected(CheckpointReject::LogBehind)
+        );
+    }
+
+    // Once synced, the honest checkpoint is accepted.
+    assert_eq!(
+        client.ingest_with_log(&cp5, &s5, &honest),
+        CheckpointUpdate::Accepted
+    );
+}
+
 #[test]
 fn a_local_log_that_left_the_trusted_history_is_its_own_fault() {
     let (members, msh, mut client) = trusting_prefix();

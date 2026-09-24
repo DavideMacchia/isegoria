@@ -187,4 +187,5 @@ entry points:
 - **Noticed, not panics**: `Consortium::new` accepts a threshold of 0, which accepts any
   checkpoint with no signature (a configuration footgun); `ingest_with_log` trusts the first
   checkpoint on first use, so a local log that does not extend it is reported only at the
-  next checkpoint, as `LocalLogDiverged`.
+  next checkpoint: as `LocalLogDiverged` once it is long enough to show the divergence, as
+  `LogBehind` before that (T43).

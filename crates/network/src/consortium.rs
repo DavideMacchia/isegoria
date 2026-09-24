@@ -143,11 +143,13 @@ pub enum CheckpointReject {
     WrongMemberSet,
     /// Fewer than the threshold of valid distinct signatures.
     InsufficientSignatures,
-    /// [`CheckpointClient::ingest_with_log`]: the local log is shorter than the new
-    /// checkpoint, so it cannot yet show the new head extends the trusted one. Sync, retry.
+    /// [`CheckpointClient::ingest_with_log`]: the local log is too short to show the trusted
+    /// head or the new one, so it cannot yet show the new head extends the trusted one.
+    /// Sync, retry.
     LogBehind,
-    /// [`CheckpointClient::ingest_with_log`]: the local log does not extend the checkpoint
-    /// this client already trusts — the local copy, not the new checkpoint, is at fault.
+    /// [`CheckpointClient::ingest_with_log`]: the local log reaches the trusted height but
+    /// does not extend the checkpoint this client already trusts (another head there, or a
+    /// broken chain) — the local copy, not the new checkpoint, is at fault.
     LocalLogDiverged,
 }
 
@@ -198,10 +200,17 @@ impl CheckpointClient {
         log: &TransparencyLog,
     ) -> CheckpointUpdate {
         self.ingest_checked(cp, sigs, |trusted| {
-            if log.verify_extends(trusted).is_err() {
-                return Err(CheckpointUpdate::Rejected(
-                    CheckpointReject::LocalLogDiverged,
-                ));
+            match log.verify_extends(trusted) {
+                Ok(()) => {}
+                // Shorter than the trusted height: behind, nothing shows it diverged (T43).
+                Err(ConsistencyError::Truncated { .. }) => {
+                    return Err(CheckpointUpdate::Rejected(CheckpointReject::LogBehind));
+                }
+                Err(_) => {
+                    return Err(CheckpointUpdate::Rejected(
+                        CheckpointReject::LocalLogDiverged,
+                    ));
+                }
             }
             match log.verify_extends(cp) {
                 Ok(()) => Ok(()),
