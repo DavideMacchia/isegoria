@@ -346,6 +346,39 @@ mod tests {
         assert_eq!(grads.get(), 3);
     }
 
+    /// Armijo sufficient decrease, not mere non-increase: from x = 1 on x², the unit step
+    /// lands on x = −1 with the *same* cost. It must be rejected and halved to the
+    /// minimum; a test that accepted it would stall at −1 and call that convergence.
+    #[test]
+    fn armijo_rejects_a_step_that_does_not_decrease_the_cost() {
+        let m = lbfgs(
+            vec![1.0],
+            |x: &[f64]| x[0] * x[0],
+            |x: &[f64]| vec![2.0 * x[0]],
+            5,
+            100,
+            1e-12,
+        );
+        assert_eq!(m.status, Convergence::Converged);
+        assert!(m.x[0].abs() < 1e-12, "x = {}", m.x[0]);
+    }
+
+    /// When every trial point raises the cost, the failed search returns the start point:
+    /// on `f(x) = x` with an uphill gradient, the last trial `x = 2⁻⁶¹` is worse than 0.
+    #[test]
+    fn a_failed_line_search_keeps_the_better_point() {
+        let m = lbfgs(
+            vec![0.0],
+            |x: &[f64]| x[0],
+            |_x: &[f64]| vec![-1.0],
+            5,
+            50,
+            1e-8,
+        );
+        assert_eq!(m.status, Convergence::LineSearchFailed);
+        assert_eq!(m.x, vec![0.0]);
+    }
+
     /// A gradient that points uphill (here the sign is wrong): no step lowers the cost,
     /// so the line search fails. It used to report `Converged` — the shrinking step
     /// barely moved `f` and read as a stall, or `x + step·d` rounded back to `x` and

@@ -327,6 +327,19 @@ fn mantel_haenszel_pools_within_ability_strata() {
     assert_eq!(two.class, EtsClass::C);
 }
 
+/// Strata of unequal size weight each table by `1/N_s`: 6 respondents with (3,1,1,1)
+/// and 7 with (1,1,1,4) give α_MH = (3/6 + 4/7)/(1/6 + 1/7) = 45/13 — not the
+/// unweighted 7/2, and not the collapsed 20/4 (T41).
+#[cfg(feature = "calibration")]
+#[test]
+fn mantel_haenszel_weights_each_stratum_by_its_size() {
+    let mut rows = cell_rows(-1.0, 3, 1, 1, 1);
+    rows.extend(cell_rows(1.0, 1, 1, 1, 4));
+    let (item, theta, group) = mh_input(&rows);
+    let r = mantel_haenszel(&item, &theta, &group, 2);
+    assert!((r.alpha - 45.0 / 13.0).abs() < 1e-12, "alpha = {}", r.alpha);
+}
+
 /// More strata than respondents leaves strata empty; they contribute nothing instead of
 /// a 0/0 NaN. Note what remains: every stratum holds one person, who forms no
 /// discordant pair, so α is undefined → ∞ → class C. Over-stratifying a small sample

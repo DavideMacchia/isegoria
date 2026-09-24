@@ -206,7 +206,7 @@ Rust — SciPy and the in-house optimizer differ. The Python sims are an oracle 
 
 ## Testing strategy
 
-Six kinds of test, 156 in total (2 `#[ignore]`d):
+Eight kinds of test (the per-crate counts change often; `cargo test --workspace` reports them):
 
 1. **Oracle acceptance tests** run the Rust engine on the *same dataset* as the
    Python sims (exported by `sim/export_fixtures.py` into
@@ -238,7 +238,15 @@ Six kinds of test, 156 in total (2 `#[ignore]`d):
    majority; a long-con's reputation rises slowly, falls fast, and is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.
-6. **`#[ignore]` guards**, run on demand: `fixture_drift` regenerates the oracle
+6. **Golden outputs** (`scoring/tests/golden.rs`): every value `fit`, `bridge_scores`
+   and `mixture_dif` return on the fixtures is pinned bit-for-bit in
+   `fixtures/golden_bits.txt`, so a silent change fails even inside an oracle
+   tolerance; hand-computed values (`hand_computed.rs`, `exact_outcomes.rs`) pin the
+   formulas behind the range and ordering checks.
+7. **Mutation testing** (`cargo-mutants`, run on demand, not in CI): measures what the
+   suite verifies rather than executes. Every surviving mutant is killed or justified
+   as equivalent in `docs/11-mutation-testing.md`.
+8. **`#[ignore]` guards**, run on demand: `fixture_drift` regenerates the oracle
    fixtures from the Python sims and diffs them against the committed ones (catches
    sim/fixture drift; needs numpy/scipy); `power` is a Monte-Carlo check of the
    §B.6 sample-size claim (latent-class DIF detection rate at N≈1500 vs 3000).
