@@ -13,6 +13,7 @@
 use crate::cid::Cid;
 use crate::consortium::Checkpoint;
 use crate::hash::tagged;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -32,6 +33,9 @@ fn entry_hash(seq: u64, prev: &[u8; 32], payload: &Cid) -> [u8; 32] {
 #[derive(Default)]
 pub struct TransparencyLog {
     entries: Vec<Entry>,
+    /// Every payload appended so far, so an entry point can refuse a duplicate before it
+    /// does anything else (`docs/08` §9.1 row 1, T64).
+    payloads: HashSet<Cid>,
 }
 
 impl TransparencyLog {
@@ -49,7 +53,14 @@ impl TransparencyLog {
             payload,
             hash,
         });
+        self.payloads.insert(payload);
         self.entries.last().unwrap()
+    }
+
+    /// Whether `payload` is already on the log (T64): the check a deposit runs first, so
+    /// a replayed proposal is refused before the identity check and the quota charge.
+    pub fn contains(&self, payload: &Cid) -> bool {
+        self.payloads.contains(payload)
     }
 
     /// Hash of the last entry (the log head), or zeros for an empty log.
@@ -149,6 +160,17 @@ pub enum ConsistencyError {
 mod tests {
     use super::*;
     use crate::cid::cid;
+
+    #[test]
+    fn contains_reports_exactly_the_appended_payloads() {
+        let mut log = TransparencyLog::new();
+        assert!(!log.contains(&cid(b"a")));
+        log.append(cid(b"a"));
+        log.append(cid(b"b"));
+        assert!(log.contains(&cid(b"a")));
+        assert!(log.contains(&cid(b"b")));
+        assert!(!log.contains(&cid(b"c")));
+    }
 
     #[test]
     fn tampering_with_a_past_payload_is_detected() {

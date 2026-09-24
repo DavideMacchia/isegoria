@@ -6,7 +6,7 @@ use identity::nym::{Nym, Role};
 use network::cid::cid;
 use network::log::TransparencyLog;
 use protocol::blueprint::{assemble_test, Blueprint};
-use protocol::deposit::{deposit, Draft, NoPrimarySource};
+use protocol::deposit::{deposit, DepositRejected, Draft};
 use protocol::exposure::{
     least_exposed_variant, should_retire, ExposureLedger, ItemHealth, RetirementReason, Template,
 };
@@ -42,7 +42,10 @@ fn deposit_requires_a_primary_source_and_records_on_the_log() {
         item: b"claim".to_vec(),
         primary_source: vec![],
     };
-    assert_eq!(deposit(&mut log, &no_source), Err(NoPrimarySource));
+    assert_eq!(
+        deposit(&mut log, &no_source),
+        Err(DepositRejected::NoPrimarySource)
+    );
     assert_eq!(log.len(), 1);
 }
 

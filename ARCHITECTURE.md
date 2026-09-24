@@ -267,7 +267,7 @@ cargo clippy --workspace --all-targets
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
 | Role pseudonyms; one credential per label; proposal rate limit | **Real** — deterministic role nyms; `IssuanceRegistry` (one credential per label, T11); `QuotaLedger` per-credential proposal quota keyed on the proven id (T11) | cryptographic-grade RLN (ZK `slot < quota`, reuse reveals key) — T20 |
-| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review entry points key on its proven `id`, with an action-context binding against replay | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
+| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review entry points key on its proven `id`, with an action-context binding (draft cid and epoch) against replay, and a duplicate cid refused before the quota is charged (T64) | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
 | Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |

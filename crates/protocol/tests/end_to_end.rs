@@ -26,7 +26,7 @@ use network::log::TransparencyLog;
 #[cfg(feature = "calibration")]
 use protocol::admission::QuotaLedger;
 #[cfg(feature = "calibration")]
-use protocol::deposit::{deposit_with_identity, Draft};
+use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
 use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
 #[cfg(feature = "calibration")]
@@ -136,7 +136,9 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         "same person cannot enroll twice, even via another source"
     );
     // The author holds a committee-issued credential; each deposit proves a `Propose`
-    // nullifier bound to that draft (INV-9, T6) — a bare pseudonym cannot propose.
+    // nullifier bound to that draft and this epoch (INV-9, T6/T64) — a bare pseudonym
+    // cannot propose, and a proof does not outlive its epoch.
+    const EPOCH: u64 = 1;
     let issuer = Issuer::new([1u8; 32]);
     let author = Credential::from_secret([42u8; 32]);
     let (req, pending) = author.request_issuance(&Label([3u8; 32]), &issuer.public());
@@ -158,13 +160,14 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
             &author_cred,
             &issuer.public(),
             Role::Propose,
-            &draft.content_id().0,
+            &deposit_context(draft.content_id(), EPOCH),
         );
         let (id, _proposer) = deposit_with_identity(
             &mut log,
             &draft,
             &proof,
             &issuer.public(),
+            EPOCH,
             &mut quota_ledger,
             PROPOSAL_QUOTA,
         )
