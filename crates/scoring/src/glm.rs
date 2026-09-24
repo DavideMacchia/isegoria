@@ -105,6 +105,19 @@ mod tests {
         assert!((sigmoid(2.0) + sigmoid(-2.0) - 1.0).abs() < 1e-12);
     }
 
+    /// Each branch is chosen so `exp` never overflows: at ±800 the wrong branch gives
+    /// ∞/∞ = NaN (sigmoid) or ln(1 + ∞) = ∞ (softplus) (T41).
+    #[test]
+    fn sigmoid_and_softplus_stay_finite_at_extreme_logits() {
+        assert_eq!(sigmoid(800.0), 1.0);
+        assert_eq!(sigmoid(-800.0), 0.0);
+        assert_eq!(softplus(800.0), 800.0);
+        assert_eq!(softplus(-800.0), 0.0);
+        assert!((softplus(0.0) - 2.0_f64.ln()).abs() < 1e-15);
+        assert!((softplus(3.0) - (1.0 + 3.0_f64.exp()).ln()).abs() < 1e-12);
+        assert!((softplus(-3.0) - (1.0 + (-3.0_f64).exp()).ln()).abs() < 1e-12);
+    }
+
     #[test]
     fn recovers_known_logistic_coefficients() {
         // Data generated from logit p = -0.5 + 1.5 x; fit should recover it closely.
