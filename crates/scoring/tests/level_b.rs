@@ -158,7 +158,26 @@ fn purification_reaches_a_stable_flagged_set() {
     for j in [0usize, 1, 2, 7, 8, 9] {
         assert!(!res.flagged[j], "clean item {j} should not be flagged");
     }
-    assert!(res.iterations <= 10);
+    // Round 1 flags ESM (a change from "none flagged"), round 2 confirms it: the loop
+    // stops at the first round that reproduces the previous set, not before (T41).
+    assert_eq!(res.iterations, 2);
+
+    // θ is the standardized total over the anchors plus the batch items left unflagged.
+    let totals: Vec<f64> = (0..xa.len())
+        .map(|i| {
+            xa[i].iter().sum::<f64>()
+                + (0..x[i].len())
+                    .filter(|&j| !res.flagged[j])
+                    .map(|j| x[i][j])
+                    .sum::<f64>()
+        })
+        .collect();
+    let n = totals.len() as f64;
+    let mean = totals.iter().sum::<f64>() / n;
+    let sd = (totals.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / n).sqrt();
+    for (i, t) in totals.iter().enumerate() {
+        assert!((res.theta[i] - (t - mean) / sd).abs() < 1e-9, "theta[{i}]");
+    }
 
     // Fixed point: re-running DIF with the final θ reproduces the same flagged set.
     for (j, &flag) in res.flagged.iter().enumerate() {
@@ -243,4 +262,94 @@ fn mantel_haenszel_tolerates_nan_theta_at_sort_detection_sizes() {
         .collect();
     let r = mantel_haenszel(&item, &theta, &group, 5);
     assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
+}
+
+/// Respondents for a hand-computed Mantel–Haenszel table: `(θ, group, correct)`.
+#[cfg(feature = "calibration")]
+fn mh_input(rows: &[(f64, f64, bool)]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let item = rows.iter().map(|r| r.2 as i32 as f64).collect();
+    let theta = rows.iter().map(|r| r.0).collect();
+    let group = rows.iter().map(|r| r.1).collect();
+    (item, theta, group)
+}
+
+/// `a` reference-correct, `b` reference-wrong, `c` focal-correct, `d` focal-wrong, all
+/// at ability `theta` (group −1 reference, +1 focal).
+#[cfg(feature = "calibration")]
+fn cell_rows(theta: f64, a: usize, b: usize, c: usize, d: usize) -> Vec<(f64, f64, bool)> {
+    let mut v = Vec::new();
+    v.extend(std::iter::repeat_n((theta, -1.0, true), a));
+    v.extend(std::iter::repeat_n((theta, -1.0, false), b));
+    v.extend(std::iter::repeat_n((theta, 1.0, true), c));
+    v.extend(std::iter::repeat_n((theta, 1.0, false), d));
+    v
+}
+
+/// One stratum: α_MH = (a·d)/(b·c) = 9/16, Δ = −2.35·ln α ≈ +1.35 → class B. Swapping
+/// the groups inverts α and flips the sign of Δ, same class (T41).
+#[cfg(feature = "calibration")]
+#[test]
+fn mantel_haenszel_matches_a_hand_computed_table() {
+    let (item, theta, group) = mh_input(&cell_rows(0.0, 3, 4, 4, 3));
+    let r = mantel_haenszel(&item, &theta, &group, 1);
+    assert!((r.alpha - 9.0 / 16.0).abs() < 1e-12, "alpha = {}", r.alpha);
+    assert!((r.delta - (-2.35 * (9.0_f64 / 16.0).ln())).abs() < 1e-12);
+    assert!(r.delta > 1.0 && r.delta < 1.5, "delta = {}", r.delta);
+    assert_eq!(r.class, EtsClass::B);
+
+    let flipped: Vec<f64> = group.iter().map(|g| -g).collect();
+    let s = mantel_haenszel(&item, &theta, &flipped, 1);
+    assert!((s.alpha - 16.0 / 9.0).abs() < 1e-12);
+    assert!((s.delta + r.delta).abs() < 1e-12, "Δ flips sign");
+    assert_eq!(s.class, EtsClass::B);
+}
+
+/// Matching on ability matters: two strata with α = 3 each pool to α_MH = 3, while the
+/// collapsed single table gives 4. Pins the stratum boundaries and per-stratum sums.
+#[cfg(feature = "calibration")]
+#[test]
+fn mantel_haenszel_pools_within_ability_strata() {
+    let mut rows = cell_rows(-1.0, 3, 1, 1, 1);
+    rows.extend(cell_rows(1.0, 1, 1, 1, 3));
+    let (item, theta, group) = mh_input(&rows);
+    let two = mantel_haenszel(&item, &theta, &group, 2);
+    assert!(
+        (two.alpha - 3.0).abs() < 1e-12,
+        "stratified alpha = {}",
+        two.alpha
+    );
+    let one = mantel_haenszel(&item, &theta, &group, 1);
+    assert!(
+        (one.alpha - 4.0).abs() < 1e-12,
+        "collapsed alpha = {}",
+        one.alpha
+    );
+    assert_eq!(two.class, EtsClass::C);
+}
+
+/// More strata than respondents leaves strata empty; they contribute nothing instead of
+/// a 0/0 NaN. Note what remains: every stratum holds one person, who forms no
+/// discordant pair, so α is undefined → ∞ → class C. Over-stratifying a small sample
+/// rejects the item (calibration-only; the caller picks `n_strata`).
+#[cfg(feature = "calibration")]
+#[test]
+fn mantel_haenszel_skips_empty_strata() {
+    let (item, theta, group) = mh_input(&cell_rows(0.0, 3, 4, 4, 3));
+    let r = mantel_haenszel(&item, &theta, &group, 40);
+    assert_eq!(r.alpha, f64::INFINITY);
+    assert!(!r.delta.is_nan());
+    assert_eq!(r.class, EtsClass::C);
+    // The same respondents in one stratum: a finite estimate.
+    assert!(mantel_haenszel(&item, &theta, &group, 1).alpha.is_finite());
+}
+
+/// No reference-wrong/focal-correct pair at all (here: everyone correct): the odds ratio
+/// is undefined; it is reported as infinite and classed C, not NaN.
+#[cfg(feature = "calibration")]
+#[test]
+fn mantel_haenszel_without_discordant_cells_is_infinite_and_class_c() {
+    let (item, theta, group) = mh_input(&cell_rows(0.0, 5, 0, 5, 0));
+    let r = mantel_haenszel(&item, &theta, &group, 1);
+    assert_eq!(r.alpha, f64::INFINITY);
+    assert_eq!(r.class, EtsClass::C);
 }
