@@ -195,6 +195,10 @@ impl ThresholdOprfOracle {
     /// Trusted-dealer key generation (real DKG is future work): derive a degree-`t−1`
     /// polynomial from `seed` and hand share `f(i)` to member `i` (1-based). The same
     /// seed rebuilds the same committee, so labels are reproducible across processes.
+    ///
+    /// # Panics
+    ///
+    /// Unless `1 <= t <= n`: the committee's shape is operator configuration.
     pub fn new(seed: [u8; 32], n: usize, t: usize) -> Self {
         assert!(t >= 1 && t <= n, "need 1 <= t <= n");
         let coeffs: Vec<Scalar> = (0..t).map(|j| scalar_from_seed(&seed, j)).collect();
@@ -253,6 +257,16 @@ impl ThresholdOprfOracle {
         let z = combine(&parts); // Z = k·B
         let w = r.invert() * z; // W = k·H(x)
         Some(finalize(input, &w))
+    }
+}
+
+/// Fuzzing entry point (T44): the quorum-level protocol is private, but which members
+/// answered is exactly the input a client cannot trust.
+#[cfg(fuzzing)]
+impl ThresholdOprfOracle {
+    #[doc(hidden)]
+    pub fn fuzz_label_with_quorum(&self, input: &[u8], quorum: &[u32]) -> Option<Label> {
+        self.label_with_quorum(input, quorum)
     }
 }
 

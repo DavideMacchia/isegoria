@@ -1,0 +1,48 @@
+# cargo-fuzz targets for the network decoders (T44). Outside the main workspace on
+# purpose: fuzzing needs a nightly toolchain and libFuzzer. See README.md.
+[package]
+name = "network-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "EUPL-1.2"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+ed25519-dalek = "2"
+network = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "ots_verify"
+path = "fuzz_targets/ots_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "erasure"
+path = "fuzz_targets/erasure.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint"
+path = "fuzz_targets/checkpoint.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "merkle"
+path = "fuzz_targets/merkle.rs"
+test = false
+doc = false
+bench = false

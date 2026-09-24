@@ -62,3 +62,38 @@ fn authentic_shards_with_losses_still_recover() {
         reconstruct_verified(shards, &enc.manifest, DATA, PARITY, enc.orig_len).unwrap();
     assert_eq!(recovered, data);
 }
+
+#[test]
+fn an_impossible_layout_is_refused_not_sized() {
+    // The shard counts and `orig_len` travel with the shards, so they are untrusted
+    // (T44): an overflowing count used to panic inside `ReedSolomon::new`, and a huge
+    // `orig_len` used to be allocated before anything checked it.
+    let enc = encode(b"layout", DATA, PARITY);
+    let shards = || enc.shards.iter().cloned().map(Some).collect::<Vec<_>>();
+    let verified =
+        |shards, data, parity, len| reconstruct_verified(shards, &enc.manifest, data, parity, len);
+
+    assert_eq!(
+        verified(shards(), usize::MAX, 1, enc.orig_len),
+        Err(RecoverError::InvalidLayout)
+    );
+    assert_eq!(
+        verified(shards(), DATA, PARITY, usize::MAX),
+        Err(RecoverError::InvalidLayout)
+    );
+    assert_eq!(
+        verified(shards(), 0, PARITY, 0),
+        Err(RecoverError::InvalidLayout)
+    );
+    assert_eq!(
+        verified(shards()[..5].to_vec(), DATA, PARITY, enc.orig_len),
+        Err(RecoverError::InvalidLayout)
+    );
+    assert!(reconstruct(shards(), usize::MAX, 1, enc.orig_len).is_none());
+    assert!(reconstruct(shards(), DATA, PARITY, usize::MAX).is_none());
+    // The true layout still recovers.
+    assert_eq!(
+        verified(shards(), DATA, PARITY, enc.orig_len).unwrap(),
+        b"layout"
+    );
+}

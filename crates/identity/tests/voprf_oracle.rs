@@ -55,6 +55,21 @@ fn distinct_anchors_give_distinct_labels() {
 }
 
 #[test]
+fn an_anchor_beyond_the_rfc_9497_limit_still_gets_a_stable_label() {
+    // RFC 9497 caps an input at u16::MAX bytes; a longer anchor used to panic the oracle
+    // (T44). It is now hashed first, under a tag of its own, so it gets a stable label
+    // distinct from every other anchor's — and an anchor at the limit is unaffected.
+    let oracle = VoprfOracle::new([7u8; 32]);
+    let long = anchor(&"A".repeat(70_000));
+    let longer = anchor(&"A".repeat(70_001));
+    let at_limit = anchor(&"A".repeat(usize::from(u16::MAX)));
+    assert_eq!(oracle.label(&long), oracle.label(&long));
+    assert_ne!(oracle.label(&long), oracle.label(&longer));
+    assert_eq!(oracle.label(&at_limit), oracle.label(&at_limit));
+    assert_ne!(oracle.label(&at_limit), oracle.label(&long));
+}
+
+#[test]
 fn the_blinded_message_hides_the_anchor() {
     // Obliviousness: what leaves the client is a blinded group element, not the
     // codice fiscale. The server evaluating the OPRF never sees the anchor in the

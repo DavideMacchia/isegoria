@@ -1,0 +1,49 @@
+# cargo-fuzz targets for the identity decoders (T44). Outside the main workspace on
+# purpose: fuzzing needs a nightly toolchain and libFuzzer. See README.md.
+[package]
+name = "identity-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "EUPL-1.2"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+identity = { path = ".." }
+voprf = { version = "0.5.0", features = ["ristretto255"] }
+rand_core = "0.6"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "oprf_quorum"
+path = "fuzz_targets/oprf_quorum.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "enrollment"
+path = "fuzz_targets/enrollment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "voprf_wire"
+path = "fuzz_targets/voprf_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nullifier_proof"
+path = "fuzz_targets/nullifier_proof.rs"
+test = false
+doc = false
+bench = false

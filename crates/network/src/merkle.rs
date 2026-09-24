@@ -46,7 +46,13 @@ pub struct MerkleProof {
     pub siblings: Vec<(bool, [u8; 32])>, // (sibling_is_right, hash)
 }
 
-pub fn merkle_proof(leaves: &[[u8; 32]], mut index: usize) -> MerkleProof {
+/// The inclusion proof for `leaves[index]`, or `None` if there is no such leaf. The index
+/// may come from whoever asks for a proof, so an out-of-range one is refused rather than
+/// indexed (it used to panic, or silently yield a proof for no leaf; T44).
+pub fn merkle_proof(leaves: &[[u8; 32]], mut index: usize) -> Option<MerkleProof> {
+    if index >= leaves.len() {
+        return None;
+    }
     let mut siblings = Vec::new();
     let mut level = leaves.to_vec();
     while level.len() > 1 {
@@ -65,7 +71,7 @@ pub fn merkle_proof(leaves: &[[u8; 32]], mut index: usize) -> MerkleProof {
         level = next_level(&level);
         index /= 2;
     }
-    MerkleProof { siblings }
+    Some(MerkleProof { siblings })
 }
 
 pub fn verify_proof(leaf: [u8; 32], proof: &MerkleProof, root: [u8; 32]) -> bool {

@@ -27,7 +27,7 @@ use crate::nym::{derive_nym, Nym, Role};
 
 use ark_bls12_381::{Bls12_381, Fr, G1Affine};
 use ark_ff::PrimeField;
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::{CanonicalSerialize, SerializationError};
 use ark_std::rand::{rngs::StdRng, SeedableRng};
 use ark_std::UniformRand;
 use bbs_plus::prelude::{
@@ -114,7 +114,8 @@ impl Credential {
         // Prove knowledge of (secret, blinding) opening C, via Fiat–Shamir.
         let bases = pok_bases(&issuer.params);
         let sc = SchnorrCommitment::new(&bases, vec![Fr::rand(&mut rng), Fr::rand(&mut rng)]);
-        let challenge = pok_challenge(&bases, &commitment, &sc.t, label);
+        let challenge = pok_challenge(&bases, &commitment, &sc.t, label)
+            .expect("serializing the holder's own commitment into memory cannot fail");
         let response = sc
             .response(&[secret, blinding], &challenge)
             .expect("witness count matches blindings");
@@ -142,16 +143,22 @@ fn pok_bases(params: &SignatureParamsG1<E>) -> [G1Affine; 2] {
 }
 
 /// Fiat–Shamir challenge over the full transcript: bases, commitment, the prover's
-/// `t`, and the label the request is bound to.
-fn pok_challenge(bases: &[G1Affine; 2], commitment: &G1Affine, t: &G1Affine, label: &Label) -> Fr {
+/// `t`, and the label the request is bound to. Fallible rather than panicking because
+/// the issuer computes it over a request it received (T44).
+fn pok_challenge(
+    bases: &[G1Affine; 2],
+    commitment: &G1Affine,
+    t: &G1Affine,
+    label: &Label,
+) -> Result<Fr, SerializationError> {
     let mut bytes = Vec::new();
     for b in bases {
-        b.serialize_compressed(&mut bytes).unwrap();
+        b.serialize_compressed(&mut bytes)?;
     }
-    commitment.serialize_compressed(&mut bytes).unwrap();
-    t.serialize_compressed(&mut bytes).unwrap();
+    commitment.serialize_compressed(&mut bytes)?;
+    t.serialize_compressed(&mut bytes)?;
     bytes.extend_from_slice(&label.0);
-    compute_random_oracle_challenge::<Fr, Sha256>(&bytes)
+    Ok(compute_random_oracle_challenge::<Fr, Sha256>(&bytes))
 }
 
 fn label_scalar(label: &Label) -> Fr {
@@ -346,7 +353,8 @@ fn verify_request(
     request: &IssuanceRequest,
 ) -> Result<(), IssuanceError> {
     let bases = pok_bases(params);
-    let challenge = pok_challenge(&bases, &request.commitment, &request.t, &request.label);
+    let challenge = pok_challenge(&bases, &request.commitment, &request.t, &request.label)
+        .map_err(|_| IssuanceError::InvalidProofOfKnowledge)?;
     request
         .response
         .is_valid(&bases, &request.commitment, &request.t, &challenge)
@@ -401,6 +409,10 @@ impl ThresholdIssuer {
     /// Set up an `n`-member committee that needs `t` to sign, deterministically from
     /// `seed`: a trusted dealer derives the Shamir shares and the one-time base-OT
     /// material. A real remote DKG and OT bootstrap are future work.
+    ///
+    /// # Panics
+    ///
+    /// Unless `1 <= t <= n`: the committee's shape is operator configuration.
     pub fn new(seed: [u8; 32], n: u16, t: u16) -> Self {
         assert!(t >= 1 && t <= n, "need 1 <= t <= n");
         let mut rng = StdRng::from_seed(seed);

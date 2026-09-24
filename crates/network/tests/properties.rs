@@ -18,7 +18,7 @@ proptest! {
         let hs: Vec<[u8; 32]> = leaves.iter().map(|d| leaf_hash(d)).collect();
         let root = merkle_root(&hs);
         for (i, &h) in hs.iter().enumerate() {
-            prop_assert!(verify_proof(h, &merkle_proof(&hs, i), root), "leaf {i}");
+            prop_assert!(verify_proof(h, &merkle_proof(&hs, i).unwrap(), root), "leaf {i}");
         }
     }
 

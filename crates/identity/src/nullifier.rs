@@ -93,23 +93,55 @@ impl NullifierProof {
     }
 }
 
+/// A byte encoding of a proof, for tests and fuzz targets only (T42, T44): its compressed
+/// nullifier, commitment and BBS+ proof. It is not a wire format — transport is future
+/// work, and the role travels separately.
+#[cfg(any(test, fuzzing))]
+impl NullifierProof {
+    #[doc(hidden)]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        self.nullifier.serialize_compressed(&mut bytes).unwrap();
+        self.commitment.serialize_compressed(&mut bytes).unwrap();
+        self.sig_proof.serialize_compressed(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// Decodes with full validation; `None` when the bytes are not a well-formed proof.
+    #[doc(hidden)]
+    pub fn from_bytes(role: Role, mut bytes: &[u8]) -> Option<Self> {
+        use ark_serialize::CanonicalDeserialize;
+        let nullifier = G1Affine::deserialize_compressed(&mut bytes).ok()?;
+        let commitment = G1Affine::deserialize_compressed(&mut bytes).ok()?;
+        let sig_proof = PoKOfSignatureG1Proof::<E>::deserialize_compressed(&mut bytes).ok()?;
+        bytes.is_empty().then_some(NullifierProof {
+            role,
+            nullifier,
+            commitment,
+            sig_proof,
+        })
+    }
+}
+
+/// The Fiat–Shamir challenge. Fallible rather than panicking because [`verify`] computes
+/// it over a proof it received (T44).
 fn challenge(
     contribute: impl FnOnce(&mut Vec<u8>) -> Result<(), BBSPlusError>,
     h_role: &G1Affine,
     nullifier: &G1Affine,
     commitment: &G1Affine,
     context: &[u8],
-) -> Fr {
+) -> Result<Fr, BBSPlusError> {
     let mut bytes = Vec::new();
-    contribute(&mut bytes).expect("challenge contribution");
-    h_role.serialize_compressed(&mut bytes).unwrap();
-    nullifier.serialize_compressed(&mut bytes).unwrap();
-    commitment.serialize_compressed(&mut bytes).unwrap();
+    contribute(&mut bytes)?;
+    h_role.serialize_compressed(&mut bytes)?;
+    nullifier.serialize_compressed(&mut bytes)?;
+    commitment.serialize_compressed(&mut bytes)?;
     // Length-prefix the action context so a proof is bound to the action it was made for:
     // a proof for one context fails to verify against another (docs/08 AT-ID-05).
     bytes.extend_from_slice(&(context.len() as u64).to_le_bytes());
     bytes.extend_from_slice(context);
-    compute_random_oracle_challenge::<Fr, Sha256>(&bytes)
+    Ok(compute_random_oracle_challenge::<Fr, Sha256>(&bytes))
 }
 
 /// Prove a role nullifier from a credential, revealing neither the secret nor the label.
@@ -147,7 +179,8 @@ pub fn prove(
         &nullifier,
         &commitment,
         context,
-    );
+    )
+    .expect("serializing the holder's own proof into memory cannot fail");
     let sig_proof = protocol.gen_proof(&c).expect("proof generation");
 
     NullifierProof {
@@ -162,7 +195,7 @@ pub fn prove(
 /// `context` it must be bound to (docs/08 AT-ID-05). A proof made for another context fails.
 pub fn verify(proof: &NullifierProof, issuer: &IssuerPublic, context: &[u8]) -> bool {
     let h_role = context_generator(proof.role);
-    let c = challenge(
+    let Ok(c) = challenge(
         |w| {
             proof
                 .sig_proof
@@ -172,7 +205,9 @@ pub fn verify(proof: &NullifierProof, issuer: &IssuerPublic, context: &[u8]) -> 
         &proof.nullifier,
         &proof.commitment,
         context,
-    );
+    ) else {
+        return false;
+    };
 
     // 1. The BBS+ proof shows knowledge of a valid credential signature over the hidden
     //    messages (nothing revealed).
@@ -250,7 +285,6 @@ mod proptests {
     use super::*;
     use crate::credential::{Credential, Issuer};
     use crate::enrollment::Label;
-    use ark_serialize::CanonicalDeserialize;
     use proptest::prelude::*;
 
     const ROLES: [Role; 3] = [Role::Propose, Role::Judge, Role::Respond];
@@ -267,26 +301,12 @@ mod proptests {
         prop::sample::select(ROLES.to_vec())
     }
 
-    /// Canonical encoding of the proof's group elements and BBS+ proof of knowledge.
     fn encode(proof: &NullifierProof) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        proof.nullifier.serialize_compressed(&mut bytes).unwrap();
-        proof.commitment.serialize_compressed(&mut bytes).unwrap();
-        proof.sig_proof.serialize_compressed(&mut bytes).unwrap();
-        bytes
+        proof.to_bytes()
     }
 
-    /// Decode with full validation; `None` when the bytes are not a well-formed proof.
-    fn decode(role: Role, mut bytes: &[u8]) -> Option<NullifierProof> {
-        let nullifier = G1Affine::deserialize_compressed(&mut bytes).ok()?;
-        let commitment = G1Affine::deserialize_compressed(&mut bytes).ok()?;
-        let sig_proof = PoKOfSignatureG1Proof::<E>::deserialize_compressed(&mut bytes).ok()?;
-        bytes.is_empty().then_some(NullifierProof {
-            role,
-            nullifier,
-            commitment,
-            sig_proof,
-        })
+    fn decode(role: Role, bytes: &[u8]) -> Option<NullifierProof> {
+        NullifierProof::from_bytes(role, bytes)
     }
 
     proptest! {
@@ -359,6 +379,34 @@ mod proptests {
             bytes[i] ^= mask;
             if let Some(tampered) = decode(role, &bytes) {
                 prop_assert!(!verify(&tampered, &issuer, b"ctx"), "byte {i} ^ {mask:#04x} accepted");
+            }
+        }
+
+        /// Arbitrary bytes, or a genuine proof with a window overwritten, never panic
+        /// decoding or verification, and verify only if they are the genuine proof (T44).
+        #[test]
+        fn hostile_proof_bytes_never_verify(
+            secret in any::<[u8; 32]>(),
+            splice in any::<bool>(),
+            at in any::<prop::sample::Index>(),
+            bytes in prop::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let (issuer, cred) = issued(secret, [7u8; 32]);
+            let genuine = encode(&prove(&cred, &issuer, Role::Judge, b"ctx"));
+            let candidate = if splice {
+                let mut c = genuine.clone();
+                let at = at.index(c.len());
+                for (dst, src) in c[at..].iter_mut().zip(&bytes) {
+                    *dst = *src;
+                }
+                c
+            } else {
+                bytes
+            };
+            if let Some(proof) = decode(Role::Judge, &candidate) {
+                if verify(&proof, &issuer, b"ctx") {
+                    prop_assert_eq!(&candidate, &genuine);
+                }
             }
         }
 

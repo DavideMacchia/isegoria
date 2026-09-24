@@ -31,6 +31,10 @@ pub struct Encoded {
 /// Why authenticated reconstruction failed (T16).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecoverError {
+    /// The claimed layout is impossible: shard counts out of range (none, or more than
+    /// 256 in total), a shard list of another length, or an `orig_len` longer than the
+    /// shards can hold. The layout arrives with the shards, so it is untrusted (T44).
+    InvalidLayout,
     /// After dropping shards that fail their manifest hash, fewer than `data_shards`
     /// authentic shards remain — recovery is impossible without trusting a corrupt shard.
     TooFewAuthenticShards { authentic: usize, need: usize },
@@ -39,6 +43,11 @@ pub enum RecoverError {
 }
 
 /// Encodes `data` into `data_shards` systematic shards plus `parity_shards`.
+///
+/// # Panics
+///
+/// If `data_shards` or `parity_shards` is zero, or their sum exceeds 256 (GF(2⁸)): the
+/// encoder chooses its own layout, so an invalid one is a configuration error.
 pub fn encode(data: &[u8], data_shards: usize, parity_shards: usize) -> Encoded {
     let r = ReedSolomon::new(data_shards, parity_shards).expect("valid shard counts");
     let shard_len = data.len().div_ceil(data_shards).max(1);
@@ -67,21 +76,60 @@ pub fn encode(data: &[u8], data_shards: usize, parity_shards: usize) -> Encoded 
 }
 
 /// Reconstructs the original bytes from surviving shards (`None` = lost). Returns
-/// `None` if fewer than `data_shards` survive.
+/// `None` if fewer than `data_shards` survive or the layout is invalid (see
+/// [`RecoverError::InvalidLayout`]).
 pub fn reconstruct(
-    mut shards: Vec<Option<Vec<u8>>>,
+    shards: Vec<Option<Vec<u8>>>,
     data_shards: usize,
     parity_shards: usize,
     orig_len: usize,
 ) -> Option<Vec<u8>> {
-    let r = ReedSolomon::new(data_shards, parity_shards).ok()?;
-    r.reconstruct(&mut shards).ok()?;
+    decode(shards, data_shards, parity_shards, orig_len).ok()
+}
+
+/// Checks the claimed counts before anything is sized from them: `ReedSolomon::new`
+/// sums them unchecked (an overflow panics in debug builds).
+fn check_layout(
+    shards: usize,
+    data_shards: usize,
+    parity_shards: usize,
+) -> Result<(), RecoverError> {
+    let total = data_shards
+        .checked_add(parity_shards)
+        .ok_or(RecoverError::InvalidLayout)?;
+    if data_shards == 0 || parity_shards == 0 || total > 256 || shards != total {
+        return Err(RecoverError::InvalidLayout);
+    }
+    Ok(())
+}
+
+/// Reed–Solomon decode of an already-authenticated (or trusted) shard set.
+fn decode(
+    mut shards: Vec<Option<Vec<u8>>>,
+    data_shards: usize,
+    parity_shards: usize,
+    orig_len: usize,
+) -> Result<Vec<u8>, RecoverError> {
+    check_layout(shards.len(), data_shards, parity_shards)?;
+    let r = ReedSolomon::new(data_shards, parity_shards).map_err(|_| RecoverError::Decode)?;
+    r.reconstruct(&mut shards)
+        .map_err(|_| RecoverError::Decode)?;
+    let data: Vec<&Vec<u8>> = shards
+        .iter()
+        .take(data_shards)
+        .map(|s| s.as_ref().ok_or(RecoverError::Decode))
+        .collect::<Result<_, _>>()?;
+    // `orig_len` is claimed, not derived: size nothing from it until it is shown to fit.
+    let capacity = data.iter().map(|s| s.len()).sum::<usize>();
+    if orig_len > capacity {
+        return Err(RecoverError::InvalidLayout);
+    }
     let mut out = Vec::with_capacity(orig_len);
-    for shard in shards.iter().take(data_shards) {
-        out.extend_from_slice(shard.as_ref()?);
+    for shard in data {
+        out.extend_from_slice(shard);
     }
     out.truncate(orig_len);
-    Some(out)
+    Ok(out)
 }
 
 /// Reconstructs, **authenticating every present shard against `manifest` first** (NET-007,
@@ -96,6 +144,7 @@ pub fn reconstruct_verified(
     parity_shards: usize,
     orig_len: usize,
 ) -> Result<Vec<u8>, RecoverError> {
+    check_layout(shards.len(), data_shards, parity_shards)?;
     let clean: Vec<Option<Vec<u8>>> = shards
         .into_iter()
         .enumerate()
@@ -112,5 +161,5 @@ pub fn reconstruct_verified(
             need: data_shards,
         });
     }
-    reconstruct(clean, data_shards, parity_shards, orig_len).ok_or(RecoverError::Decode)
+    decode(clean, data_shards, parity_shards, orig_len)
 }

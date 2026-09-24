@@ -9,6 +9,7 @@
 
 use crate::hash::tagged;
 use rand_core::OsRng;
+use sha2::{Digest, Sha512};
 use std::collections::HashSet;
 use std::fmt;
 use voprf::{Ristretto255, VoprfClient, VoprfServer};
@@ -93,6 +94,8 @@ impl UniquenessOracle for ReferenceOracle {
 
 /// Info string binding the derived key to this application (RFC 9497 DeriveKeyPair).
 const VOPRF_INFO: &[u8] = b"isegoria/uniqueness/v1";
+/// Longest input RFC 9497 accepts: its length is encoded in two bytes.
+const VOPRF_MAX_INPUT: usize = u16::MAX as usize;
 
 /// Real uniqueness-label backend: a single-server **VOPRF** (RFC 9497, verifiable
 /// mode, Ristretto255-SHA512). `label` runs the full oblivious round-trip in-process
@@ -128,11 +131,22 @@ impl VoprfOracle {
 
 impl UniquenessOracle for VoprfOracle {
     fn label(&self, anchor: &Anchor) -> Label {
-        let input = anchor.0.as_bytes();
+        let anchor = anchor.0.as_bytes();
+        // RFC 9497 caps an input at `u16::MAX` bytes. A longer anchor (never a codice
+        // fiscale, but the bytes come from the adapter) is first hashed to 64 bytes, and
+        // its label gets a tag of its own, so the oracle is total and a long anchor's
+        // label cannot equal a short one's (T44: this used to panic).
+        let digest;
+        let (input, tag) = if anchor.len() <= VOPRF_MAX_INPUT {
+            (anchor, "isegoria/uniqueness/voprf/v1")
+        } else {
+            digest = Sha512::digest(anchor);
+            (digest.as_slice(), "isegoria/uniqueness/voprf/long/v1")
+        };
         let mut rng = OsRng;
         // 1. Client blinds the anchor; only the blinded element goes to the server.
         let blind = VoprfClient::<Ristretto255>::blind(input, &mut rng)
-            .expect("anchor is a non-empty, bounded byte string");
+            .expect("the input is at most u16::MAX bytes");
         // 2. Server evaluates under its committed key and returns a proof of it.
         let eval = self.server.blind_evaluate(&mut rng, &blind.message);
         // 3. Client verifies the proof against the public key and unblinds to F(k, anchor).
@@ -146,7 +160,7 @@ impl UniquenessOracle for VoprfOracle {
             )
             .expect("proof verifies: client and server share this server's key");
         // Reduce the 64-byte PRF output to a 32-byte, domain-separated label.
-        Label(tagged("isegoria/uniqueness/voprf/v1", &[output.as_slice()]))
+        Label(tagged(tag, &[output.as_slice()]))
     }
 }
 

@@ -541,10 +541,10 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Evidence status.** RESOLVED@T15 (was NOT IMPLEMENTED). `Checkpoint` now carries `network_id` and `member_set_hash` **inside the signed message** (`…/checkpoint/v2`), and `consortium::CheckpointClient` is the §9.4 client state machine: it rejects a foreign `network_id` (AT-NET-05) or member set, ignores a non-monotonic `height` as a replay (`Stale`, AT-NET-03), and on two threshold-signed checkpoints at the same height with different heads returns `Forked{trusted, conflicting}` — the equivocation evidence (AT-NET-04). Tests: `checkpoint_replay.rs`. Higher-height fork: **RESOLVED@T38** for a client holding the log — `CheckpointClient::ingest_with_log` accepts a higher checkpoint only if its log consistently extends both the trusted and the new head (`log::verify_extends`), returning `Forked` for a threshold-signed checkpoint on a different history, `LogBehind` while the log has not caught up, and `LocalLogDiverged` if the local copy left the trusted history (`checkpoint_fork.rs`). The checkpoint-only `ingest` still cannot tell and is documented as such. Residual: member-set *rotation* in the checkpoint is future (CS-4/T22).
 
 #### NET-007 — Erasure coding
-- `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). **Shard authentication RESOLVED@T16:** `Encoded` carries a per-shard `manifest` (`erasure::shard_hash`), and `erasure::reconstruct_verified` authenticates every present shard against it, dropping a wrong shard as lost before decoding — so a corrupted shard cannot silently corrupt the output; if fewer than `data_shards` authentic shards remain it returns `TooFewAuthenticShards` (`shard_authentication.rs`, AT-NET-06). No placement, repair, or churn model yet. **Evidence status.** Coding primitive + corrupted-shard detection TESTED; placement/repair/churn UNSOLVED.
+- `reed-solomon-erasure` 6.0.0, GF(2⁸), systematic. TESTED (any-k recovery via proptest; below-k fails). **Shard authentication RESOLVED@T16:** `Encoded` carries a per-shard `manifest` (`erasure::shard_hash`), and `erasure::reconstruct_verified` authenticates every present shard against it, dropping a wrong shard as lost before decoding — so a corrupted shard cannot silently corrupt the output; if fewer than `data_shards` authentic shards remain it returns `TooFewAuthenticShards` (`shard_authentication.rs`, AT-NET-06). **Layout validation RESOLVED@T44:** the shard counts and `orig_len` arrive with the shards, and are now checked before anything is sized from them (`RecoverError::InvalidLayout`) — an overflowing count panicked inside the library and a huge `orig_len` was allocated (`docs/12-panic-audit.md` F5–F6). No placement, repair, or churn model yet. **Evidence status.** Coding primitive + corrupted-shard detection TESTED; placement/repair/churn UNSOLVED.
 
 #### NET-008 — Anchoring verification
-- `opentimestamps` 0.2.0 parses `.ots`, recomputing each step's output by executing ops from `start_digest` (auditor checked `timestamp.rs::deserialize_step_recurse`), and `OtsAnchor::walk` compares a `Bitcoin{height}` attestation's digest to the injected block root. Sound given a trustworthy block source. TESTED (lifecycle, mismatch, garbage). **Note** `verify` is the only entry that parses untrusted bytes; the recursion limit in the library bounds it, but a fuzz test is absent.
+- `opentimestamps` 0.2.0 parses `.ots`, recomputing each step's output by executing ops from `start_digest` (auditor checked `timestamp.rs::deserialize_step_recurse`), and `OtsAnchor::walk` compares a `Bitcoin{height}` attestation's digest to the injected block root. Sound given a trustworthy block source. TESTED (lifecycle, mismatch, garbage). **Note** `verify` is the only entry that parses untrusted bytes. **Hostile bytes RESOLVED@T44** (was: "the recursion limit in the library bounds it, but a fuzz test is absent"): the recursion limit bounds depth only. On hostile bytes the library panics on an overlong varint (debug builds), allocates whatever length an unknown attestation declares (a process abort), and doubles the message at each `Hexlify` with no cap (`docs/12-panic-audit.md` F1–F4). `anchoring::within_bounds` now walks the same grammar first, executing nothing, and refuses a proof beyond the bounds (depth 256, operation results ≤ 4096 bytes as in python-opentimestamps, declared lengths inside the proof, ≤ 1 MiB materialized, ≤ 64 KiB proof); genuine proofs pass (`tests/fixtures/ots/`). Fuzz target `network/fuzz/ots_verify`; stable properties in `hostile_input.rs` (AT-NET-07).
 
 #### NET-009 — Anchoring liveness and linkage
 - No calendar submission, no Bitcoin block source, no scheduler ("hourly"), and nothing anchors a consortium checkpoint head (the only caller of `submit` is a test). **Evidence status.** NOT IMPLEMENTED beyond the proof format.
@@ -908,7 +908,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Corrupted shard | SOLVED (T16): `reconstruct_verified` drops a shard failing its manifest hash before decoding (NET-007) |
 | Gossip poisoning | undefined (no gossip) |
 | Merkle leaf duplication | DEFECT (NET-003) — currently unexploitable only because nothing uses the root |
-| OTS proof parsing of hostile bytes | PARTIALLY MITIGATED (library recursion limit; no fuzzing) |
+| OTS proof parsing of hostile bytes | SOLVED (T44): a bounded pre-scan refuses the proof before the library parses it (NET-008); fuzzed (`ots_verify`) |
 
 ---
 
@@ -959,7 +959,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-NET-04 | equivocation | two cps, same height, `≥ t` sigs | fork alarm + evidence | NET-006 |
 | AT-NET-05 | cross-network replay | cp signed for net A presented on net B | rejected | NET-006 |
 | AT-NET-06 | corrupted shard | flip bytes in one shard, decode | detected before/at decode | NET-007 |
-| AT-NET-07 | hostile `.ots` | fuzz `verify` | no panic, bounded time | NET-008 |
+| AT-NET-07 ✓ | hostile `.ots` | fuzz `verify` | no panic, bounded time | NET-008 |
 | AT-NET-08 ✓ | threshold counting | 2-of-5, duplicates | rejected | NET-005 |
 | AT-PRO-01 | unproven nym | submit a review with a random 32-byte `Nym` | rejected | PROTO-007 |
 | AT-PRO-02 | batch of one | `stage2` / mixture with 1 item | rejected | INV-8 |
@@ -1196,8 +1196,8 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
 | NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
 | NET-006 | replay/equivocation/net id | `consortium.rs` (`Checkpoint` v2, `CheckpointClient`, `member_set_hash`), `checkpoint_replay.rs` | RESOLVED@T15 — net/member-set binding in the signed message; client monotonic-height rule; same-height equivocation evidence (AT-NET-03..05) | member-set rotation (T22); higher-height fork via `verify_extends` | §9.4 |
-| NET-007 | erasure | `erasure.rs` (`manifest`, `reconstruct_verified`), `shard_authentication.rs` | RESOLVED@T16 — shard authentication before decode (AT-NET-06) | placement/repair/churn | AT-NET-06 |
-| NET-008 | OTS verify | `anchoring.rs`, `integrity.rs` | TESTED (format) | fuzz | AT-NET-07 |
+| NET-007 | erasure | `erasure.rs` (`manifest`, `reconstruct_verified`, `check_layout`), `shard_authentication.rs`, `hostile_input.rs`, `fuzz/erasure` | RESOLVED@T16 — shard authentication before decode (AT-NET-06); layout validated before sizing (T44) | placement/repair/churn | AT-NET-06 |
+| NET-008 | OTS verify | `anchoring.rs` (`within_bounds`), `integrity.rs`, `hostile_input.rs`, `fuzz/ots_verify` | RESOLVED@T44 — bounded pre-scan before the library parser; fuzzed (AT-NET-07) | — | AT-NET-07 |
 | NET-009 | anchoring liveness | — | NOT IMPLEMENTED | — | roadmap |
 | NET-010 | transport/CRDT | — | HYPOTHESIS | — | roadmap |
 | PROTO-001 | deposit needs source | `lifecycle.rs` | TESTED | structured citation | docs/03 |

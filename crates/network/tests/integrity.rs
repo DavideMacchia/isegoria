@@ -46,12 +46,17 @@ fn merkle_inclusion_proof_verifies() {
     let leaves: Vec<[u8; 32]> = (0..7u8).map(|i| leaf_hash(&[i])).collect();
     let root = merkle_root(&leaves);
     for i in 0..leaves.len() {
-        let proof = merkle_proof(&leaves, i);
+        let proof = merkle_proof(&leaves, i).expect("leaf in range");
         assert!(verify_proof(leaves[i], &proof, root), "leaf {i}");
     }
     // A wrong leaf does not verify.
-    let bad = merkle_proof(&leaves, 3);
+    let bad = merkle_proof(&leaves, 3).expect("leaf in range");
     assert!(!verify_proof(leaf_hash(&[99]), &bad, root));
+    // There is no proof for a leaf that does not exist (T44: this used to panic, or
+    // return a proof for no leaf at all).
+    assert!(merkle_proof(&leaves, leaves.len()).is_none());
+    assert!(merkle_proof(&leaves, usize::MAX).is_none());
+    assert!(merkle_proof(&[], 0).is_none());
 }
 
 #[test]
@@ -88,7 +93,7 @@ fn inclusion_proofs_verify_at_every_size() {
         let leaves: Vec<[u8; 32]> = (0..n as u8).map(|i| leaf_hash(&[i])).collect();
         let root = merkle_root(&leaves);
         for i in 0..n {
-            let proof = merkle_proof(&leaves, i);
+            let proof = merkle_proof(&leaves, i).expect("leaf in range");
             assert!(verify_proof(leaves[i], &proof, root), "n={n} leaf={i}");
         }
     }

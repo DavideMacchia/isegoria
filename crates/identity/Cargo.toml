@@ -36,6 +36,10 @@ ark-serialize = "0.4"
 # as a tested exception, see docs/CLAUDE.md), not RFC 9497 wire-compatible with voprf.
 curve25519-dalek = { version = "4", features = ["digest"] }
 
+# `cfg(fuzzing)` is set by cargo-fuzz; it exposes the entry points `fuzz/` needs (T44).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
 # Integration tests reach for the raw voprf API to assert the protocol-level
 # properties (obliviousness, verifiability) that VoprfOracle relies on.
 [dev-dependencies]
