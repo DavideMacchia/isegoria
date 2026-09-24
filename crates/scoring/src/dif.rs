@@ -495,6 +495,31 @@ mod tests {
     use super::*;
     use crate::optim::numerical_gradient;
 
+    /// The BIC penalty counts the free parameters: `G − 1` proportions, `K` (shared) or
+    /// `K·G` (per-class) discriminations, and `K·G` difficulties.
+    #[test]
+    fn free_parameters_are_counted_as_specified() {
+        let k = 8;
+        for g in 1..=4 {
+            let shared = Model {
+                g,
+                k,
+                per_class_a: false,
+            };
+            let per_class = Model {
+                g,
+                k,
+                per_class_a: true,
+            };
+            assert_eq!(shared.free_params(), (g - 1) + k + k * g, "G={g} shared");
+            assert_eq!(
+                per_class.free_params(),
+                (g - 1) + 2 * k * g,
+                "G={g} per-class"
+            );
+        }
+    }
+
     /// The analytic mixture gradient matches central differences for every model shape:
     /// 1–3 classes, shared or per-class discrimination (T40).
     #[test]

@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer). |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector). |
 
 ## Why this was needed
 
@@ -133,6 +133,22 @@ ill-conditioned quadratic. The survivors that remain are in the table above, plu
 | `optim.rs:193` `i > 0` → `<`, `==` | Drops the "value rose during expansion" test (Nocedal & Wright 3.5). The search then brackets on the slope sign or accepts a Wolfe point further out: a different trajectory to a valid step, and no constructed problem made it differ. |
 | `optim.rs:230` `hi − lo` → `hi + lo` (×2: `+`, `/`) | Differs only once the bracket is reversed (`hi < lo`) *and* an interior point is too steep — not reached by any reference problem. |
 | `optim.rs:258`, `optim.rs:259` (×2) the interpolation margins | Matter only when the cubic minimizer falls outside the bracket, which cannot happen while the slope changes sign inside it. |
+
+## Run 5 — the T40 latent-class detector
+
+With the faster configuration, `cargo mutants --workspace --in-diff` on the T40 branch:
+208 mutants in 10 minutes, 8 survivors. Four were real and are killed: the free-parameter
+count behind the BIC (`dif::tests::free_parameters_are_counted_as_specified`); the seed,
+which the seed-robustness test could not see being dropped precisely because the verdict
+does not depend on it (`latent_classes.rs::the_seed_changes_the_starts_not_the_verdict`);
+the staged-search rule (`::larger_mixtures_are_tried_only_while_the_bic_improves`); and
+the gap over three or more classes, which needed data where the BIC really selects three
+(`::three_well_separated_classes_are_selected_as_three`). The other four are equivalent:
+
+| Mutant(s) | Why it is equivalent |
+|---|---|
+| `dif.rs:283` `lo > 0` → `>=` | At `lo = 0` both branches give `softplus = ln 2`, `σ = ½`. |
+| `dif.rs:410` `fit.0 < f` → `<=`; `dif.rs:420` `b < best` → `<=` | Exact ties of two fitted likelihoods or BICs. |
 
 ## Keeping it this way
 
