@@ -176,56 +176,61 @@ fn pack(f: &Fit) -> Vec<f64> {
     x
 }
 
-fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
-    let n = data.n;
-    let m = data.m;
-    let lay = Layout { n, m };
-    let obs = &data.obs;
-    // Per-reviewer weights: the data term is `Σ w_u (r − r̂)²` (docs/08 BRIDGE-007).
+// The weighted objective `Σ w_u (r − r̂)² + λ_b‖b‖² + λ_f‖f‖²` (docs/08 BRIDGE-007).
+fn objective(data: &Ratings, p: &BridgingParams, x: &[f64]) -> f64 {
+    let lay = Layout {
+        n: data.n,
+        m: data.m,
+    };
     let w = &data.weights;
+    let mu = lay.mu(x);
+    let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
+    let mut se = 0.0;
+    for o in &data.obs {
+        let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
+        let e = pred - o.r;
+        se += w[o.u] * e * e;
+    }
+    let reg_b: f64 = bu.iter().map(|v| v * v).sum::<f64>() + bj.iter().map(|v| v * v).sum::<f64>();
+    let reg_f: f64 = fu.iter().map(|v| v * v).sum::<f64>() + fj.iter().map(|v| v * v).sum::<f64>();
+    se + p.lam_b * reg_b + p.lam_f * reg_f
+}
 
-    let lam_b = p.lam_b;
-    let lam_f = p.lam_f;
+// Analytic gradient of [`objective`]; pinned against central differences in the tests.
+fn gradient(data: &Ratings, p: &BridgingParams, x: &[f64]) -> Vec<f64> {
+    let (n, m) = (data.n, data.m);
+    let lay = Layout { n, m };
+    let w = &data.weights;
+    let mu = lay.mu(x);
+    let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
+    let mut g = vec![0.0_f64; x.len()];
+    for o in &data.obs {
+        let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
+        let e = 2.0 * w[o.u] * (pred - o.r);
+        g[0] += e;
+        g[1 + o.u] += e;
+        g[1 + n + o.j] += e;
+        g[1 + n + m + o.u] += e * fj[o.j];
+        g[1 + 2 * n + m + o.j] += e * fu[o.u];
+    }
+    for i in 0..n {
+        g[1 + i] += 2.0 * p.lam_b * bu[i];
+        g[1 + n + m + i] += 2.0 * p.lam_f * fu[i];
+    }
+    for j in 0..m {
+        g[1 + n + j] += 2.0 * p.lam_b * bj[j];
+        g[1 + 2 * n + m + j] += 2.0 * p.lam_f * fj[j];
+    }
+    g
+}
 
-    let cost = |x: &[f64]| -> f64 {
-        let mu = lay.mu(x);
-        let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
-        let mut se = 0.0;
-        for o in obs {
-            let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
-            let e = pred - o.r;
-            se += w[o.u] * e * e;
-        }
-        let reg_b: f64 =
-            bu.iter().map(|v| v * v).sum::<f64>() + bj.iter().map(|v| v * v).sum::<f64>();
-        let reg_f: f64 =
-            fu.iter().map(|v| v * v).sum::<f64>() + fj.iter().map(|v| v * v).sum::<f64>();
-        se + lam_b * reg_b + lam_f * reg_f
+fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
+    let lay = Layout {
+        n: data.n,
+        m: data.m,
     };
-
-    let grad = |x: &[f64]| -> Vec<f64> {
-        let mu = lay.mu(x);
-        let (bu, bj, fu, fj) = (lay.bu(x), lay.bj(x), lay.fu(x), lay.fj(x));
-        let mut g = vec![0.0_f64; x.len()];
-        for o in obs {
-            let pred = mu + bu[o.u] + bj[o.j] + fu[o.u] * fj[o.j];
-            let e = 2.0 * w[o.u] * (pred - o.r);
-            g[0] += e;
-            g[1 + o.u] += e;
-            g[1 + n + o.j] += e;
-            g[1 + n + m + o.u] += e * fj[o.j];
-            g[1 + 2 * n + m + o.j] += e * fu[o.u];
-        }
-        for i in 0..n {
-            g[1 + i] += 2.0 * lam_b * bu[i];
-            g[1 + n + m + i] += 2.0 * lam_f * fu[i];
-        }
-        for j in 0..m {
-            g[1 + n + j] += 2.0 * lam_b * bj[j];
-            g[1 + 2 * n + m + j] += 2.0 * lam_f * fj[j];
-        }
-        g
-    };
+    let cost = |x: &[f64]| objective(data, p, x);
+    let grad = |x: &[f64]| gradient(data, p, x);
 
     let m = lbfgs(x0, cost, grad, p.m_hist, p.max_iters, p.g_tol);
     let x = m.x;
@@ -291,4 +296,65 @@ fn normal(rng: &mut ChaCha8Rng) -> f64 {
     let u1: f64 = 1.0 - rng.gen::<f64>();
     let u2: f64 = rng.gen::<f64>();
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A small ratings set with every kind of term active: missing cells, non-uniform
+    /// weights (one zero), and both regularizers.
+    fn sample() -> (Ratings, BridgingParams) {
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        let (n, m) = (6, 5);
+        let r: Vec<Vec<f64>> = (0..n)
+            .map(|_| (0..m).map(|_| rng.gen::<f64>()).collect())
+            .collect();
+        let mask: Vec<Vec<bool>> = (0..n)
+            .map(|u| (0..m).map(|j| (u + 2 * j) % 4 != 0).collect())
+            .collect();
+        let data = Ratings::from_dense(&r, &mask).with_weights(vec![1.0, 0.5, 2.0, 0.0, 1.5, 0.8]);
+        (data, BridgingParams::default())
+    }
+
+    /// The analytic gradient must match central differences of the objective in every
+    /// component: a wrong term still lets L-BFGS report `Converged` near the true
+    /// minimum and shifts `b_j` by less than the oracle tolerance (T41).
+    #[test]
+    fn gradient_matches_central_differences() {
+        let (data, p) = sample();
+        let dim = 1 + 2 * data.n + 2 * data.m;
+        let mut rng = ChaCha8Rng::seed_from_u64(11);
+        for _ in 0..5 {
+            let x: Vec<f64> = (0..dim).map(|_| normal(&mut rng)).collect();
+            let g = gradient(&data, &p, &x);
+            let h = 1e-6;
+            for k in 0..dim {
+                let (mut xp, mut xm) = (x.clone(), x.clone());
+                xp[k] += h;
+                xm[k] -= h;
+                let num = (objective(&data, &p, &xp) - objective(&data, &p, &xm)) / (2.0 * h);
+                assert!(
+                    (g[k] - num).abs() <= 1e-6 * (1.0 + num.abs()),
+                    "component {k}: analytic {} vs numerical {num}",
+                    g[k]
+                );
+            }
+        }
+    }
+
+    /// The objective itself: the weighted squared error plus both penalties, on a point
+    /// small enough to compute by hand.
+    #[test]
+    fn objective_is_weighted_error_plus_penalties() {
+        // One reviewer, one item, weight 2: x = [μ, b_u, b_j, f_u, f_j].
+        let data = Ratings::from_dense(&[vec![1.0]], &[vec![true]]).with_weights(vec![2.0]);
+        let p = BridgingParams::default();
+        let x = [0.5, 0.1, 0.2, 0.3, 0.4];
+        let pred = 0.5 + 0.1 + 0.2 + 0.3 * 0.4;
+        let want = 2.0 * (pred - 1.0_f64).powi(2)
+            + p.lam_b * (0.1_f64.powi(2) + 0.2_f64.powi(2))
+            + p.lam_f * (0.3_f64.powi(2) + 0.4_f64.powi(2));
+        assert!((objective(&data, &p, &x) - want).abs() < 1e-15);
+    }
 }
