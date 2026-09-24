@@ -94,6 +94,9 @@ Schelling point) is the opposite of what is needed.
 
 ## D7 — Sublinear anti-collusion discount
 
+> **Superseded for the protocol by D40** (2026-09-24): detected clusters constrain panel
+> assignment instead of losing weight; detection itself moves to model residuals (D39).
+
 **Choice.** The weight of a correlated group ∝ √(size). Clusters identified by
 behavior correlation.
 
@@ -318,6 +321,9 @@ Resolves Q-3 / G-02.
 
 ## D23 — Evaluator score baseline: the crowd's prediction, not the outcome base rate
 
+> **Refined by D33** (2026-09-24): the crowd baseline excludes the reviewer being scored, and
+> the score is a difference of Brier scores instead of the ratio-form BSS.
+
 **Choice.** The evaluator skill score (BSS) is measured against the crowd's average
 predicted probability (a weight-adjusted average of the reviewers' own predictions),
 computed by the consortium re-runner — not against the after-the-fact base rate of
@@ -397,6 +403,9 @@ G-19.
 
 ## D29 — Public randomness comes from the latest signed checkpoint
 
+> **Superseded by D41** (2026-09-24): the checkpoint head can be ground by whoever orders the
+> last deposits (T37); the beacon becomes commit-reveal among members, then a threshold signature.
+
 **Choice.** Every lottery, reviewer assignment, honeypot placement and sortition draws
 its randomness from the latest threshold-signed consortium checkpoint head (fixed
 after the relevant submissions close), combined with the item id — not from a seed any
@@ -430,3 +439,268 @@ label and re-opens double enrollment for everyone. Resolves Q-12 / ID-006 (INV-1
 keeps the model simpler to reason about and reproduce. Adding a dimension is a future
 option if a real deployment shows a single axis is insufficient. Resolves Q-16 /
 BRIDGE-001.
+
+---
+
+## D32 — Bridge score: side-balanced predicted approval on an absolute threshold
+
+**Choice.** The gate no longer reads the item intercept `b_j`. The weighted fit is
+unchanged. After it, the reviewers are split into two sides by a deterministic 1-D
+2-means on `f_u` (initialized at the minimum and maximum of `f_u`). For each item, the
+model's predicted ratings `r̂_uj` are averaged within each side, and the bridge score is
+the mean of the two side averages: each side counts once, whatever its size. The
+pessimistic bootstrap-min, the uncertainty band and the D26 re-decision all apply to
+this score. The threshold is absolute, on the scale of the declared probability:
+provisionally `τ ≈ 0.80`, to be calibrated (T25). Appeal eligibility still reads
+`|f_j|`.
+
+**Why.** The intercept has two defects (`paper/`, §3.3–3.4). First, it is relative to
+the batch: with `μ` unpenalized, `Σ_j b_j = 0` at every stationary point. Second, its
+origin is a gauge fixed only by the penalties, which at the default `λ_b / λ_f = 5`
+leaves 53–87% of the camp-size effect in the score for 50–3,200 reviewers. Predictions
+avoid both: they do not depend on the gauge and they sit on an absolute scale.
+
+In the paper's tests the side-balanced score brings the leak to between −0.08 and 0.00,
+with 60/40 and 80/20 camps and 50–3,200 reviewers. It also keeps the consensus items
+within ±0.01 whether they are scored in their batch, alone, or next to ten weak
+decoys; on the same test the intercept moves from +0.09 to +0.32.
+
+**Rejected.**
+- Keeping the intercept and raising `λ_b / λ_f` with `√(n/S)`: a moving, data-dependent
+  penalty.
+- Imposing `Σ_j f_j b_j = 0`: the origin would then depend on the lean–quality
+  correlation of the batch.
+- The minimum of the two sides: it gives each side a veto over items it merely
+  tolerates, while Level A is only the upstream filter and Level B decides.
+
+---
+
+## D33 — Evaluator score: leave-one-out difference score, odds-scale weights with shrinkage
+
+**Choice.** On every scored item the evaluator score is
+`S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, where `p̄_{−u,j}` is the weight-adjusted
+mean forecast of the *other* panelists. `S_u` is its mean over the reviewer's scored
+items. Weights are on the odds scale, with shrinkage toward zero:
+
+```
+w_u = exp( γ · S_u · k_u / (k_u + k_0) ),    k_0 ≈ 100,  γ ≈ 35
+```
+
+Here `k_u` is the number of scored items. At `γ ≈ 35`, a reviewer who is reliably 0.02
+better than the crowd weighs double. The cap stays `w_max = 3 × median(w)`. The rule
+replaces the ratio-form BSS and `E_u = σ(γ·BSS)`. It keeps D23's crowd baseline, minus
+the reviewer being scored.
+
+**Why.**
+- *The ratio-form BSS is not proper* (`paper/`, Prop. 12). With one scored item the
+  best report is `logit p* = logit q + 2 logit b`, so a dissenter is paid to move toward
+  the crowd. Example: a reviewer believes 0.30 and the crowd says 0.65. Reporting 0.60
+  earns +0.01 in expectation, reporting the truth earns −0.35.
+- *The difference score is strictly proper* and gives exactly 0 to a reviewer who copies
+  the crowd (Prop. 14).
+- *The cap needs an unbounded scale.* It never binds on `E_u ∈ (0,1)` (Prop. 15), and
+  relative weights `E_u / median(E)` stay bounded too. Odds weights are unbounded, so the
+  cap works.
+- *Shrinkage stops luck from buying weight.* With 16 scored items and one standard error
+  of luck, a reviewer gets ×2.4 the normal weight without shrinkage and ×1.13 with it.
+
+**Rejected.** Keeping the BSS and waiting for more items: its bias shrinks only as about
+`0.23/m`. Relative weights: still bounded.
+
+---
+
+## D34 — Reputation dynamics: long-window mean plus a change detector
+
+**Choice.** The score used for the weights is a symmetric long-window mean of the
+per-item scores. The fast fall of the asymmetric update is replaced by a one-sided CUSUM
+on each reviewer's per-item scores, measured against the reviewer's own long-run mean.
+On an alarm the reviewer returns to probation (D36). Provisional parameters: `k = 0.03`,
+`h = 1.5`, to be calibrated (T25).
+
+**Why.** The asymmetric update penalizes variance, not error. Its stationary level sits
+far below the true mean. A cautious reviewer who is better than the crowd (true +0.009)
+is held at −0.061. A reviewer who copies the crowd stays at exactly 0 and outranks them.
+The update therefore rewards herding, the opposite of D6 (`paper/`, §5.5).
+
+The CUSUM tracks the true mean and reacts only to a sustained drop. In simulation, with
+`k = 0.03` and `h = 1.5`, it gives 0.07 false alarms per 1,000 scored items for an honest
+reviewer. It catches a long-con reviewer who starts flipping 20% of forecasts after a
+median of 36 scored items.
+
+**Rejected.** The asymmetric update (above). A symmetric update without detection: it
+reacts slowly to a long con.
+
+---
+
+## D35 — Scored outcomes: live items with randomized exploration; golden items at 5%
+
+**Choice.** Evaluators are scored on three kinds of item:
+1. golden items, still 5% of the review queue;
+2. every live item they reviewed that reaches Level B, once its outcome is known;
+3. a random 5% of the items the gate rejects, drawn from the public beacon (D41) and
+   sent to the pilot for measurement only.
+
+The outcomes of the items in (3) are weighted by `1/0.05 = 20` (inverse probability), so
+the expected score equals the score with every outcome observed. An explored item does
+not enter the pool because of its pilot result. Entry still requires passing the gate or
+a successful appeal (D8).
+
+**Why.** Differences in skill between evaluators are small compared with the noise of a
+single item (about 0.01–0.02 against about 0.1). Around 100 scored items per reviewer
+are needed before the score means anything. The two options compare as follows at the
+design scale:
+
+| Scored items | Per reviewer per month | Time to 100 scored items | CUSUM reaction (D34) |
+|---|---|---|---|
+| Golden items alone (5%) | ≈ 0.3 | decades | ≈ 10 years |
+| Live outcomes + exploration | ≈ 3.5 | ≈ 2.5 years | ≈ 10 months |
+
+Scoring only the items the gate lets through would break properness, because the
+forecast then influences whether its own outcome is observed. Randomized exploration
+restores properness (Chen, Kash, Ruberry & Shnayder, 2014). Exploration also measures,
+for the first time on real data, how many good items the gate rejects. It costs about 5%
+of pilot capacity.
+
+**Rejected.**
+- Golden items alone: too slow.
+- Golden items at 20%: about 5.5 years, +25% reviewer load, four times the golden-item
+  supply, and golden items reused so often that they become recognizable.
+- Live outcomes without exploration: not proper.
+
+---
+
+## D36 — Probation: 30 scored outcomes, then shrinkage
+
+**Choice.** A new evaluator pseudonym has weight 0 until it has 30 scored outcomes (was
+200). After that, the shrinkage of D33 moves its weight away from 1 only as evidence
+accumulates. Founders are unchanged.
+
+**Why.** At the design scale, 200 scored outcomes take about five years even with D35.
+Probation exists so that a pseudonym with no track record has no influence; 30 outcomes
+are enough for that, and shrinkage handles the rest. Whitewashing is prevented by
+non-rotatable pseudonyms (invariant #5), not by the length of probation.
+
+**Rejected.** 200: years of zero weight for every newcomer.
+
+---
+
+## D37 — Latent DIF: anchor-reliability precondition; θ inside the likelihood as the target model
+
+**Choice.** The latent-class re-check runs only if the anchors' KR-20, computed on the
+batch's respondents, is at least 0.90 (about 40 anchors). Below that the batch is
+refused, like the respondent (N) and item (K) floors. The *differential gap* (each
+item's class gap relative to the batch's common class shift) is reported as a
+diagnostic, never as the verdict.
+
+The target model integrates θ and includes the anchors with class-invariant parameters,
+so that a class-wide shift is no longer mistaken for DIF. The provisional 1.0 threshold
+is re-derived on that model (T24/T25).
+
+**Why.** Error in the ability proxy creates latent classes that do not exist (`paper/`,
+Prop. 10). On null batches at N = 6,000 the production detector behaves as follows:
+
+| Anchors | KR-20 | Result on null batches |
+|---|---|---|
+| 10 | 0.69 | flags clean items |
+| 20 | 0.82 | flags clean items |
+| 30 | 0.87 | passes, by a margin of only 0.01–0.06 |
+| 60 | 0.93 | no spurious class |
+
+The differential gap removes the artefact when few items are biased, but it inverts the
+verdict in a campaign. With 6 of 8 items biased, the biased items score 0.02 and the
+clean ones 1.86. It cannot decide.
+
+**Rejected.** The raw gap without a precondition (false positives). The differential gap
+as the verdict (inverted in a campaign). A threshold tuned to one anchor set.
+
+---
+
+## D38 — DIF is not bias: contested facts go to a balanced pool
+
+**Choice.** Some items show DIF although their key is established by a primary source:
+the dispute concerns knowledge of the fact, not the wording. Such an item is classified
+as a *contested fact* instead of being discarded. Its classification follows the
+evidentiary procedure on the source (`docs/02` §B.5), not a vote. Contested facts enter
+a separate pool. A test draws them only in balanced sets, so that the test as a whole
+favours no latent class (differential test functioning ≈ 0). Items that show DIF for
+any other reason (wording, framing, nuisance content) are rejected as today.
+
+**Why.** DIF means that the item measures a secondary dimension on which the classes
+differ; whether that dimension is a nuisance is a judgment. In a civic bank, a true fact
+on which one camp is systematically misinformed shows DIF by construction. For example,
+75% versus 45% correct at equal knowledge is a log-odds gap of 1.30. Today such an item
+would be discarded, and the appeal channel could never recover it. Balancing at test
+level keeps the test neutral without banning contested facts.
+
+**Rejected.** Rejecting every DIF item: a neutral bank that cannot contain contested
+facts. Admitting contested facts without scoring them: loses the measurement.
+
+---
+
+## D39 — Coordination is detected on model residuals over long histories
+
+**Choice.** Coordination between two reviewers is measured by the correlation of their
+residuals (rating minus the bridging model's prediction) on the items both rated. The
+histories accumulate across epochs. A pair is considered only once it shares at least 30
+items, and its correlation is tested against a permutation null. Clusters use average
+linkage, not connected components.
+
+**Why.** Raw correlations cannot tell a cartel from honest reviewers who share a
+position. In the paper's test:
+
+| | Honest pairs, same camp | Cartel pairs | Honest pairs flagged when 90% of the cartel is caught |
+|---|---|---|---|
+| Raw correlation | +0.94 | +0.93 | 50.6% |
+| Residual correlation | +0.02 | +0.88 | none |
+
+Within one epoch, two reviewers share less than one item on average at the design scale
+(`r²/m`), so detection has to use long histories.
+
+**Rejected.** Pearson correlation on raw ratings with connected components (the current
+rule): it flags honest like-minded reviewers, chains unrelated groups together, and is
+evaded by jitter of σ = 0.05.
+
+---
+
+## D40 — A detected cluster constrains panel assignment, not weights
+
+**Choice.** Members of a detected cluster are never assigned together: a panel holds at
+most one member of each cluster. The protocol does not apply the sublinear weight
+discount. This supersedes D7 for the protocol; the engine keeps the discount function for
+analysis.
+
+**Why.** Assignment is the per-epoch defence. Take 1,000 reviewers, a cluster of 50 and
+panels of 9: uniform assignment puts two or more members of the cluster on 7.1% of
+panels, and three or more on 0.8%. The constraint makes both zero, at no cost to
+anyone's weight. The discount would instead cut every member, false positives included,
+to 14% of their weight (√50/50). And splitting the cluster to evade detection restores
+full weight anyway (`paper/`, Prop. 17).
+
+**Rejected.** Wiring the √k discount into the bridging weights: it can be evaded and it
+penalizes honest like-minded reviewers.
+
+---
+
+## D41 — Public randomness: commit-reveal now, a unique threshold signature after the DKG
+
+**Choice.** The beacon feeds the lottery, reviewer assignment, honeypot placement,
+exploration (D35) and sortition. It is produced by commit-reveal among consortium
+members: each member commits before the deposit window closes and reveals after it, and
+the beacon is the hash of all reveals. A member who does not reveal is excluded from the
+signing set for that epoch and recorded publicly. Once the committees have a real
+distributed key generation (T19), the beacon becomes a unique threshold signature over
+the epoch number (drand-style). This supersedes D29.
+
+**Why.** The current seed, derived from the checkpoint head, can be ground by whoever
+orders the last deposits (T37).
+
+Commit-reveal is available now, and its residual bias is small and visible. The last
+revealer can withhold in order to choose between two outcomes. For example, it can
+double a 0.9% chance of landing on a target's panel to 1.8%, once per epoch, at the cost
+of a public non-reveal.
+
+A threshold signature cannot be biased. Before T19, however, whoever deals the key can
+predict every draw.
+
+**Rejected.** Keeping the checkpoint-derived seed: it can be ground. A threshold
+signature before T19: the dealer can predict it.

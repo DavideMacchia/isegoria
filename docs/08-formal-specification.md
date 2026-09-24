@@ -60,6 +60,49 @@ Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust
 
 ---
 
+## 0-quater. Findings of the working paper (2026-09-24)
+
+The working paper in `paper/` (v0.1 at `2ee5e79`) analysed the scoring mechanism with
+proofs and reproducible experiments (`paper/scripts/`). Its findings are new claims for
+the matrix of §15; all are decided (`docs/01` D32–D41) and planned (`docs/10` P1.6), none
+is implemented yet.
+
+- **BRIDGE-008 — The gate is relative to its batch.** With `μ` unpenalized,
+  `Σ_j b_j = 0` at every stationary point (paper Lemma 1), so `B_j ≥ τ > 0` cannot hold
+  for a whole batch and the score of an item depends on the other items fitted with it:
+  six consensus items of the fixture pass (5 of 6) with the divisive items present and
+  all fail alone; ten weak decoys lift them from ≈ +0.09 to ≈ +0.32. Status: **OPEN** →
+  D32, T49 (`AT-BR-09`).
+- **BRIDGE-009 — Camp-size neutrality holds only partly.** The origin of the axis is a
+  gauge fixed by the penalties alone; in a two-camp model the intercept keeps a fraction
+  `1/(1+ρ)`, `ρ ≈ (λ_b/λ_f)√(S/n)`, of the camp-size effect — 0.53–0.87 at the defaults
+  for 50–3,200 reviewers, confirmed on the full model. Status: **OPEN** → D32, T49
+  (`AT-BR-08`).
+- **DIF-010 — Error in the ability proxy creates latent classes.** Given the anchor total,
+  trial items are positively dependent even without DIF (paper Prop 10); on null batches
+  at N = 6,000 the production detector flags clean items with 10 or 20 anchors (KR-20
+  0.69 / 0.82) and passes at 30 (0.87) by 0.01–0.06. The differential gap is no remedy on
+  its own: with 6 of 8 items biased it inverts the verdict. Status: **OPEN** → D37, T53,
+  T54 (`AT-DIF-11`, `AT-DIF-12`); also bears on DIF-006 and DIF-008.
+- **REPUTATION-008 — The evaluator score is not proper.** The ratio-form BSS rewards
+  moving toward the crowd: with one scored item `logit p* = logit q + 2 logit b` (paper
+  Prop 12). Scoring only items that pass the gate would also be improper. Status:
+  **OPEN** → D33, D35, T50, T52 (`AT-REP-05`, `AT-REP-06`).
+- **REPUTATION-004 (update).** The asymmetric update penalizes variance: an honest
+  reviewer better than the crowd (true +0.009) is held at −0.061, while a crowd copier
+  stays at 0. Status: **OPEN** → D34, T51 (`AT-REP-07`).
+- **REPUTATION-005 (update).** Rescaling to `E_u / median(E)` does not give the cap force;
+  only an unbounded scale does. → D33, T50.
+- **COLLUSION-006 — There is almost nothing to correlate within an epoch.** Two reviewers
+  share `r²/m` items per epoch on average (0.81 at `r = 9`, `m = 100`); raw correlations
+  also cannot separate a cartel (+0.93) from honest same-camp pairs (+0.94), whereas
+  residual correlations can (+0.88 vs +0.02). Status: **OPEN** → D39, D40, T56, T57
+  (`AT-COL-07`, `AT-BR-10`).
+- **CRYPTO-008 (update).** The beacon is decided: commit-reveal now, a threshold signature
+  after T19 (D41, T37).
+
+---
+
 ## 1. Scope
 
 This specification covers the system described by `docs/00`–`docs/06` and implemented in the Cargo workspace at the audited commit:
@@ -934,12 +977,16 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-REP-02 | consensus follower | `p_uj := p̄_j` for all j | BSS ≈ 0 under the *specified* baseline | REPUTATION-003 |
 | AT-REP-03 | denominator zero | all `o_j` equal | finite, defined result | REPUTATION-003 |
 | AT-REP-04 | cap binds | weights = `E_u ∈ (0,1)` with median > 1/3 | cap has an effect or the spec is changed | REPUTATION-005 |
+| AT-REP-05 | properness (D33) | random beliefs and baselines, exact expectation over all outcomes, `m ≤ 4` | the expected score is maximized by the true belief | REPUTATION-008 |
+| AT-REP-06 | exploration weights (D35) | synthetic reviewers; outcomes observed with probability 1 (passed) or 0.05 (explored rejections) | the weighted score's expectation equals the full-information score within Monte Carlo error; truthful reporting stays optimal | REPUTATION-008 |
+| AT-REP-07 | change detection (D34) | seeded honest stream of 10,000 scored items; a reviewer that starts flipping 20% of forecasts | at most one alarm on the honest stream; the flipper caught within 100 scored items | REPUTATION-004 |
 | AT-COL-01 ✓ | identical cartel | 400/500 identical rows | Σw = √k | COLLUSION-001 |
 | AT-COL-02 | jittered cartel | shared pattern + `N(0, σ)`, σ ∈ {0.02, 0.05, 0.1} | discounted to within 10 % of √k | COLLUSION-002 |
 | AT-COL-03 | sparse cartel | design regime: M = 500 items, 9 ratings/node, cartel votes identically *on shared items only* | detected | COLLUSION-003 |
 | AT-COL-04 | sub-unit boost | singleton `w = 0.25` | discounted weight ≤ 0.25 | INV-14 |
 | AT-COL-05 | griefing | attacker mimics honest node H's history to pull H into a cluster | H's weight unchanged or the effect bounded and documented | COLLUSION-005 |
 | AT-COL-06 | influence, not weight | cartel of 400 vs 120 honest, weights *consumed by bridging* | `b_j` of a targeted item moves less than with 22 independents | BRIDGE-007 |
+| AT-COL-07 | like-minded honest reviewers (D39) | two camps, long histories, a jittered cross-camp cartel | residual-correlation detector flags the cartel and no honest pair; pairs with fewer than 30 shared items are never flagged | COLLUSION-002/006 |
 | AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `b_j < τ` | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
 | AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `|Δb_j| < 1e-9` without | REPRO-002 |
@@ -947,6 +994,9 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-05 | seed grinding | author regenerates draft whitespace 1000× to select a panel | panel independent of draft bytes | CRYPTO-008 |
 | AT-BR-06 | commitment copying | B copies A's commitment, reveals A's opening after A | B's reveal rejected | CRYPTO-007 |
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
+| AT-BR-08 | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 then swapped; also 80/20; 50–3,200 reviewers | the same item of the pair passes in both orientations; leak ≤ 0.1 | BRIDGE-009 |
+| AT-BR-09 | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch | no other item's bridge score moves by more than 0.02; no verdict changes | BRIDGE-008 |
+| AT-BR-10 | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged | COLLUSION-006 |
 | AT-DIF-01 | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α | DIF-008 |
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
 | AT-DIF-03 | non-uniform DIF | class-specific `a_j` | detected or documented as out of scope | DIF-004 |
@@ -957,6 +1007,8 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-DIF-08 | purification oscillation | adversarial batch constructed so flags alternate | non-convergence signalled | DIF-007 |
 | AT-DIF-09 | pool-scale mixture | K = 100, NT = 3000 | completes within a stated budget | DIF-009 |
 | AT-DIF-10 ✓ | single item invisible | 1/8 | (documentation claim, not a guard) | DIF-005 |
+| AT-DIF-11 | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 20 vs 60 anchors | 20 anchors (KR-20 ≈ 0.82) refused before fitting; 60 anchors (≈ 0.93) accepted with no flag | DIF-010 |
+| AT-DIF-12 | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction | exactly the shifted items flagged in every case (the differential gap alone inverts at 6 of 8) | DIF-010 |
 | AT-NET-01 | consistent rewrite | rewrite entries `i..`, recompute hashes | detected against a stored prior head | NET-004 |
 | AT-NET-02 | leaf duplication | `[x,y,z]` vs `[x,y,z,z]` | distinct roots | NET-003 |
 | AT-NET-03 | checkpoint replay | old valid checkpoint to a client at height `h' < h` | ignored | NET-006 |
@@ -971,6 +1023,8 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-PRO-04 | Draft CID ambiguity | `("ab","c")` vs `("a","bc")` | distinct CIDs | PROTO-011 |
 | AT-PRO-05 | honeypot self-review | committee member assigned its own golden item | excluded or accepted-and-documented | PROTO-009 |
 | AT-PRO-06 | oracle version pin | regenerate fixtures under pinned numpy/scipy in CI | matches | REPRO-003/004 |
+| AT-PRO-07 | exploration (D35) | 5% of gate rejections drawn from the beacon and piloted | draw reproducible from the beacon and not choosable; an explored item never reaches `ActivePool` | REPUTATION-008 |
+| AT-PRO-08 | contested facts (D38) | assemble tests from a pool with contested facts leaning both ways | every assembled test within the DTF tolerance; a DIF item without a verified source rejected | DIF-010 |
 
 ---
 
@@ -1148,6 +1202,8 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | IMPLEMENTED + semantics defined (T10/T30): D26 re-decision | — | G-15 |
 | BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
+| BRIDGE-008 | gate independent of the batch | paper §3.3, `levelA_relativity.py` | OPEN — `Σ_j b_j = 0`; verdicts depend on the batch | side-balanced score (D32) | T49, AT-BR-09 |
+| BRIDGE-009 | camp-size neutrality | paper §3.4, `levelA_leak.py` | OPEN — leak 0.53–0.87 at the defaults | side-balanced score (D32) | T49, AT-BR-08 |
 | OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected. T41: a failed line search is no longer reported as `Converged` (the stall test ran first, and Armijo could pass by rounding with no movement) | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |
@@ -1161,6 +1217,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | DIF-007 | purification fixed point | `level_b.rs` | TESTED (1 dataset) | convergence signalling | AT-DIF-08 |
 | DIF-008 | FP/FN characterized | — | NOT ESTABLISHED | simulations | AT-DIF-01..04 |
 | DIF-009 | pool-scale feasibility | — | NOT ESTABLISHED | analytic gradient, benchmark | AT-DIF-09 |
+| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py` | OPEN — false flags on null batches with ≤ 20 anchors | anchor gate, θ in the likelihood (D37) | T53, T54, AT-DIF-11/12 |
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
 | REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED | — | — |
@@ -1169,11 +1226,13 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
 | REPUTATION-006 | probation | `probation.rs`, `orchestrator.rs` (`bridging_weights`) | WIRED (T5) — probation → `w_u = 0`, so a probationer's ratings do not move `b_j`; `orchestrator_driver.rs` | — | G-03 |
 | REPUTATION-007 | appeal stake coherent | `lifecycle.rs` | INCONSISTENT | — | redefine as pseudo-observation |
+| REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py` | OPEN — ratio BSS improper | LOO difference score, exploration (D33, D35) | T50, T52, AT-REP-05/06 |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
 | COLLUSION-003 | sparse data | — | NOT IMPLEMENTED | — | AT-COL-03 |
 | COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5); `anti_collusion.rs` (AT-COL-04) | RESOLVED @289aae3 (was INV-14 VIOLATED) — see §0-bis | — | — |
 | COLLUSION-005 | chaining/griefing | — | UNSOLVED | analysis | AT-COL-05 |
+| COLLUSION-006 | per-epoch detection possible | paper §6.3 | OPEN — overlap `r²/m` ≈ 0.8 per epoch | residual detector on long histories; panel diversification (D39, D40) | T56, T57, AT-COL-07, AT-BR-10 |
 | ID-001 | dedup same anchor | `identity/tests/*` | TESTED (registry logic) | authenticated anchor | G-02 |
 | ID-002 | obliviousness | `voprf_oracle.rs` (primitive) | primitive TESTED; interface NOT IMPLEMENTED | split API | G-02 |
 | ID-003 | t−1 cannot compute | `oprf.rs` tests (incl. AT-ID-04) | TESTED (functional, in-process); duplicate-index guard RESOLVED @289aae3 | DKG, transport, external review | §7.4 |

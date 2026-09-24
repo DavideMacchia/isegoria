@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Purpose** | Turn the gaps found in `docs/08-formal-specification.md` and the decisions in `docs/01` (D17–D31) into an ordered plan of work. |
-| **Derived from** | `docs/08` §14 (gaps), §12 (adversarial tests AT-*), §16 (acceptance gate). |
+| **Purpose** | Turn the gaps found in `docs/08-formal-specification.md` and the decisions in `docs/01` (D17–D41) into an ordered plan of work. |
+| **Derived from** | `docs/08` §14 (gaps), §12 (adversarial tests AT-*), §16 (acceptance gate); the working paper in `paper/` (P1.6). |
 | **Status** | Living plan. Task ids (`T#`) are stable; sizes are S/M/L (relative effort, not dates). |
 
 ## Where we start
@@ -11,6 +11,8 @@
 Already done (branch `fix/audit-concrete-bugs`):
 - The six concrete code defects are closed with regression tests (see `docs/08` §0-bis).
 - The seventeen open design questions are decided and recorded as `docs/01` **D17–D31**.
+- The working paper (`paper/`, 2026-09-24) analysed the scoring mechanism; the design
+  revisions it led to are decided as `docs/01` **D32–D41** and planned in P1.6 below.
 
 Everything below is what remains of the audit: the decisions turned into code, plus
 the parts of the system that are specified but not yet built.
@@ -106,7 +108,7 @@ measure *verification*, not execution. Only property-based tests exist today in
 | T34 | **The 2PL item fit reports whether it can be trusted.** **Done:** `Fit2pl { a, b, status }`; `stage1_screen` requires `Converged` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`). `fit_2pl_item` drops the logistic status, so a separated fit's huge slope passes the `a ≥ A_MIN` screen. Return the status; the stage-1 screen fails an item whose fit is not `Converged` | OPT-001, T2 | a perfectly separating item fails the screen | S |
 | T35 | **The latent re-check reports the specified quantity and only acts on a trustworthy fit.** **Done:** `MixtureDif::dif = 2|δ|`, `MIXTURE_DIF_MAX = 1.0` (provisional), `revalidation::latent_flags` gates on convergence and BIC (`latent_revalidation.rs`). Report `DIF_j = 2|δ_j|` (the b-gap `docs/02` defines, not the half-gap) and flag nothing when the free fit did not converge or the BIC does not favour two classes. The rejection threshold on the b-gap stays **1.0** (the current behaviour, now stated) — the literature 0.5 applied to this estimator flags all 8 items of the one-biased-item fixture — until T24/T25 calibrate it | DIF-006, DIF-004, D24 | threshold on `DIF_j`; non-converged / BIC ≤ 0 flags nothing; docs/02 and docs/08 record the provisional value | S |
 | T36 | **Degenerate inputs have a defined answer.** **Done:** θ ≡ 0 with no spread, `point_biserial` = 0 with no variance, malformed tally never approves, `DuplicateCandidate` (`degenerate_inputs.rs`, `lifecycle.rs`, `properties.rs`). `standardize` on an empty or constant vector returns NaN (IRT-001); `point_biserial` divides by a zero variance; `change_approved` accepts `votes_for > total_eligible`; `stratified_sortition` can seat the same id twice | IRT-001, §6 | each case has a documented, conservative result and a test | S |
-| T37 | **The beacon is not grind-free yet (reopens INV-10).** **Decision pending (maintainer):** (a) a unique threshold signature over the epoch number, drand-style — unbiasable, but inherits the trusted-dealer caveat until T19; or (b) commit-reveal among members bound before the deposit window closes — simpler, but the last revealer can abort and bias one bit. The seed is `H(checkpoint head ‖ …)` and the head is a deterministic function of the log content: whoever orders or includes the last deposits before the checkpoint — the publisher, a colluding threshold of signers, or a last depositor who sees the log — can try variants and keep the preferred seed. Separate the randomness from the state commitment (commit-reveal among members, or a threshold signature/VRF over the epoch as the beacon) | INV-10, CRYPTO-008, D29 | a test shows the last depositor cannot choose among seeds; docs/08 status honest meanwhile | M |
+| T37 | **The beacon is not grind-free yet (reopens INV-10).** **Decided (2026-09-24, D41):** commit-reveal among consortium members now, with a public penalty for not revealing; a unique threshold signature over the epoch number once T19 gives the committees a real DKG. Options that were on the table: (a) a unique threshold signature over the epoch number, drand-style — unbiasable, but inherits the trusted-dealer caveat until T19; or (b) commit-reveal among members bound before the deposit window closes — simpler, but the last revealer can abort and bias one bit. The seed is `H(checkpoint head ‖ …)` and the head is a deterministic function of the log content: whoever orders or includes the last deposits before the checkpoint — the publisher, a colluding threshold of signers, or a last depositor who sees the log — can try variants and keep the preferred seed. Separate the randomness from the state commitment (commit-reveal among members, or a threshold signature/VRF over the epoch as the beacon) | INV-10, CRYPTO-008, D29, D41 | a test shows the last depositor cannot choose among seeds; a member who withholds its reveal is excluded and recorded; docs/08 status honest meanwhile | M |
 | T38 | **A higher checkpoint must extend the trusted one.** **Done:** `CheckpointClient::ingest_with_log` (`checkpoint_fork.rs`). `CheckpointClient::ingest` accepts any threshold-signed checkpoint of greater height; a client that holds the log must also require `log::verify_extends(prior)` (or a consistency proof) before moving its trust | NET-006 residual, T14/T15 | a threshold-signed higher-height fork is reported, not accepted | S |
 | T48 | **The bridging fit can stop far from a minimum, and depends on the seed.** Found by the T42 property tests: the relative-progress stall criterion ends a slow Armijo-only descent early and reports `Converged` (on the fixture, seed 5 stops at 4× the objective of the other seeds, with `b_j` up to 1.08); on random data several local minima exist and 8 seeds disagree on some `b_j` by > 0.01 in 57–84% of cases, sometimes across `τ`. **Decided (2026-09-24): both** — a strong-Wolfe line search with a gradient-based stop, so each start really reaches a minimum, *and* a deterministic multi-start keeping the lowest objective, so the choice among genuine minima does not depend on the seed. Changes the golden outputs (regenerate on purpose) and multiplies the fit time by the number of starts. **Done:** strong-Wolfe `lbfgs`; `fit` with `n_starts = 8` and a canonical sign of `f`; disjoint seed sets disagree in 2/300 random cases (was 105/300), the fixture agrees across 8 base seeds to 1e-4; Rosenbrock 670 → 51 gradients. The progress-stall stop is kept (SciPy has an equivalent `ftol`): the measurements showed the seed-dependence came from distinct minima, not from it | OPT-001, BRIDGE-001, T40, T45 | the verdict of every item on the fixture is the same for every seed; a fit reported `Converged` has `‖∇‖_∞` near `g_tol` | M |
 
@@ -133,10 +135,33 @@ T24 (below) is the statistical counterpart: it is the only way to say the detect
 "work", and it now explicitly includes the **zero-biased** condition (false-positive
 rate), unbalanced classes, `δ` below 0.9, and the T35 threshold choice.
 
-**Milestone M1 — "whole and honest testnet":** reputation is consumed, the protocol
-boundary is Sybil-resistant, nodes talk and persist, the docs match the code. Not yet
-production (single-org committees, unreviewed bespoke crypto, uncharacterized
-parameters).
+### P1.6 · Design revisions from the working paper (D32–D41)
+
+The working paper (`paper/`) found properties of the scoring mechanism that the
+specification did not anticipate: a batch-relative, partly majoritarian bridge score,
+spurious latent classes from error in the ability proxy, an improper evaluator score, a
+weight cap that never binds, and a coordination detector with almost no data per
+epoch. The decisions D32–D41 correct them. Each task below starts with the test that
+fails on the current code, as in P1.5. Several change the specified metrics, so the
+simulations in `sim/`, the oracle fixtures and the golden outputs change with them —
+on purpose, as in T48.
+
+| Task | What it means (plain) | Decision / refs | Done when | Size |
+|---|---|---|---|---|
+| T49 | **Side-balanced bridge score.** After the (unchanged) fit, split reviewers into two sides by 2-means on `f_u`, average the predicted ratings per side, and score each item by the mean of the two sides. Bootstrap-min, band and the D26 re-decision apply to it; the threshold becomes absolute (`τ ≈ 0.80`, provisional). Update `sim/bridging_irt_dif.py` and the fixtures | D32; paper §3.3–3.4; BRIDGE-008/009 | `AT-BR-08` (swapping the camp sizes does not change which of two mirror-image items passes; leak ≤ 0.1 at 60/40 and 80/20 for 50–3,200 reviewers) and `AT-BR-09` (ten weak decoy items move no other item's score by more than 0.02) pass — both fail on the intercept | M |
+| T50 | **Proper evaluator score, odds weights, short probation.** Leave-one-out difference score in `reputation`, used by `honeypot::reviewer_skills`; weights `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, capped at `3 × median`; `N_PROBATION` 200 → 30 | D33, D36; paper Props 12, 14, 15; REPUTATION-005/008, G-12 | `AT-REP-05` (for random beliefs the exact expected score is maximized by the true belief, `m ≤ 4`), `AT-REP-02` (a crowd copier scores exactly 0) and `AT-REP-04` (the cap binds on an outlier) pass; probation ends at 30 scored outcomes | M |
+| T51 | **Change detector instead of the asymmetric update.** Symmetric long-window mean for the weight; one-sided CUSUM (`k = 0.03`, `h = 1.5`, provisional) on each reviewer's per-item scores against their own mean; an alarm returns the reviewer to probation | D34; paper §5.5; REPUTATION-004 | `AT-REP-07`: a seeded honest stream of 10,000 scored items raises at most one alarm, and a reviewer who starts flipping 20% of forecasts is caught within 100 scored items (the game-theoretic `AT-REP-01` stays open) | M |
+| T52 | **Live outcomes with exploration.** Reviewer scores ingest the Level B outcome of every reviewed item that reaches a pilot; a random 5% of gate rejections, drawn from the beacon, go to the pilot for measurement only (`Rejected → Explored → pilots → Measured`, never `ActivePool`), weighted `1/0.05`; the gate's false-negative rate is recorded | D35; paper §5.2 | `AT-PRO-07` (an explored item never enters the pool; the draw is reproducible from the beacon and cannot be chosen) and `AT-REP-06` (on synthetic data the weighted score's expectation equals the full-information score, and truthful reporting stays optimal) pass | L |
+| T53 | **Anchor-reliability gate for latent DIF.** Compute KR-20 of the anchors on the batch's respondents; refuse the latent re-check below 0.90 (`PilotError::UnreliableAnchors`); report the differential gap in `MixtureDif` as a diagnostic only | D37; paper Prop 10, Table 6; DIF-010 | `AT-DIF-11`: the paper's null batches with 20 anchors are refused, those with 60 are accepted and raise no flag | S |
+| T54 | **Latent DIF with θ inside the likelihood.** Mixture IRT that integrates θ (quadrature) and includes the anchors with class-invariant parameters; re-derive the verdict threshold on it; retire the proxy-θ model | D37; DIF-006/008/010 | `AT-DIF-01` holds (item-level false-positive rate ≤ 5% on null batches) for anchor KR-20 from 0.80 to 0.95 at N = 3,000–12,000, and `AT-DIF-12` (campaigns with 2, 4 and 6 of 8 items biased are flagged correctly) passes; runtime per batch recorded | L |
+| T55 | **Contested-facts pool.** An item with DIF whose key a primary source establishes (evidence procedure of `docs/02` §B.5) becomes a *contested fact*: separate pool, drawn only in balanced sets so that differential test functioning stays within a tolerance; define the DTF statistic and the procedure in `docs/02`/`docs/05` first | D38; paper §4.7 | `AT-PRO-08`: every assembled test has DTF within tolerance; a DIF item without a verified source is rejected as before | L |
+| T56 | **Coordination detector on residuals.** In `collusion`: residuals from the bridging fit, accumulated across epochs; pairwise correlation only with at least 30 shared items, against a permutation null; average-linkage clusters | D39; paper Prop 18; COLLUSION-002/003/005/006 | `AT-COL-02` (a cartel jittered by σ = 0.05 is detected) and `AT-COL-07` (honest reviewers of the same camp are not flagged; pairs with fewer than 30 shared items never are) pass | M |
+| T57 | **Panel diversification.** Reviewer assignment keeps at most one member of each detected cluster per panel; the protocol does not apply the weight discount | D40; paper Prop 17 | `AT-BR-10`: over randomized draws no panel holds two members of one flagged cluster, and no honest reviewer's weight changes | M |
+
+**Milestone M1 — "whole and honest testnet":** reputation is consumed and scored
+properly (P1.6), the protocol boundary is Sybil-resistant, nodes talk and persist, the
+docs match the code. Not yet production (single-org committees, unreviewed bespoke
+crypto, uncharacterized parameters).
 
 ---
 
@@ -186,3 +211,8 @@ the *external* tasks (T23, T26, T27) are complete.
 - T37 (beacon) and T38 (higher-height fork) are prerequisites for T18 (transport).
 - Nothing in Phase 1 requires the *external* gates; but the README/docs MUST keep
   calling the system a reference/testnet until T23, T26 and T27 are done.
+- P1.6: T49 comes first (it restores the central claim, bridging instead of majority);
+  it changes the golden outputs, the fixtures and `sim/` on purpose. T50 before T51 and
+  T52; T52 also needs the beacon of T37 (the exploration draw). T53 before T54, whose
+  threshold is final only after T24/T25. T55 needs its evidence procedure specified
+  first. T57 needs T56.
