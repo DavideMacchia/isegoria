@@ -16,3 +16,7 @@ calibration = []
 [dependencies]
 rand = "0.8"
 rand_chacha = "0.3"
+
+[dev-dependencies]
+# Property tests over arbitrary rating matrices, weights and scores (T42).
+proptest = "1"

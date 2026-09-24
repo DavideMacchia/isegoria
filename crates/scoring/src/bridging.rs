@@ -143,11 +143,15 @@ pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
 // RNG consumption order is part of the reproducibility contract.
 fn random_init(data: &Ratings, seed: u64) -> Vec<f64> {
     let (n, m) = (data.n, data.m);
-    let mean_r = if data.obs.is_empty() {
-        0.0
-    } else {
-        data.obs.iter().map(|o| o.r).sum::<f64>() / data.obs.len() as f64
-    };
+    // Weighted like the objective, so a zero-weight (probation) reviewer's ratings do not
+    // move the start point either: on this non-convex objective a different start can
+    // land in a different minimum, and "weight 0" must mean "absent" (T42). With uniform
+    // weights this is bit-identical to the plain mean.
+    let (sum_wr, sum_w) = data.obs.iter().fold((0.0, 0.0), |(swr, sw), o| {
+        let w = data.weights[o.u];
+        (swr + w * o.r, sw + w)
+    });
+    let mean_r = if sum_w > 0.0 { sum_wr / sum_w } else { 0.0 };
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut x0 = vec![0.0_f64; 1 + 2 * n + 2 * m];
     x0[0] = mean_r;
@@ -339,6 +343,54 @@ mod tests {
                     "component {k}: analytic {} vs numerical {num}",
                     g[k]
                 );
+            }
+        }
+    }
+
+    use proptest::prelude::*;
+
+    /// Random data and a random point in the parameter space.
+    fn data_and_point() -> impl Strategy<Value = (Ratings, Vec<f64>)> {
+        (2usize..7, 2usize..5).prop_flat_map(|(n, m)| {
+            (
+                prop::collection::vec(prop::collection::vec(0.0f64..=1.0, m), n),
+                prop::collection::vec(prop::collection::vec(prop::bool::weighted(0.8), m), n),
+                prop::collection::vec(0.0f64..2.0, n),
+                prop::collection::vec(-2.0f64..2.0, 1 + 2 * n + 2 * m),
+            )
+                .prop_map(|(r, mask, w, x)| (Ratings::from_dense(&r, &mask).with_weights(w), x))
+        })
+    }
+
+    proptest! {
+        /// `f` is identified only up to sign: `(f_u, f_j) → (−f_u, −f_j)` leaves the
+        /// objective unchanged bit for bit, so `b_j` — the bridge score — cannot depend
+        /// on which sign the fit picks (T42).
+        #[test]
+        fn the_objective_is_symmetric_in_the_sign_of_f((data, x) in data_and_point()) {
+            let p = BridgingParams::default();
+            let mut flipped = x.clone();
+            for v in &mut flipped[1 + data.n + data.m..] {
+                *v = -*v;
+            }
+            prop_assert_eq!(
+                objective(&data, &p, &x).to_bits(),
+                objective(&data, &p, &flipped).to_bits()
+            );
+        }
+
+        /// The analytic gradient matches central differences on any data and point.
+        #[test]
+        fn the_gradient_matches_central_differences_anywhere((data, x) in data_and_point()) {
+            let p = BridgingParams::default();
+            let g = gradient(&data, &p, &x);
+            let h = 1e-6;
+            for k in 0..x.len() {
+                let (mut xp, mut xm) = (x.clone(), x.clone());
+                xp[k] += h;
+                xm[k] -= h;
+                let num = (objective(&data, &p, &xp) - objective(&data, &p, &xm)) / (2.0 * h);
+                prop_assert!((g[k] - num).abs() <= 1e-6 * (1.0 + num.abs()), "component {}", k);
             }
         }
     }
