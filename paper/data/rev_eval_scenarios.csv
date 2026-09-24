@@ -1,0 +1,4 @@
+scenario,scored_per_month,months_to_100,months_to_36
+golden_5pct,0.32,317,114
+golden_20pct,1.50,67,24
+live_plus_exploration,3.47,29,10

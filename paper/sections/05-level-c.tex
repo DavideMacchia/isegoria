@@ -169,9 +169,11 @@ $w_{\max}=3\operatorname{median}(w)\ge1>w_u$ for every $u$, so $\min(w_{\max},E_
 
 With $E_u=\sig(\gamma\,\mathrm{BSS}_u)$ and a crowd baseline that puts the typical reviewer's
 score near zero, the median of $E$ is close to $\tfrac12$, so the cap is vacuous in the regime the
-design expects. The repository audit notes the same point. Expressing weights relative to the
-median, $w_u=E_u/\operatorname{median}(E)$, or on the odds scale, $w_u=e^{\gamma S_u}$, would give
-the cap force \openq.
+design expects. The repository audit notes the same point. Rescaling does not help:
+relative weights $E_u/\operatorname{median}(E)$ stay below $1/\operatorname{median}(E)\le3$ under
+the same condition. The cap needs an unbounded scale, such as the odds
+$w_u=E_u/(1-E_u)=e^{\gamma\,\mathrm{BSS}_u}$, or $e^{\gamma S_u}$ with the score of
+\cref{prop:loo} \openq.
 
 A subtler issue concerns incentives. The weight is a non-linear function of the realized score,
 first through $\sig$ and then through a moving average that falls faster than it rises (a guard

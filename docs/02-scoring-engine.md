@@ -7,6 +7,13 @@ implement first; the simulations in `sim/` are its executable spec.
 Notation: `u,v` nodes/reviewers; `j` questions (items); `i` respondents; `θ_i` the
 respondent's latent competence.
 
+> **Pending revisions (decided 2026-09-24, not yet implemented).** The working paper
+> (`paper/`) found properties of this specification that `docs/01` D32–D41 correct; the
+> tasks are `docs/10` P1.6 (T49–T57). Until they land, the text below describes the
+> implemented behaviour, and the marked sections are superseded by the decisions:
+> §A.3 score and threshold (D32), §B.3 latent-class DIF (D37, D38), §C.2 evaluator score
+> (D33, D35), §C.4 temporal asymmetry and cap (D33, D34, D36), anti-collusion (D39, D40).
+
 ---
 
 ## Level A — Bridging consensus
@@ -46,6 +53,12 @@ explained as "my faction likes it" survives in `b_j`.
 ### A.3 Score and threshold
 
 **Bridge score:** `B_j = b_j`. Accepted if `B_j ≥ τ`.
+
+> **Superseded by D32 (T49).** `b_j` sums to zero over the batch and keeps 53–87% of the
+> camp-size effect (paper §3.3–3.4). The gate will read the *side-balanced predicted
+> approval*: reviewers split into two sides by 2-means on `f_u`, predicted ratings `r̂_uj`
+> averaged per side, the two sides averaged with equal weight; absolute threshold
+> `τ ≈ 0.80` on the probability scale (provisional).
 
 **The threshold must be calibrated on real data**, not fixed a priori. In testing,
 the Community Notes reference value (0.40, on binary votes) proved inadequate at this
@@ -143,6 +156,12 @@ tertiles, Mantel–Haenszel with ETS classification:
 ```
 
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
+
+> **Revised by D37 and D38 (T53–T55).** Error in the ability proxy creates spurious latent
+> classes (paper §4.5): the re-check will run only when the anchors' KR-20 is ≥ 0.90, and
+> the target model integrates `θ` with the anchors inside the likelihood. An item whose
+> DIF concerns knowledge of a fact established by a primary source becomes a *contested
+> fact* in a balanced pool instead of being rejected (D38).
 
 ```
 P(X_ij = 1 | θ_i, g) = [1 + exp(−a_jg (θ_i − b_jg))]⁻¹
@@ -305,6 +324,12 @@ q_a = q_min + (q_max − q_min) · C_a
 
 ### C.2 Evaluator score `E_u`
 
+> **Superseded by D33 and D35 (T50, T52).** The ratio-form BSS below is not a proper
+> scoring rule (paper Prop. 12). It will be replaced by the leave-one-out difference
+> score `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, with weights
+> `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, scored on golden items, on live items that
+> reach Level B, and on a random 5% of gate rejections sent to the pilot (weighted 1/0.05).
+
 The reviewer does not give a binary judgment: they **declare a probability** `p_uj`
 that the item passes Level B empirical validation. It is scored with a **proper
 scoring rule**, which makes honesty the optimal strategy.
@@ -354,6 +379,11 @@ from the informed minority.
 
 ### C.4 Temporal asymmetry and cap
 
+> **Superseded by D33, D34 and D36 (T50, T51).** The asymmetric update rewards copying the
+> crowd (paper §5.5), and the cap never binds on `E_u ∈ (0,1)`. The weight will follow a
+> symmetric long-window mean with a CUSUM change detector (alarm → probation), the cap
+> will apply on the odds scale, and probation will last 30 scored outcomes instead of 200.
+
 - `E_u` rises slowly (average over a long window), falls quickly (immediate reaction
   to failures). This makes the long-con attack unprofitable.
 - `w_max = 3 × median(w)`, a hard cap recomputed each epoch. Limits the damage of a
@@ -362,6 +392,12 @@ from the informed minority.
 ---
 
 ## Anti-collusion (sublinear discount)
+
+> **Superseded for the protocol by D39 and D40 (T56, T57).** Within an epoch two reviewers
+> share under one item (paper §6.3), and raw correlations cannot separate a cartel from
+> like-minded honest reviewers. Detection will use the correlation of model residuals over
+> long histories (≥ 30 shared items, permutation null), and a detected cluster will limit
+> panel assignment (at most one member per panel) instead of losing weight.
 
 The individual cap does not stop a cartel of coordinated nodes. Correlation is
 penalized.

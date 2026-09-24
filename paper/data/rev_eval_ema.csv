@@ -1,0 +1,4 @@
+reviewer,true_mean,ema_asymmetric,ema_symmetric
+cautious,0.0091,-0.0606,0.0091
+bold,-0.0190,-0.2147,-0.0190
+crowd_copier,0.0000,0.0000,0.0000

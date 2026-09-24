@@ -29,6 +29,10 @@ probation period:  w_u = 0  for the first n_probation ≈ 200 judgments with kno
                    outcomes)
 ```
 
+> **Revised by D36 (T50):** probation lasts 30 scored outcomes; afterwards the evaluator
+> score is shrunk toward zero until evidence accumulates. Whitewashing is prevented by
+> non-rotatability (this requirement), not by the length of probation.
+
 **(P3) Unlinkability.** The issuer must not be able to link the credential to the
 derived IDs, nor the two role IDs of the same person to each other.
 

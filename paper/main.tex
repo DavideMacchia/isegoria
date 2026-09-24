@@ -5,9 +5,9 @@
 \title{Opinion as Filter, Evidence as Verdict:\\
 The Mathematics of Isegoria, an Authority-Free Mechanism\\ for Validating Test Items}
 \author{Davide Macchia}
-\date{Working paper, version 0.1 --- September 2026\\[0.3em]
-\small Describes the reference implementation at commit \texttt{2ee5e79} of
-\url{https://github.com/DavideMacchia/isegoria}}
+\date{Working paper, version 0.2 --- September 2026\\[0.3em]
+\small Describes the reference implementation at commit \texttt{2ee5e79} and the design
+decisions D32--D41 (commit \texttt{7507eab}) of \url{https://github.com/DavideMacchia/isegoria}}
 
 \begin{document}
 \maketitle
@@ -47,6 +47,11 @@ who copies the crowd.
 (v)~The sublinear anti-collusion discount is only as strong as its detector, and at design
 scale two reviewers share under one item per epoch, so random assignment, not the discount,
 carries the per-epoch defence.
+Version~0.2 adds the revisions adopted in response. They are a side-balanced bridge score that
+removes the leak and the batch dependence in our tests, a proper evaluator score learned from
+randomly explored live outcomes and watched by a change detector, a reliability precondition
+for latent DIF, and coordination detection on model residuals. Each is supported by the
+experiments in the paper.
 We state the evidence level of every claim, list what remains open, and give an evaluation plan.
 \end{abstract}
 
@@ -59,6 +64,7 @@ We state the evidence level of every claim, list what remains open, and give an 
 \input{sections/04-level-b}
 \input{sections/05-level-c}
 \input{sections/06-collusion}
+\input{sections/065-revisions}
 \input{sections/07-implementation}
 \input{sections/08-limitations}
 \input{sections/09-evaluation-plan}

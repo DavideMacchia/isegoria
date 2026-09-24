@@ -1,13 +1,16 @@
 # Working paper: the mathematics of Isegoria
 
 **Opinion as Filter, Evidence as Verdict: The Mathematics of Isegoria, an Authority-Free
-Mechanism for Validating Test Items** (working paper, version 0.1, September 2026).
+Mechanism for Validating Test Items** (working paper, version 0.2, September 2026).
 
 - **PDF:** [`main.pdf`](main.pdf), built from the sources in this directory.
-- **Describes:** the repository at commit `2ee5e79`. The paper is a dated snapshot. The living
-  specification is still [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
+- **Describes:** the code at commit `2ee5e79` and the design decisions D32–D41 of
+  [`docs/01`](../docs/01-decisions.md) (commit `7507eab`), which are planned but not yet
+  implemented (roadmap P1.6). The paper is a dated snapshot. The living specification is still
+  [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
   [`docs/08-formal-specification.md`](../docs/08-formal-specification.md). A new version of the
   paper names the commit it describes.
+- **Versions:** 0.1, the analysis; 0.2, adds Section 7, *Adopted revisions*.
 
 ## What it contains
 
@@ -35,6 +38,17 @@ comes with a proof or a reproducible experiment and a candidate correction:
    a reviewer who copies the crowd. The weight cap `3 × median` never binds for `E_u ∈ (0,1)`.
 5. **The anti-collusion discount is only as strong as its detector.** At design scale two
    reviewers share under one item per epoch, so random assignment carries the per-epoch defence.
+
+## Adopted revisions (version 0.2, Section 7)
+
+| Finding | Revision | Decision / task |
+|---|---|---|
+| 1, 2 | side-balanced bridge score: sides by 2-means on `f_u`, predicted approval averaged per side, each side counts once; absolute threshold ≈ 0.80. Leak falls to between −0.08 and 0.00; the score is stable to ±0.01 with or without other items and decoys | D32 / T49 |
+| 4 | leave-one-out difference score; odds weights `exp(γ·S·k/(k+100))`, `γ ≈ 35`; CUSUM change detector instead of the asymmetric update; outcomes of live items plus 5% randomized exploration of rejections (proper by Prop. 21); probation of 30 | D33–D36 / T50–T52 |
+| 3 | anchor KR-20 ≥ 0.90 before a latent re-check (about 40 anchors); the differential gap only as a diagnostic (it inverts in a campaign); θ inside the likelihood as the target model | D37 / T53, T54 |
+| — | contested facts (DIF on knowledge, key backed by a primary source) in a balanced pool | D38 / T55 |
+| 5 | coordination detected on model residuals over long histories (honest pairs flagged 50.6% → 0%); clusters limit panel co-assignment instead of losing weight | D39, D40 / T56, T57 |
+| — | beacon: commit-reveal now, a threshold signature after the DKG | D41 / T37 |
 
 ## Layout
 
@@ -66,6 +80,10 @@ python levelB_detector.py         # Table 6 and production-detector counts (need
 python levelB_differential.py     # differential gap (Section 4.5)
 python levelC_bss.py              # Figure 3, Table 7
 python assignment.py              # Table 8
+python revisions_bridging.py      # Tables 10-11 (~8 min)
+python revisions_evaluator.py     # Tables 12-13, scenario rates (~5 min)
+python revisions_dif.py           # Tables 14-15
+python revisions_collusion.py     # Table 16, panel and beacon figures
 ```
 
 All randomness is seeded. `levelB_detector.py` builds `scripts/dif-harness`, a standalone Cargo

@@ -1,0 +1,8 @@
+quantity,value
+p_two_or_more_hypergeom,0.0704
+p_three_or_more_hypergeom,0.0080
+p_two_or_more_binom,0.0712
+p_three_or_more_binom,0.0084
+discounted_share_sqrt50_over_50,0.1414
+one_shot_chance,0.0090
+with_withholding,0.0179

@@ -11,8 +11,8 @@
 | Brigading specific items | Random reviewer assignment; item not searchable before the verdict | `05` [4] |
 | Herding / information cascades | Commit-reveal, blind judgments, no visibility of others' votes | `05` [4] |
 | Majority capture | Bridging: the majority alone is not enough, cross-cutting approval is needed | `02` A |
-| Coordinated cartel | Sublinear √k discount for correlated clusters | `02` anti-collusion |
-| Long-con (reputation accumulated and spent) | `w_max` cap, asymmetric decay, continuous honeypots | `02` C.4, `05` |
+| Coordinated cartel | Sublinear √k discount for correlated clusters (revised: residual-correlation detection and panel diversification, D39/D40) | `02` anti-collusion |
+| Long-con (reputation accumulated and spent) | `w_max` cap, asymmetric decay, continuous honeypots (revised: odds-scale cap and CUSUM change detector, D33/D34) | `02` C.4, `05` |
 | Biased item passing peer review | Field-data DIF (does not depend on opinions) | `02` B.3 |
 | Vote-buying | Random assignment + no verifiable receipt | `05` [4] |
 | Item leakage (exposure) | Broad pool, rotation, parametric items, retirement on detection | `05` [9] |

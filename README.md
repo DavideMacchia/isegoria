@@ -7,7 +7,8 @@ single authority decides what counts as a fair question.**
 every citizen to speak in the assembly.
 
 > **Status:** the mathematical core (the scoring engine) is complete and validated
-> against reference simulations. The identity, network, and protocol layers are
+> against reference simulations; the working paper in [`paper/`](paper/) led to design
+> revisions (`docs/01` D32–D41) that are planned but not yet implemented. The identity, network, and protocol layers are
 > working, tested scaffolds with the heavy cryptography and transport behind clean
 > plug points. See [Project status](#project-status).
 
@@ -292,6 +293,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Complete, reproducible bit-for-bit, validated against the sims |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; implementation planned (`docs/10` P1.6) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |

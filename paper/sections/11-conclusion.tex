@@ -11,10 +11,19 @@ anticipate:
   \item the evaluator's skill score is not proper, and the weight cap never binds;
   \item the anti-collusion discount depends on a detector that has almost no data within an epoch.
 \end{itemize}
-Each finding comes with a candidate correction. None of the corrections is validated yet.
-The next steps are the evaluation plan of \cref{sec:plan}, which will turn provisional thresholds
-into characterized ones, and independent review of both the statistics and the cryptography. The
-paper is versioned with the repository and will be revised as those results arrive.
+Each finding now has an adopted correction (\cref{sec:revisions}). Some are supported by a
+proof: the side-balanced score is gauge-invariant and camp-balanced (\cref{prop:side}), and
+randomized exploration keeps the evaluator score proper (\cref{prop:ipw}). The others rest on the
+experiments reported here. None is implemented yet, and none is validated beyond simulation.
+The next steps are:
+\begin{itemize}
+  \item implementing the corrections as the repository's roadmap tasks T49--T57, each starting
+    from a test that fails today;
+  \item the evaluation plan of \cref{sec:plan}, which turns provisional thresholds into
+    characterized ones;
+  \item independent review of both the statistics and the cryptography.
+\end{itemize}
+The paper is versioned with the repository and will be revised as those results arrive.
 
 \section*{Acknowledgements and disclosure}
 The analysis, the experiments and the text were prepared with the assistance of an AI system

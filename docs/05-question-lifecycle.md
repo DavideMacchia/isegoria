@@ -50,6 +50,10 @@ can propose as much as they want; each epoch a drawn subset enters the pipeline.
 
 ## [4] Review: random, blind, commit-reveal assignment
 
+> **Revised by D40 and D41 (T57, T37).** A panel will hold at most one member of each
+> cluster flagged by the coordination detector (D39), and all draws will use a beacon made
+> by commit-reveal among consortium members (a threshold signature after T19).
+
 - **Random assignment** of the `k` reviewers (odd, 7–11), stratified on the position
   `f_u` → the batch mirrors all positions of the axis. Prevents **brigading**: nobody
   chooses what to review, and the item is not searchable before the verdict.
@@ -136,6 +140,12 @@ An item used a lot gets memorized and circulates: it loses value. Countermeasure
 
 ## Golden items (honeypot)
 
+> **Extended by D35 (T52).** Golden items stay at 5%, but alone they are too few to learn
+> an evaluator's skill (about one every two epochs per reviewer). Evaluators will also be
+> scored on every reviewed item that reaches Level B and on a random 5% of gate
+> rejections sent to the pilot for measurement only (weighted 1/0.05, never entering the
+> pool).
+
 A simple and powerful mechanism, **always active**, not only at startup. A fraction `η
 ≈ 5%` of the items in the review queue are of known quality (excellent or deliberately
 defective: ambiguous, factually wrong, with known DIF), indistinguishable from the
@@ -154,7 +164,8 @@ defense against meta-level capture: they must not be choosable by anyone.
 - **A founder set** publicly declared, deliberately heterogeneous in orientation and
   provenance, all with identical weight `w = 1`.
 - No differential weight before `≥ 200` judgments with known outcome per node
-  (coincides with the probation period, `03` P2).
+  (coincides with the probation period, `03` P2). **Revised by D36 (T50):** 30 scored
+  outcomes, then shrinkage of the evaluator score toward zero.
 - Start from a **low-political-temperature domain** (e.g. verifiable administrative
   procedures) to calibrate `τ`, `λ`, `k`, `ε` on real data before tackling hot
   questions.
