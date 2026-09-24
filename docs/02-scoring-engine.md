@@ -9,7 +9,7 @@ respondent's latent competence.
 
 > **Pending revisions (decided 2026-09-24, not yet implemented).** The working paper
 > (`paper/`) found properties of this specification that `docs/01` D32–D41 correct; the
-> tasks are `docs/10` P1.6 (T49–T57). Until they land, the text below describes the
+> tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap. Until they land, the text below describes the
 > implemented behaviour, and the marked sections are superseded by the decisions:
 > §A.3 score and threshold (D32), §B.3 latent-class DIF (D37, D38), §C.2 evaluator score
 > (D33, D35), §C.4 temporal asymmetry and cap (D33, D34, D36), anti-collusion (D39, D40).
@@ -428,7 +428,7 @@ conservatively.
 | `N` pilot stage 1 | ~300 | cheap classical screen (see §B.6) |
 | `N` pilot stage 2 | ~1500–3000 | 1500 with a group signal; ≥3000 for latent-class DIF (§B.6) |
 | `a_min` | 0.6 | minimum discrimination |
-| `|β₂|` max DIF | 0.40 | logistic regression |
+| `\|β₂\|` max DIF | 0.40 | logistic regression |
 | `DIF_j` max (latent classes) | 1.0 logit (provisional; literature 0.5) | IRT mixture; see §B.3 |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
 | `α` (cluster discount) | 0.5 | square root |

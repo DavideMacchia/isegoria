@@ -73,6 +73,7 @@ external input. T48, merged afterwards, adds one internal-invariant site in `sco
 | `protocol::review::assign_reviewers` | `stratum.choose(..).unwrap()` | internal: every stratum is non-empty (`lo < n`, `hi >= lo + 1`) | — |
 | `scoring::bridging::Ratings::with_weights` | `assert_eq!(weights.len(), self.n)` | caller precondition: the weights are the protocol's own `E_u` | T46 |
 | `scoring::bridging::fit` (T48) | `best.expect("at least one start")` | internal: the loop runs `n_starts.max(1)` times, and the first start always sets `best` | — |
+| `scoring::bridging` objective and gradient | slice indexing by `Obs { u, j }` | external input: `Ratings` has public fields, and an observation with `u ≥ n` or `j ≥ m` panics on the bounds check (third review, 2026-09-24) | T62 |
 
 Not an `unwrap`, but noted while reading: `scoring::bridging::Ratings::from_dense` indexes
 `mask[u][j]` and `r[u][j]` with the width of row 0, so a ragged or short matrix panics.
@@ -175,8 +176,8 @@ entry points:
 
 ## 6. Left open
 
-- **`scoring` and `protocol`**: fuzz their public entry points and act on §2.3 (T46 covers
-  the caller preconditions). Not done here because those crates were being changed in
+- **`scoring` and `protocol`**: fuzz their public entry points and act on §2.3 (T62 for
+  `scoring`, T46 for the caller preconditions of both). Not done here because those crates were being changed in
   parallel.
 - **Network codecs**: none exist yet. Transport (T18) will add wire formats for
   checkpoints, signatures, receipts, shards, nullifier proofs and OPRF partials; each needs
@@ -185,7 +186,8 @@ entry points:
 - **Fuzzing in CI**: the targets are not built by CI (they need nightly). A scheduled job
   running each for a few minutes would keep them from rotting.
 - **Noticed, not panics**: `Consortium::new` accepts a threshold of 0, which accepts any
-  checkpoint with no signature (a configuration footgun); `ingest_with_log` trusts the first
+  checkpoint with no signature (a configuration footgun; with `verify` ignoring the
+  member-set hash, now T63); `ingest_with_log` trusts the first
   checkpoint on first use, so a local log that does not extend it is reported only at the
   next checkpoint: as `LocalLogDiverged` once it is long enough to show the divergence, as
   `LogBehind` before that (T43).
