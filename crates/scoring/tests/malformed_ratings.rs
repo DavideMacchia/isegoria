@@ -29,7 +29,7 @@ fn well_formed_ratings_fit() {
     assert_eq!(data.validate(), Ok(()));
     let p = BridgingParams::default();
     assert_eq!(fit(&data, &p).unwrap().b_j.len(), 2);
-    assert_eq!(bridge_scores(&data, &p, 3, 0.85).unwrap().len(), 2);
+    assert_eq!(bridge_scores(&data, &p, 3, 0.85).unwrap().robust.len(), 2);
 }
 
 #[test]

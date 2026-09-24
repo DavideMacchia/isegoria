@@ -30,7 +30,7 @@ use protocol::admission::QuotaLedger;
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
-use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
+use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GAP, EPS, TAU};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::{deposit, step, Event, State};
 #[cfg(feature = "calibration")]
@@ -44,7 +44,7 @@ use protocol::pilot::{
 };
 use protocol::revalidation::revalidate_pool_latent;
 #[cfg(feature = "calibration")]
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
+use scoring::bridging::{bridge_scores, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
 #[cfg(feature = "calibration")]
 use std::collections::BTreeSet;
@@ -52,13 +52,6 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-
-#[cfg(feature = "calibration")]
-const TAU: f64 = 0.08;
-#[cfg(feature = "calibration")]
-const EPS: f64 = 0.008;
-#[cfg(feature = "calibration")]
-const APPEAL_THRESHOLD: f64 = 0.5;
 
 // Items that reach the pool under the docs-faithful retention criteria (both
 // r_pbis >= 0.20 AND 2PL a >= 0.6): 01 and 07 (0-indexed 0 and 6).
@@ -74,7 +67,7 @@ const WRONG_KEY: usize = 5; // negative point-biserial, dies in the pilot
 #[cfg(feature = "calibration")]
 const REAL_HEALTH: usize = 2; // true-but-divisive: rejected by bridging, saved by appeal
 #[cfg(feature = "calibration")]
-const CONSTITUTIONAL: usize = 1; // hard item with a guessing floor; see the pool test
+const CONSTITUTIONAL: usize = 1; // passes Level A; too flat a 2PL slope (0.47) in the screen
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scoring/tests/fixtures")
@@ -204,13 +197,13 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
 
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
-    let f = fit(&ratings, &params).unwrap();
 
-    // Gate every item and record whether it advances: a straight pass, a band item the
-    // D26 re-decision carries (a re-run bridging fit vs the plain threshold τ — a bridging
-    // decision, not a vote), or a polarization reject whose author appeals.
+    // Gate every item on its robust side-balanced score and side gap (D32) and record
+    // whether it advances: a straight pass, a band item the D26 re-decision carries (a
+    // re-run bridging fit vs the plain threshold τ — a bridging decision, not a vote), or
+    // a polarization reject whose author appeals.
     let gate: Vec<GateOutcome> = (0..m)
-        .map(|j| bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD))
+        .map(|j| bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP))
         .collect();
     let band_advances: Vec<bool> = (0..m)
         .map(|j| {
@@ -340,9 +333,19 @@ fn full_epoch_filters_each_item_at_the_right_stage() {
         );
     }
     // Everything the two filters must stop is absent, each for its own reason:
-    // ESM (DIF), capital (no discrimination), wrong key (negative point-biserial),
-    // and the un-appealed polarized items 08/09 and real-health.
-    for bad in [ESM, CAPITAL, WRONG_KEY, REAL_HEALTH, 7, 8, 9] {
+    // ESM (DIF), capital (no discrimination), wrong key (negative point-biserial), the
+    // constitutional-majority item (too flat a 2PL slope in the screen), and the
+    // un-appealed polarized items 08/09 and real-health.
+    for bad in [
+        CONSTITUTIONAL,
+        ESM,
+        CAPITAL,
+        WRONG_KEY,
+        REAL_HEALTH,
+        7,
+        8,
+        9,
+    ] {
         assert!(!pool.contains(&bad), "item {bad} should not reach the pool");
     }
     // The "constitutional majority" item is a hard item with a guessing floor: fitting
@@ -361,9 +364,14 @@ fn esm_passes_bridging_and_is_stopped_by_dif_not_review() {
     let ratings = load_ratings();
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
-    let f = fit(&ratings, &params).unwrap();
     assert_eq!(
-        bridging_gate(bridge[ESM], f.f_j[ESM], TAU, EPS, APPEAL_THRESHOLD),
+        bridging_gate(
+            bridge.robust[ESM],
+            bridge.full.gap[ESM],
+            TAU,
+            EPS,
+            APPEAL_GAP
+        ),
         GateOutcome::Pass,
         "ESM should pass peer review"
     );
@@ -398,14 +406,13 @@ fn appeal_recovers_a_true_but_divisive_item() {
     let ratings = load_ratings();
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
-    let f = fit(&ratings, &params).unwrap();
     assert_eq!(
         bridging_gate(
-            bridge[REAL_HEALTH],
-            f.f_j[REAL_HEALTH],
+            bridge.robust[REAL_HEALTH],
+            bridge.full.gap[REAL_HEALTH],
             TAU,
             EPS,
-            APPEAL_THRESHOLD
+            APPEAL_GAP
         ),
         GateOutcome::AppealEligible,
         "a polarized item should be appeal-eligible, not a plain reject"

@@ -15,7 +15,7 @@ use protocol::orchestrator::{
     ReviewerStanding,
 };
 use protocol::probation::N_PROBATION;
-use scoring::bridging::{fit, BridgingParams, RatingsError};
+use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
 
 // ------------------------------- T5: weights from standing -------------------------------
 
@@ -70,12 +70,12 @@ fn lower_reputation_moves_the_bridge_score_less() {
     let params = BridgingParams::default();
 
     let b_t = |standings: &[ReviewerStanding]| {
-        fit(
+        let f = fit(
             &weighted_ratings(&rows, &mask, standings, 1.0).unwrap(),
             &params,
         )
-        .unwrap()
-        .b_j[t]
+        .unwrap();
+        side_balanced(&f).score[t]
     };
 
     // Case A: the bloc are founders (full weight 1).

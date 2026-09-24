@@ -70,11 +70,14 @@ fn current() -> Vec<String> {
     record(&mut rows, "fit.f_j", &f.f_j);
     record(&mut rows, "fit.b_u", &f.b_u);
     record(&mut rows, "fit.f_u", &f.f_u);
-    record(
-        &mut rows,
-        "bridge_scores",
-        &bridge_scores(&data, &p, 10, 0.85).unwrap(),
-    );
+    let bridge = bridge_scores(&data, &p, 10, 0.85).unwrap();
+    record(&mut rows, "bridge.robust", &bridge.robust);
+    record(&mut rows, "bridge.score", &bridge.full.score);
+    record(&mut rows, "bridge.gap", &bridge.full.gap);
+    record(&mut rows, "bridge.side_a", &bridge.full.side_a);
+    record(&mut rows, "bridge.side_b", &bridge.full.side_b);
+    let sides: Vec<f64> = bridge.full.side.iter().map(|s| *s as u8 as f64).collect();
+    record(&mut rows, "bridge.side", &sides);
 
     for set in ["batch", "single"] {
         let theta = read_vector(&format!("mixture_{set}_theta.csv"));

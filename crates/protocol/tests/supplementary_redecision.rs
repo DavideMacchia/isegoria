@@ -4,15 +4,13 @@
 //! replaces the retired `aggregate` tie-break, which advanced even polarized items the
 //! bridging model itself rejects (AT-PRO-03).
 
-use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
+use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GAP, EPS, TAU};
 use protocol::lifecycle::{step, Event, RejectReason, State};
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings, RatingsError};
+use scoring::bridging::{
+    bridge_scores, fit, side_balanced, BridgingParams, Obs, Ratings, RatingsError,
+};
 use std::fs;
 use std::path::PathBuf;
-
-const TAU: f64 = 0.08;
-const EPS: f64 = 0.008;
-const APPEAL_THRESHOLD: f64 = 0.5;
 
 fn read_matrix(name: &str) -> Vec<Vec<f64>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -35,34 +33,75 @@ fn ratings() -> Ratings {
     Ratings::from_dense(&r, &mask)
 }
 
+/// The fixture plus an eleventh, borderline item: approval about τ from every reviewer,
+/// no lean, nine in ten cells observed. On the provisional gate (τ = 0.80 ± 0.02) no
+/// fixture item is borderline — the consensus items score 0.83–0.86, the partisan ones
+/// 0.52–0.57 — so the band is exercised on this one.
+fn ratings_with_a_borderline_item() -> (Ratings, usize) {
+    let base = ratings();
+    let j = base.m;
+    let mut obs = base.obs.clone();
+    for u in 0..base.n {
+        if u % 10 != 3 {
+            let wobble = (((u * 7) % 11) as f64 - 5.0) * 0.006;
+            obs.push(Obs {
+                u,
+                j,
+                r: TAU + wobble,
+            });
+        }
+    }
+    (
+        Ratings {
+            n: base.n,
+            m: base.m + 1,
+            obs,
+            weights: base.weights.clone(),
+        },
+        j,
+    )
+}
+
 #[test]
 fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
-    let ratings = ratings();
+    let (ratings, borderline) = ratings_with_a_borderline_item();
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
-    let f = fit(&ratings, &params).unwrap();
 
-    // The uncertainty band on these fixtures.
-    let band: Vec<usize> = (0..bridge.len())
+    // The uncertainty band on these fixtures: only the borderline item.
+    let band: Vec<usize> = (0..ratings.m)
         .filter(|&j| {
             matches!(
-                bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD),
+                bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP),
                 GateOutcome::SupplementaryReview
             )
         })
         .collect();
-    assert_eq!(band, vec![1, 5, 6], "the bridging band on these fixtures");
-
-    // A genuine near-threshold quality item is carried up by the re-decision.
     assert_eq!(
-        supplementary_review(&ratings, &params, 6, TAU).unwrap(),
-        GateOutcome::Pass,
-        "item 6 (quality item near the threshold) passes the re-decision"
+        band,
+        vec![borderline],
+        "the bridging band on these fixtures"
+    );
+
+    // The re-decision is the full fit's side-balanced score against the plain τ — a
+    // bridging decision over the latent axis, whichever way it falls.
+    let full = side_balanced(&fit(&ratings, &params).unwrap());
+    let expected = if full.score[borderline] >= TAU {
+        GateOutcome::Pass
+    } else {
+        GateOutcome::Reject
+    };
+    assert_eq!(
+        supplementary_review(&ratings, &params, borderline, TAU).unwrap(),
+        expected,
+        "the re-decision reads S_j = {:.4} against τ",
+        full.score[borderline]
     );
 
     // The partisan items (07, 08) — which the retired weighted-mean tie-break advanced
     // (unit-weight means 0.59 / 0.71 ≥ 0.5) — are NOT passed here: bridging gives them a
-    // `b_j` far below τ, so a larger camp does not carry a polarized item (docs/01 D2).
+    // side-balanced score far below τ, so a larger camp does not carry a polarized item
+    // (docs/01 D2, D32).
     for j in [7usize, 8] {
         assert_eq!(
             supplementary_review(&ratings, &params, j, TAU).unwrap(),

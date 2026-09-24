@@ -5,8 +5,9 @@ Mechanism for Validating Test Items** (working paper, version 0.2, September 202
 
 - **PDF:** [`main.pdf`](main.pdf), built from the sources in this directory.
 - **Describes:** the code at commit `2ee5e79` and the design decisions D32–D41 of
-  [`docs/01`](../docs/01-decisions.md) (commit `7507eab`), which are planned but not yet
-  implemented (roadmap `docs/10` Phase 1.1). The paper is a dated snapshot. The living specification is still
+  [`docs/01`](../docs/01-decisions.md) (commit `7507eab`); D32 is implemented since T49
+  (2026-09-24), the rest are planned (roadmap `docs/10` Phase 1.1). The paper is a dated
+  snapshot. The living specification is still
   [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
   [`docs/08-formal-specification.md`](../docs/08-formal-specification.md). A new version of the
   paper names the commit it describes.
@@ -43,7 +44,7 @@ comes with a proof or a reproducible experiment and a candidate correction:
 
 | Finding | Revision | Decision / task |
 |---|---|---|
-| 1, 2 | side-balanced bridge score: sides by 2-means on `f_u`, predicted approval averaged per side, each side counts once; absolute threshold ≈ 0.80. Leak falls to between −0.08 and 0.00; the score is stable to ±0.01 with or without other items and decoys | D32 / T49 |
+| 1, 2 | side-balanced bridge score: sides by 2-means on `f_u`, predicted approval averaged per side, each side counts once; absolute threshold ≈ 0.80. Leak falls to between −0.08 and 0.00; the score is stable to ±0.01 with or without other items and decoys | D32 / T49 (done 2026-09-24) |
 | 4 | leave-one-out difference score; odds weights `exp(γ·S·k/(k+100))`, `γ ≈ 35`; CUSUM change detector instead of the asymmetric update; outcomes of live items plus 5% randomized exploration of rejections (proper by Prop. 21); probation of 30 | D33–D36 / T50–T52 |
 | 3 | anchor KR-20 ≥ 0.90 before a latent re-check (about 40 anchors); the differential gap only as a diagnostic (it inverts in a campaign); θ inside the likelihood as the target model | D37 / T53, T54 |
 | — | contested facts (DIF on knowledge, key backed by a primary source) in a balanced pool | D38 / T55 |

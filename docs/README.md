@@ -55,9 +55,10 @@ The reference implementation exists (see Status below); what remains is ordered 
 
 1. **Mathematics** (`02`, `01` D32–D41) — the two severe defects of the protocol
    boundary (a replayed deposit, respondents without an identity gate) are fixed (T64,
-   T65); now correct the scoring mechanism and the decisions built on it (band, appeal),
-   make the engine robust to malformed input, and characterize every threshold. It is
-   the genuinely new piece, and everything else consumes its numbers.
+   T65), the engine rejects malformed input (T62) and the gate reads the side-balanced
+   score (D32, T49); now correct the rest of the mechanism (D33–D41) and the decisions
+   built on it (band, appeal), and characterize every threshold. It is the genuinely new
+   piece, and everything else consumes its numbers.
 2. **P2P network** (`04`) — persistence, transport and replication, a grind-free
    randomness beacon, live anchoring: a single-organization testnet.
 3. **The rest** — the protocol boundary (`05`), distributed identity and the external

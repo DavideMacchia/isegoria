@@ -151,7 +151,10 @@ regression test are on master.
   and its mirror is 0.00 / 0.11 / 0.35 / 0.56 at 50/50, 60/40, 80/20, 95/5, and at 95/5 the
   majority's item scores +0.122 (bootstrap-min) and passes. The bootstrap-min leaves the
   gap unchanged, and `|f_j|` falls from 1.58 to 1.05 as the camps become unequal, so the
-  appeal signal weakens where it is needed. → D32, T49.
+  appeal signal weakens where it is needed. **RESOLVED** (T49): the gate reads the
+  side-balanced score `S_j` and, for the appeal, the side gap; on the same dataset the
+  camp-size effect on `S_j` stays within 0.1 at every ratio, neither mirror item passes,
+  and the gap stays wide — `side_balanced.rs` (AT-BR-08, AT-BR-09).
 - **COLLUSION-005 (evidence).** `cluster_by_correlation` joins on `|ρ| ≥ threshold` by
   connected components, so honest camps on opposite sides of a polarized axis (ρ ≈ −1)
   fall into one cluster. No `collusion` function is called from `protocol` (consistent
@@ -867,8 +870,8 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `InReview` | commit deadline | — | `Revealing` | publish commitments | — |
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
 | `Revealing` | reveal deadline | ≥ `k_min` reveals (unspecified) | `Gated` | non-revealers: `E_u` penalty (unspecified) | — |
-| `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(B_j, f_j, τ, ε, α_appeal)` | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
-| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide `b_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `b_j ≥ τ` else `Rejected(Borderline)` | — | defined terminal (T10/T30); ✗ the re-fit uses the first panel's ratings only — the extra round is T60; ✗ a polarized item that fails cannot appeal — T59 |
+| `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(S_j, gap_j, τ, ε, γ_appeal)` (D32/T49: the robust side-balanced score and the side gap) | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
+| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide the side-balanced score `S_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `S_j ≥ τ` else `Rejected(Borderline)` | — | defined terminal (T10/T30); ✗ the re-fit uses the first panel's ratings only — the extra round is T60; ✗ a polarized item that fails cannot appeal — T59 |
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` (✗ `run_item` passes both as `true`: T61) | `Pilot1{appealed}` | stake escrowed (REPUTATION-007; ✗ never settled: T61) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
@@ -1054,15 +1057,15 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-COL-05 | griefing | attacker mimics honest node H's history to pull H into a cluster | H's weight unchanged or the effect bounded and documented | COLLUSION-005 |
 | AT-COL-06 | influence, not weight | cartel of 400 vs 120 honest, weights *consumed by bridging* | `b_j` of a targeted item moves less than with 22 independents | BRIDGE-007 |
 | AT-COL-07 | like-minded honest reviewers (D39) | two camps, long histories, a jittered cross-camp cartel | residual-correlation detector flags the cartel and no honest pair; pairs with fewer than 30 shared items are never flagged | COLLUSION-002/006 |
-| AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `b_j < τ` | BRIDGE-003 |
+| AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `S_j < τ` (T49; was `b_j < τ`) | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
 | AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `\|Δb_j\| < 1e-9` without | REPRO-002 |
 | AT-BR-04 | cross-platform determinism | same input on linux-gnu, linux-musl, macOS-aarch64 | bit-equal, or documented divergence with tolerance | REPRO-001 |
 | AT-BR-05 | seed grinding | author regenerates draft whitespace 1000× to select a panel | panel independent of draft bytes | CRYPTO-008 |
 | AT-BR-06 | commitment copying | B copies A's commitment, reveals A's opening after A | B's reveal rejected | CRYPTO-007 |
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
-| AT-BR-08 | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 then swapped; also 80/20; 50–3,200 reviewers | the same item of the pair passes in both orientations; leak ≤ 0.1 | BRIDGE-009 |
-| AT-BR-09 | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch | no other item's bridge score moves by more than 0.02; no verdict changes | BRIDGE-008 |
+| AT-BR-08 ✓ | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 and 80/20, 200–3,200 reviewers; the review's dataset at 50/50–95/5 in both orientations | leak ≤ 0.1 where the intercept leaks 0.5–0.9; neither mirror item passes at any ratio; a residual leak of 0.1–0.2 with 50–100 reviewers (`side_balanced.rs`, T49) | BRIDGE-009 |
+| AT-BR-09 ✓ | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch; the six consensus items alone | no other item's score moves by more than 0.02 and no verdict changes; alone, within 0.02; the intercept moves by more than 0.1 (`side_balanced.rs`, T49) | BRIDGE-008 |
 | AT-BR-10 | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged | COLLUSION-006 |
 | AT-DIF-01 | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α | DIF-008 |
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
@@ -1271,8 +1274,8 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
 | BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | PARTIAL — D26 re-decision defined (T10/T30), but on the first panel's ratings: no extra reviewers (§0-quinquies) | expanded panel | T60, G-15 |
 | BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
-| BRIDGE-008 | gate independent of the batch | paper §3.3, `levelA_relativity.py` | OPEN — `Σ_j b_j = 0`; verdicts depend on the batch | side-balanced score (D32) | T49, AT-BR-09 |
-| BRIDGE-009 | camp-size neutrality | paper §3.4, `levelA_leak.py` | OPEN — leak 0.53–0.87 at the defaults | side-balanced score (D32) | T49, AT-BR-08 |
+| BRIDGE-008 | gate independent of the batch | paper §3.3, `levelA_relativity.py`; `side_balanced.rs` (AT-BR-09) | RESOLVED (T49) — the gate reads the side-balanced score, which stays within 0.02 in the batch, alone and next to ten decoys | — | — |
+| BRIDGE-009 | camp-size neutrality | paper §3.4, `levelA_leak.py`; `side_balanced.rs` (AT-BR-08) | RESOLVED (T49) — leak ≤ 0.1 from 200 reviewers (0.1–0.2 residual at 50–100); the appeal reads the side gap | a floor on the minority side (T25) | — |
 | OPT-001 | convergence observable | `optim.rs`, `glm.rs` (+ tests) | IMPLEMENTED (T2) — `lbfgs`/`fit_logistic` return status; separation detected. T41: a failed line search is no longer reported as `Converged` (the stall test ran first, and Armijo could pass by rounding with no movement) | — | — |
 | IRT-001 | θ proxy | `irt.rs`, `level_b.rs` | TESTED | metric declaration | G-07 |
 | IRT-002 | inverted key caught | `level_b.rs` | TESTED | partial-key cases | AT-DIF-02 ext. |

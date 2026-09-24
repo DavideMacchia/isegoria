@@ -56,6 +56,6 @@ fn bridge_scores_are_bit_identical_under_input_permutation() {
     let s1 = bridge_scores(&permuted(&base, 13), &p, 10, 0.85).unwrap();
     assert_eq!(
         s0, s1,
-        "the bootstrap-min bridge scores must be permutation-invariant"
+        "the robust and full side-balanced scores must be permutation-invariant"
     );
 }

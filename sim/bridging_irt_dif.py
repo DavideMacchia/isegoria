@@ -49,19 +49,44 @@ def fit(R, mask, lam_b=.15, lam_f=.03, seed=0):
             np.bincount(idx[1],e*fu[idx[0]],m)+2*lam_f*fj])
     return up(minimize(L, x0, jac=G, method="L-BFGS-B", options={"maxiter":4000}).x)
 
-Bs = np.array([fit(R, mask & (np.random.default_rng(100+s).random(mask.shape) < .85),
-                   seed=s)[2] for s in range(10)])
-bridge = Bs.min(0)
-mu_hat, _, _, fu_hat, fj_hat = fit(R, mask)
+# --- the side-balanced bridge score (docs/02 §A.3, docs/01 D32, T49) ---
+def two_means(f, iters=100):
+    """Deterministic 1-D 2-means on f_u, initialized at its extremes."""
+    c = np.array([f.min(), f.max()])
+    for _ in range(iters):
+        lab = np.abs(f[:, None] - c[None, :]).argmin(1)
+        new = np.array([f[lab == k].mean() if (lab == k).any() else c[k] for k in (0, 1)])
+        if np.allclose(new, c):
+            break
+        c = new
+    return lab
+
+
+def side_scores(params):
+    """Per-side mean predicted rating, the side-balanced score S_j and the side gap."""
+    mu, bu, bj, fu, fj = params
+    rhat = mu + bu[:, None] + bj[None, :] + np.outer(fu, fj)
+    lab = two_means(fu)
+    a, b = rhat[lab == 0].mean(0), rhat[lab == 1].mean(0)
+    return a, b, (a + b) / 2, np.abs(a - b), lab
+
+
+full = fit(R, mask)
+mu_hat, _, bj_hat, fu_hat, fj_hat = full
+_, _, side_full, gap_full, _ = side_scores(full)
+Ss = np.array([side_scores(fit(R, mask & (np.random.default_rng(100+s).random(mask.shape) < .85),
+                               seed=s))[2] for s in range(10)])
+bridge = Ss.min(0)          # the robust (bootstrap-min) side-balanced score the gate reads
 plain = np.array([R[mask[:,j], j].mean() for j in range(M)])
-TAU = .08
+TAU = .80                   # absolute, on the probability scale (provisional, D32)
 
 print("="*78); print("LEVEL A - peer review  (mu = %.2f, tau = %.2f)" % (mu_hat, TAU)); print("="*78)
-print(f"{'item':<32}{'mean':>7}{'bridge':>8}{'f_j':>7}{'majority':>13}{'bridging':>10}")
+print(f"{'item':<32}{'mean':>7}{'S_j':>7}{'gap':>7}{'b_j':>7}{'f_j':>7}{'majority':>11}{'bridging':>10}")
 sgn = np.sign(np.corrcoef(true_f, fu_hat)[0,1])
 for j in range(M):
-    print(f"{names[j]:<32}{plain[j]:>7.2f}{bridge[j]:>8.2f}{fj_hat[j]*sgn:>7.2f}"
-          f"{('pass' if plain[j]>=.60 else 'drop'):>13}"
+    print(f"{names[j]:<32}{plain[j]:>7.2f}{bridge[j]:>7.2f}{gap_full[j]:>7.2f}{bj_hat[j]:>7.2f}"
+          f"{fj_hat[j]*sgn:>7.2f}"
+          f"{('pass' if plain[j]>=.60 else 'drop'):>11}"
           f"{('pass' if bridge[j]>=TAU else 'drop'):>10}")
 print(f"\nlatent axis recovered: |corr(f estimated, f true)| = "
       f"{abs(np.corrcoef(true_f, fu_hat)[0,1]):.3f}")
@@ -137,14 +162,14 @@ for nA in [0,10,20,30,40,55,70]:
     if nA:
         cA = rng.choice(np.where(true_f<0)[0], min(nA, 79), replace=False)
         m2[cA,7] = True; R2[cA,7] = 1.
-    b8 = fit(R2, m2, seed=0)[2][7]
-    print(f"  40 nodes camp B + {nA:>2} camp A -> bridging {b8:+.2f}  "
-          f"{'PASS' if b8>=TAU else 'drop'}")
+    s8 = side_scores(fit(R2, m2, seed=0))[2][7]
+    print(f"  40 nodes camp B + {nA:>2} camp A -> bridging S_j {s8:.2f}  "
+          f"{'PASS' if s8>=TAU else 'drop'}")
 
 # ---- corner case: threshold sweep ----
 print("\n"+"="*78); print("CORNER CASE 3 - the threshold trade-off"); print("="*78)
 print(f"{'tau':>6}{'legit items lost':>24}{'partisan items admitted':>24}")
 legit = [0,1,2,3,4,5,6]; part = [7,8,9]
-for t in [.02,.04,.06,.08,.10,.12]:
+for t in [.70,.74,.78,.80,.82,.86]:
     print(f"{t:>6.2f}{sum(bridge[j]<t for j in legit):>20}/7"
           f"{sum(bridge[j]>=t for j in part):>20}/3")

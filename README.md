@@ -7,11 +7,11 @@ single authority decides what counts as a fair question.**
 every citizen to speak in the assembly.
 
 > **Status:** a reference implementation. The scoring engine reproduces its reference
-> simulations bit for bit, but the working paper in [`paper/`](paper/) showed that the
-> bridge score on master is batch-relative and partly majoritarian (paper §3.3–3.4): with
-> unequal camps it favours the question the larger camp likes. The corrections
-> (`docs/01` D32–D41) are decided and are the first phase of the
-> [roadmap](docs/10-roadmap.md): mathematics first, then the P2P network, then the rest.
+> simulations bit for bit. The working paper in [`paper/`](paper/) found the bridge score
+> batch-relative and partly majoritarian (paper §3.3–3.4); the gate now reads the
+> side-balanced score of `docs/01` D32 (T49), and the other corrections (D33–D41) are
+> decided and are the first phase of the [roadmap](docs/10-roadmap.md): mathematics
+> first, then the P2P network, then the rest.
 > The identity, network and protocol layers are working, tested scaffolds with the heavy
 > cryptography and transport behind clean plug points. See
 > [Project status](#project-status).
@@ -304,8 +304,8 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 | Layer | State |
 |---|---|
-| Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit, matches the sims; the bridge score is batch-relative and partly majoritarian until D32 (T49) |
-| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; roadmap Phase 1, the first priority |
+| Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit, matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score is done (T49), the rest is roadmap Phase 1, the first priority |
 | Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64) and respondent gate (T65) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
@@ -313,11 +313,12 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 **What comes next** ([`docs/10-roadmap.md`](docs/10-roadmap.md)), in order:
 
-1. **Mathematics** — the two severe defects are fixed (a replayed deposit drained its
-   author's quota, T64; one person could fill a Level B sample, T65); then
-   correct the mechanism (D32–D41) and the paths after the gate (band re-decision with
-   extra reviewers, appeal for band items, appeal stake), make the engine reject
-   malformed input, and characterize the thresholds.
+1. **Mathematics** — done so far: the two severe defects (a replayed deposit drained its
+   author's quota, T64; one person could fill a Level B sample, T65), the engine's input
+   validation (T62) and the side-balanced bridge score (D32, T49); next, the rest of the
+   mechanism (D33–D41) and the paths after the gate (band re-decision with extra
+   reviewers, appeal for band items, appeal stake), then the characterization of the
+   thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

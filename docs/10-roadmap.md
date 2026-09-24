@@ -13,8 +13,8 @@ Three phases, in this order:
 1. **[Phase 1 — Mathematics](#phase-1--mathematics).** The two severe defects of the
    protocol boundary (T64, T65) are done; then the scoring mechanism and the decisions
    built on it. The mechanism is the new part of the system, and on master it does not
-   yet do what it claims: the bridge
-   score is batch-relative and partly majoritarian (D32), the evaluator score is
+   yet do all it claims: the bridge score was batch-relative and partly majoritarian
+   (D32, fixed by T49); the evaluator score is
    improper (D33), the latent DIF check raises false flags when the ability proxy is
    noisy (D37), and two of the paths that follow the gate (the band and the appeal) are
    thinner than specified. Every other layer consumes these numbers, and fixing them
@@ -53,9 +53,10 @@ reference implementation / testnet.
   gates into the protocol; signed-log consistency, checkpoint hardening and shard
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
-  (T64), the respondent gate (T65) and the engine's input validation (T62). Details and
-  evidence: [Completed work](#completed-work).
-- **Open:** the design revisions D32–D41 (none implemented); the defects found by the
+  (T64), the respondent gate (T65), the engine's input validation (T62) and the
+  side-balanced bridge score (T49). Details and evidence:
+  [Completed work](#completed-work).
+- **Open:** the design revisions D33–D41 (D32 is done, T49); the defects found by the
   third review (2026-09-24), all but T64, T65 and T62; the network runtime (persistence,
   transport, live anchoring); distributed identity; privacy hardening; everything
   external.
@@ -77,13 +78,12 @@ The working paper (`paper/`) found properties of the scoring mechanism that the
 specification did not anticipate: a batch-relative, partly majoritarian bridge score,
 spurious latent classes from error in the ability proxy, an improper evaluator score, a
 weight cap that never binds, and a coordination detector with almost no data per
-epoch. The decisions D32–D41 correct them. Several change the specified metrics, so the
-simulations in `sim/`, the oracle fixtures and the golden outputs change with them — on
-purpose, as in T48.
+epoch. The decisions D32–D41 correct them (D32 is done: T49). Several change the
+specified metrics, so the simulations in `sim/`, the oracle fixtures and the golden
+outputs change with them — on purpose, as in T48.
 
 | Task | What it means (plain) | Decision / refs | Done when | Size |
 |---|---|---|---|---|
-| T49 | **Side-balanced bridge score — first task of the mechanism work.** After the (unchanged) fit, split reviewers into two sides by 2-means on `f_u`, average the predicted ratings per side, and score each item by the mean of the two sides. Bootstrap-min, band and the D26 re-decision apply to it; the threshold becomes absolute (`τ ≈ 0.80`, provisional). Update `sim/bridging_irt_dif.py` and the fixtures. *Evidence from the third review* (two mirror-image partisan items, eight consensual ones, `BridgingParams::default()`, τ = 0.08 as in `end_to_end.rs`): the gap between the majority's item and its mirror is 0.00 at 50/50, 0.11 at 60/40, 0.35 at 80/20, 0.56 at 95/5, where the majority's item scores +0.122 and **passes** the gate. The bootstrap-min leaves the gap unchanged (its robustness is to sampling, not to the majority), and `\|f_j\|` *falls* as the camps become unequal (1.58 → 1.05), so the signal meant to trigger `AppealEligible` weakens exactly when it is needed: redefine polarization as the gap between the side means, `\|side_A − side_B\|` (used by T59). *Practical notes (2026-09-24):* the threshold changes scale (0.08 on the intercept → ≈ 0.80 on the probability scale), so `ε` is re-set provisionally on the new scale and `EXPECTED_POOL` in `end_to_end.rs` changes on purpose — an absolute threshold lets more consensus items through Level A; the per-side mean is a plain mean of `r̂_uj`, unweighted, as in `paper/scripts/revisions_bridging.py` (keep it so: it is what the paper measured); `bridging_gate` takes the side gap where it took `\|f_j\|`; `sim/` and the fixtures are regenerated under the pinned environment (`sim/requirements.txt`) in the same commit, or `fixture_drift` breaks in CI; `AT-BR-04` (1.3) runs right after, so the regenerated golden bits are checked on two platforms. T62 goes first (it changes `fit`'s signature in this file) | D32; paper §3.3–3.4; BRIDGE-008/009 | `AT-BR-08` (swapping the camp sizes does not change which of two mirror-image items passes; leak ≤ 0.1 at 60/40 and 80/20 for 50–3,200 reviewers; on the review's mirror-item dataset `\|b_A − b_B\| < 0.02` at every ratio from 50/50 to 95/5 and neither mirror item passes) and `AT-BR-09` (ten weak decoy items move no other item's score by more than 0.02) pass — both fail on the intercept | M |
 | T50 | **Proper evaluator score, odds weights, short probation.** Leave-one-out difference score in `reputation`, used by `honeypot::reviewer_skills`; weights `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, capped at `3 × median`; `N_PROBATION` 200 → 30 | D33, D36; paper Props 12, 14, 15; REPUTATION-005/008, G-12 | `AT-REP-05` (for random beliefs the exact expected score is maximized by the true belief, `m ≤ 4`), `AT-REP-02` (a crowd copier scores exactly 0) and `AT-REP-04` (the cap binds on an outlier) pass; probation ends at 30 scored outcomes | M |
 | T51 | **Change detector instead of the asymmetric update.** Symmetric long-window mean for the weight; one-sided CUSUM (`k = 0.03`, `h = 1.5`, provisional) on each reviewer's per-item scores against their own mean; an alarm returns the reviewer to probation | D34; paper §5.5; REPUTATION-004 | `AT-REP-07`: a seeded honest stream of 10,000 scored items raises at most one alarm, and a reviewer who starts flipping 20% of forecasts is caught within 100 scored items (the game-theoretic `AT-REP-01` stays open) | M |
 | T52 | **Live outcomes with exploration.** Reviewer scores ingest the Level B outcome of every reviewed item that reaches a pilot; a random 5% of gate rejections, drawn from the beacon, go to the pilot for measurement only (`Rejected → Explored → pilots → Measured`, never `ActivePool`), weighted `1/0.05`; the gate's false-negative rate is recorded. The draw uses today's `Beacon`; it becomes grind-free with T37 (Phase 2) | D35; paper §5.2 | `AT-PRO-07` (an explored item never enters the pool; the draw is reproducible from the beacon and cannot be chosen) and `AT-REP-06` (on synthetic data the weighted score's expectation equals the full-information score, and truthful reporting stays optimal) pass | L |
@@ -133,8 +133,9 @@ order the work is done in. Sizes are the ones in the rows.
 1. T65 (M) — done (2026-09-24), as T64 before it.
 2. T62 (S) — done (2026-09-24): `fit` and `bridge_scores` return a `Result`; T49 is
    written against that API.
-3. T49 (M) — the side-balanced score; sim, fixtures, golden outputs and the README warning
-   change in the same commit. Then `AT-BR-04` (S): the new golden bits on two platforms.
+3. T49 (M) — done (2026-09-24): the side-balanced score; sim, fixtures, golden outputs
+   and the README warning changed in the same commit. Next: `AT-BR-04` (S), the new
+   golden bits on two platforms.
 4. The D26 amendment, then T59 (M).
 5. The D27 decision, then T61 (S).
 6. T53 (S) — the anchor-reliability gate.
@@ -265,10 +266,9 @@ Not a phase; done alongside every task.
 
 ## Dependency notes
 
-- **Phase 1.** T64 and T65, the two severe defects, are done, and so is T62, which
-  changed `fit`'s signature in the file T49 rewrites. Then T49: it restores the central
-  claim (bridging instead of majority) and changes the golden outputs, the fixtures and
-  `sim/` on purpose, with `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
+- **Phase 1.** T64 and T65, the two severe defects, are done, and so are T62 and T49
+  (the side-balanced score, which changed the golden outputs, the fixtures and `sim/` on
+  purpose). Next `AT-BR-04`, right after T49. T59 and T60 follow T49 (T59 measures
   polarization by T49's side gap; T60 changes the score anyway). T61 is independent and
   small, after the D27 decision. T50 before T51 and T52. T53 before T54. T55 needs its
   evidence procedure specified first and comes last. T57 needs T56. T24/T25 close the
@@ -296,6 +296,12 @@ other documents and commit messages refer to these ids and block names.
 |---|---|---|---|---|
 | T64 | **A deposit is accepted once. Done (2026-09-24):** `TransparencyLog::contains` (a set kept by `append`); `deposit` and `deposit_with_identity` return `DepositRejected::DuplicateCid` **before** `admit` and the quota charge, so a replay appends nothing and costs the author nothing; the `Propose` proof is bound to the draft *and* the epoch (`deposit::deposit_context(cid, epoch)`, as `review::review_context`), so a proof of epoch `e` is refused in `e + 1`. `proto007_deposit_replay.rs`: a byte replay and a fresh re-proof of the same draft → `DuplicateCid`, `log.len() == 1`, one quota unit used, the author's next draft still accepted; a proof presented in the next epoch → `Unproven(BadProof)` with nothing appended or charged. *Was:* `deposit_with_identity` appended and charged every copy, so whoever saw a proposal in transit could drain its author's quota. `lifecycle::deposit` keeps its `fresh_cid` input (the machine takes the check's result, the entry points now compute it) | `docs/08` §9.1 row 1, PROTO-007, ID-008 | a second deposit of the same pair → `DuplicateCid`, `log.len() == 1`, one quota unit used; a `Propose` proof of epoch e is refused in e+1 | S |
 | T65 | **Respondents pass the identity gate; the pilot counts persons, not rows. Done (2026-09-24):** `pilot::submit_response(proof, issuer, batch, epoch, &mut NullifierSet)` admits a `Respond` proof bound to the batch (`pilot::batch_id`, the content id of the sorted item cids) and the epoch (`pilot::response_context`), refusing a second sheet by the same person (`ResponseRejected::Duplicate`); `screen`, `dif_batch` and `revalidate_batch_latent` take the respondent count from that set (`NullifierSet::len`) and refuse rows that are not the admitted respondents one to one (`PilotError::RowCountMismatch`); `end_to_end.rs::run_epoch` issues one credential per fixture row and admits it through the gate (1,500 persons, ≈14 ms each with `identity` optimized in the dev profile, `Cargo.toml`). `proto013_respondent_gate.rs` (AT-PRO-09): the same nullifier twice on one batch → `Duplicate`; 300 rows (3,000 for the latent re-check) from one respondent → `NotEnoughRespondents { have: 1 }`; a proof for batch A on batch B, or in another epoch → `Unproven(BadProof)`; a `Judge` proof → `WrongRole`; one row more than the admitted respondents → `RowCountMismatch`. *Was:* `Role::Respond` appeared nowhere in `protocol/src` and the floors counted `theta.len()` rows, so 300 rows from one person satisfied `N1_MIN` | `docs/08` §9.1 `Pilot1` row, INV-9, `docs/02` §B.6 | `AT-PRO-09`: the same nullifier twice on one batch → `Duplicate`; 300 rows from one respondent → `NotEnoughRespondents`; a proof for batch A is refused on batch B | M |
+
+### Phase 1.1 · Correct the mechanism (D32–D41)
+
+| Task | What it means (plain) | Decision / refs | Done when | Size |
+|---|---|---|---|---|
+| T49 | **Side-balanced bridge score. Done (2026-09-24):** `bridging::two_means` (deterministic 1-D 2-means on `f_u`, initialized at its extremes, as the paper's script), `bridging::side_balanced(&Fit) -> SideScores` (per-side mean predictions, `score = (A + B)/2`, `gap = \|A − B\|`), `bridge_scores -> BridgeScores { robust: bootstrap-min of the score, full }`; `gate::bridging_gate(score, gap, τ, ε, appeal_gap)` with the provisional constants `TAU = 0.80`, `EPS = 0.02`, `APPEAL_GAP = 0.25` (`docs/02` §A.3); `supplementary_review` re-decides on the full fit's `S_j`. `sim/bridging_irt_dif.py` and `sim/export_fixtures.py` compute the same score; `expected_levelA.csv` gained `side_a_full, side_b_full, side_full, gap_full`, `expected_meta.csv` has `tau = 0.80`, `levelc_p/bss.csv` follow the new verdicts, `golden_bits.txt` regenerated; the README warning is gone. *Evidence:* `level_a.rs` matches the oracle (`S_j` to 0.004, the gap to 0.008, sides of 80 and 120); `side_balanced.rs` — AT-BR-08: leak ≤ 0.1 with 60/40 and 80/20 camps from 200 to 3,200 reviewers where the intercept leaks 0.5–0.9, and on the review's mirror-item dataset the camp-size effect on `S_j` stays within 0.1 at every ratio from 50/50 to 95/5 in both orientations while the intercept's is 0.7–0.9, neither mirror item passes and both stay polarized; AT-BR-09: ten decoys move no item by more than 0.02 and change no verdict, the consensus items alone stay within 0.02, the intercept moves by more than 0.1. `end_to_end.rs`: the pool is unchanged ({01, 07}: item 02 passes Level A on `S_j` and dies in the pilot screen with a 2PL slope of 0.47), and the appeal still recovers the true-but-divisive item on its gap (0.67). *Measured limits, recorded in `docs/02` §A.3:* a residual leak of 0.1–0.2 with 50–100 reviewers (a fraction of the intercept's), and noisy side means with a minority side of about ten reviewers (at 95/5 one consensus item in eight fell to 0.78). *Deviation from this row's target:* the leak bound holds from 200 reviewers, not from 50. *Pending:* the mutation-testing re-run the plan schedules after this step (`docs/11`, [1.5](#15--order-of-execution-and-milestones)) | D32; paper §3.3–3.4, §7.1; BRIDGE-008/009 | `AT-BR-08` and `AT-BR-09` pass — both fail on the intercept | M |
 
 ### Phase 1.3 · Engine robustness
 

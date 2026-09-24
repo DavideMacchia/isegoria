@@ -64,11 +64,14 @@ contributions".
 |---|---|---|
 | `μ` | overall mean of all votes | "on average questions get 0.6" |
 | `b_u` | how generous or severe that reviewer is *in general* | someone who rates everything high has positive `b_u` |
-| `b_j` | how much that question is liked **regardless of who judges it** | **this is the number we care about** |
+| `b_j` | how much that question is liked **regardless of who judges it**, in the fit | reported; the score the gate reads is the side-balanced approval below |
 | `⟨f_u, f_j⟩` | the part of the vote explained by ideological alignment | reviewer and question "on the same side" → positive contribution |
 
 `b_u` serves to avoid rewarding an item just because it landed with generous
-reviewers. `b_j` is the final score.
+reviewers. The final score is the *side-balanced approval* (`02` §A.3): the reviewers
+are split into two sides along `f`, the model's predicted votes are averaged on each
+side, and the two averages are averaged again — so each side counts once, whatever its
+size, and the score lives on the same scale as the votes.
 
 **Dot product `⟨ , ⟩`.** If the vectors have a single dimension it is simply
 multiplication: `f_u × f_j`. With more dimensions, you multiply component by component

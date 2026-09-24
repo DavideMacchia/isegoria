@@ -58,7 +58,7 @@ impl ReviewerStanding {
 /// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
 /// BRIDGE-007). This is exactly the review vote weight — 0 on probation, 1 for a
 /// bootstrap founder, `min(w_max, E_u)` once established — so the same reputation that
-/// weights the aggregation also weights the fit that produces `b_j`.
+/// weights the aggregation also weights the fit that produces the bridge score.
 pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
     prev.iter()
         .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.e_u, w_max))
@@ -150,7 +150,8 @@ pub fn review_round(
 ///
 /// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
 /// (T10/T30): `band_advances` is the outcome of `gate::supplementary_review` — a re-run
-/// bridging fit re-deciding `b_j` against the plain threshold — so a passing band item
+/// bridging fit re-deciding the side-balanced score against the plain threshold — so a
+/// passing band item
 /// advances to the pilot and a failing one is a `Borderline` reject, not a dead end.
 pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
     let mut s = step(reviewed, Event::Score { outcome: v.gate })?;

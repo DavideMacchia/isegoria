@@ -453,6 +453,15 @@ BRIDGE-001.
 
 ## D32 — Bridge score: side-balanced predicted approval on an absolute threshold
 
+> **Implemented** (T49, 2026-09-24): `scoring::bridging::{two_means, side_balanced,
+> bridge_scores}` and `protocol::gate::{bridging_gate, supplementary_review}` with the
+> provisional constants `TAU = 0.80`, `EPS = 0.02`, `APPEAL_GAP = 0.25`; `sim/`, the
+> fixtures and the golden outputs regenerated. One amendment: appeal eligibility reads the
+> *side gap* `|A_j − B_j|`, not `|f_j|` — the third review showed `|f_j|` falls as the
+> camps become unequal (`docs/08` BRIDGE-009), the gap does not. Measured limits: a
+> residual leak of 0.1–0.2 with 50–100 reviewers, and noisy side means with a minority
+> side of about ten reviewers (`docs/02` §A.3).
+
 **Choice.** The gate no longer reads the item intercept `b_j`. The weighted fit is
 unchanged. After it, the reviewers are split into two sides by a deterministic 1-D
 2-means on `f_u` (initialized at the minimum and maximum of `f_u`). For each item, the

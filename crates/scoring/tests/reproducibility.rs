@@ -52,10 +52,12 @@ fn bridging_fit_is_bit_for_bit_reproducible() {
 fn bridge_scores_are_bit_for_bit_reproducible() {
     let data = ratings();
     let p = BridgingParams::default();
-    assert_eq!(
-        bits(&bridge_scores(&data, &p, 10, 0.85).unwrap()),
-        bits(&bridge_scores(&data, &p, 10, 0.85).unwrap())
-    );
+    let a = bridge_scores(&data, &p, 10, 0.85).unwrap();
+    let b = bridge_scores(&data, &p, 10, 0.85).unwrap();
+    assert_eq!(bits(&a.robust), bits(&b.robust));
+    assert_eq!(bits(&a.full.score), bits(&b.full.score));
+    assert_eq!(bits(&a.full.gap), bits(&b.full.gap));
+    assert_eq!(a.full.side, b.full.side);
 }
 
 #[test]

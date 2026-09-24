@@ -58,27 +58,58 @@ mu_hat, bu_hat, bj_hat, fu_hat, fj_hat = fit(R, mask)
 sgn = np.sign(np.corrcoef(true_f, fu_hat)[0,1])
 corr = abs(np.corrcoef(true_f, fu_hat)[0,1])
 
-Bs = np.array([fit(R, mask & (np.random.default_rng(100+s).random(mask.shape) < .85),
-                   seed=s)[2] for s in range(10)])
-bridge = Bs.min(0)
+
+# --- the side-balanced bridge score (docs/02 §A.3, docs/01 D32, T49) ---
+def two_means(f, iters=100):
+    """Deterministic 1-D 2-means on f_u, initialized at its extremes."""
+    c = np.array([f.min(), f.max()])
+    for _ in range(iters):
+        lab = np.abs(f[:, None] - c[None, :]).argmin(1)
+        new = np.array([f[lab == k].mean() if (lab == k).any() else c[k] for k in (0, 1)])
+        if np.allclose(new, c):
+            break
+        c = new
+    return lab
+
+
+def side_scores(params):
+    """Per-side mean predicted rating, the side-balanced score and the side gap."""
+    mu, bu, bj, fu, fj = params
+    rhat = mu + bu[:, None] + bj[None, :] + np.outer(fu, fj)
+    lab = two_means(fu)
+    a, b = rhat[lab == 0].mean(0), rhat[lab == 1].mean(0)
+    return a, b, (a + b) / 2, np.abs(a - b), lab
+
+
+side_a, side_b, side_full, gap_full, side_lab = side_scores((mu_hat, bu_hat, bj_hat, fu_hat, fj_hat))
+Ss = np.array([side_scores(fit(R, mask & (np.random.default_rng(100+s).random(mask.shape) < .85),
+                               seed=s))[2] for s in range(10)])
+bridge = Ss.min(0)
 plain = np.array([R[mask[:, j], j].mean() for j in range(M)])
-TAU = .08
+TAU = .80
 
 # --- dump ---
 np.savetxt(f"{OUT}/R.csv", R, delimiter=",", fmt="%.10f")
 np.savetxt(f"{OUT}/mask.csv", mask.astype(int), delimiter=",", fmt="%d")
 np.savetxt(f"{OUT}/true_f.csv", true_f, delimiter=",", fmt="%.10f")
 with open(f"{OUT}/expected_levelA.csv", "w") as fo:
-    fo.write("idx,name,q,lean,bj_full,fj_full_signed\n")
+    fo.write("idx,name,q,lean,bj_full,fj_full_signed,side_a_full,side_b_full,side_full,gap_full\n")
     for j in range(M):
         fo.write(f"{j},{names[j]},{q[j]:.4f},{lean[j]:.4f},"
-                 f"{bj_hat[j]:.6f},{fj_hat[j]*sgn:.6f}\n")
+                 f"{bj_hat[j]:.6f},{fj_hat[j]*sgn:.6f},"
+                 f"{side_a[j]:.6f},{side_b[j]:.6f},{side_full[j]:.6f},{gap_full[j]:.6f}\n")
 with open(f"{OUT}/expected_meta.csv", "w") as fo:
     fo.write("key,value\n")
     fo.write(f"N,{N}\nM,{M}\nmu_hat,{mu_hat:.6f}\ncorr_axis,{corr:.6f}\n"
-             f"tau,0.08\nlam_b,0.15\nlam_f,0.03\n")
+             f"tau,0.80\nlam_b,0.15\nlam_f,0.03\n")
 print("fit full: mu=%.4f  corr_axis=%.4f" % (mu_hat, corr))
 print("bj_full:", np.round(bj_hat, 3).tolist())
+print("side_full:", np.round(side_full, 4).tolist())
+print("gap_full:", np.round(gap_full, 4).tolist())
+print("bridge (bootstrap-min side score):", np.round(bridge, 4).tolist())
+print("side sizes:", int((side_lab == 0).sum()), int((side_lab == 1).sum()),
+      "camp of side 0 (mean true_f):", round(float(true_f[side_lab == 0].mean()), 3))
+print("Ss per bootstrap min/max per item:", np.round(Ss.min(0), 4).tolist(), np.round(Ss.max(0), 4).tolist())
 
 # ===================== Level B — empirical validation ======================
 # Mirrors the Level B block of bridging_irt_dif.py (same rng, seed 7 continued).
