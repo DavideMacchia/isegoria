@@ -6,7 +6,7 @@ Mechanism for Validating Test Items** (working paper, version 0.2, September 202
 - **PDF:** [`main.pdf`](main.pdf), built from the sources in this directory.
 - **Describes:** the code at commit `2ee5e79` and the design decisions D32–D41 of
   [`docs/01`](../docs/01-decisions.md) (commit `7507eab`), which are planned but not yet
-  implemented (roadmap P1.6). The paper is a dated snapshot. The living specification is still
+  implemented (roadmap `docs/10` Phase 1.1). The paper is a dated snapshot. The living specification is still
   [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
   [`docs/08-formal-specification.md`](../docs/08-formal-specification.md). A new version of the
   paper names the commit it describes.

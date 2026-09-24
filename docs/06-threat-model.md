@@ -10,11 +10,12 @@
 | Joining the proposals register with the votes register | Unlinkable role pseudonyms | `03` M3 |
 | Brigading specific items | Random reviewer assignment; item not searchable before the verdict | `05` [4] |
 | Herding / information cascades | Commit-reveal, blind judgments, no visibility of others' votes | `05` [4] |
-| Majority capture | Bridging: the majority alone is not enough, cross-cutting approval is needed | `02` A |
+| Majority capture | Bridging: the majority alone is not enough, cross-cutting approval is needed (on master the score still keeps part of the camp-size effect; corrected by the side-balanced score, D32/T49) | `02` A |
 | Coordinated cartel | Sublinear √k discount for correlated clusters (revised: residual-correlation detection and panel diversification, D39/D40) | `02` anti-collusion |
 | Long-con (reputation accumulated and spent) | `w_max` cap, asymmetric decay, continuous honeypots (revised: odds-scale cap and CUSUM change detector, D33/D34) | `02` C.4, `05` |
 | Biased item passing peer review | Field-data DIF (does not depend on opinions) | `02` B.3 |
 | Vote-buying | Random assignment + no verifiable receipt | `05` [4] |
+| Author drawn onto their own item's panel | Accepted residual risk: the author's judge pseudonym is unlinkable by design, so it cannot be excluded; random assignment makes it one vote in 7–11, bridging needs agreement across camps, and honeypots measure reviewers | `05` [4], `08` §9.1 |
 | Item leakage (exposure) | Broad pool, rotation, parametric items, retirement on detection | `05` [9] |
 | Meta-level capture (parameters, honeypots, consortium) | Stratified sortition, supermajority + delay, freedom to fork | `05`, `04` |
 | Score falsification by a signer | Deterministic reproducible computation: anyone redoes the math and unmasks it | `04` |

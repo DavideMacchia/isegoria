@@ -64,8 +64,8 @@ Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust
 
 The working paper in `paper/` (v0.1 at `2ee5e79`) analysed the scoring mechanism with
 proofs and reproducible experiments (`paper/scripts/`). Its findings are new claims for
-the matrix of §15; all are decided (`docs/01` D32–D41) and planned (`docs/10` P1.6), none
-is implemented yet.
+the matrix of §15; all are decided (`docs/01` D32–D41) and planned (`docs/10` Phase 1.1),
+none is implemented yet.
 
 - **BRIDGE-008 — The gate is relative to its batch.** With `μ` unpenalized,
   `Σ_j b_j = 0` at every stationary point (paper Lemma 1), so `B_j ≥ τ > 0` cannot hold
@@ -100,6 +100,60 @@ is implemented yet.
   (`AT-COL-07`, `AT-BR-10`).
 - **CRYPTO-008 (update).** The beacon is decided: commit-reveal now, a threshold signature
   after T19 (D41, T37).
+
+---
+
+## 0-quinquies. Findings of the third review (2026-09-24)
+
+An independent review of master at `30fb02e` (fmt, clippy `-D warnings`, the workspace
+tests with and without `calibration`, and `fixture_drift` under the pinned environment
+all green) wrote one probe test per suspected weakness. Each probe asserts the *current*
+behaviour, so a probe that passes confirms the weakness; all thirteen pass on `30fb02e`
+(re-run 2026-09-24). None is fixed yet. Each is planned in `docs/10`, and each fix starts
+from its probe with the assertion inverted.
+
+- **PROTO-007 (update) — a deposit can be replayed.** `deposit_with_identity` does not
+  check whether the CID is already on the log: the same `(draft, proof)` is appended
+  again and charged against the proposer's quota each time, so whoever sees a proposal in
+  transit can drain its author's quota. §9.1 lists a duplicate CID as invalid; only
+  `lifecycle::deposit` checks it, from a caller-supplied flag. **OPEN** → T64.
+- **PROTO-013 — respondents are not identity-gated.** `Role::Respond` appears nowhere in
+  `protocol/src`, and the pilot and re-validation gates count `theta.len()` rows as
+  distinct respondents: 300 rows from one person satisfy `N1_MIN`. Level B, the final
+  verdict, is less Sybil-resistant than Level A. **OPEN** → T65 (`AT-PRO-09`).
+- **NET-005 (update) — the consortium threshold is not validated, and `verify` ignores the
+  member set.** `Consortium::new(members, 0)` verifies a checkpoint with no signature;
+  `t > n` never verifies; `Consortium::verify` does not compare the checkpoint's
+  `member_set_hash` with its own (only `CheckpointClient` does), although
+  `Beacon::from_checkpoint` names `verify` as the check to run. **OPEN** → T63.
+- **REPUTATION-007 (update) — the appeal stake is not checked and the escrow is never
+  settled.** `orchestrator::run_item` sends `Appeal { within_window: true,
+  reputation_covers_stake: true }` hard-wired; `gate::settle_appeal` is called only by
+  tests. **OPEN** → T61.
+- **PROTO-008 (update) — the re-decision uses the same panel.** `gate::supplementary_review`
+  re-fits the same ratings. Since bootstrap-min ≤ full fit, the re-decision relaxes the
+  robust threshold instead of adding evidence: D26's "more reviewers" is not implemented.
+  **PARTIAL** → T60.
+- **PROTO-004 (update) — a polarized band item cannot appeal.** `Resolve { passed: false }`
+  ends in `Rejected(Borderline)`, where `Appeal` is `UnexpectedEvent`; only items below the
+  band reach `AppealEligible`. **OPEN** → a decision (amendment to D26), then T59.
+- **BRIDGE-009 (evidence).** Two mirror-image partisan items with eight consensual ones,
+  default parameters, τ = 0.08 as in `end_to_end.rs`: the gap between the majority's item
+  and its mirror is 0.00 / 0.11 / 0.35 / 0.56 at 50/50, 60/40, 80/20, 95/5, and at 95/5 the
+  majority's item scores +0.122 (bootstrap-min) and passes. The bootstrap-min leaves the
+  gap unchanged, and `|f_j|` falls from 1.58 to 1.05 as the camps become unequal, so the
+  appeal signal weakens where it is needed. → D32, T49.
+- **COLLUSION-005 (evidence).** `cluster_by_correlation` joins on `|ρ| ≥ threshold` by
+  connected components, so honest camps on opposite sides of a polarized axis (ρ ≈ −1)
+  fall into one cluster. No `collusion` function is called from `protocol` (consistent
+  with D40): on the protocol path the cartel defence is the T5 weight alone. → D39, T56.
+- **Type holes.** A `Revealing` state built by hand with an empty panel can be scored
+  (vacuously "all revealed") → T66, T46. A `Ratings` with an out-of-range observation
+  panics inside the objective instead of returning an error → T62. `honeypot::inject`
+  always injects the *first* `n` golden items, so the traps repeat across epochs → T67.
+- **Roadmap id.** `T49` was used twice; the no-show rule is now **T58**.
+- **Confirmed residual.** An author can be drawn onto the panel of their own item (§9.1
+  `Admitted` row): accepted, since role pseudonyms are unlinkable by design.
 
 ---
 
@@ -164,12 +218,12 @@ Observations that matter for every later section:
 | Component | DESIGN INTENT (`docs/`) | IMPLEMENTED BEHAVIOUR | TESTED BEHAVIOUR | SIMULATED BEHAVIOUR (`sim/`) | UNIMPLEMENTED / SCAFFOLD | ASSUMED SECURITY PROPERTY | PROVEN OR EMPIRICALLY SUPPORTED |
 |---|---|---|---|---|---|---|---|
 | Bridging (A) | MF with asymmetric reg., `d ∈ {1,2}`, `n_min = 30`, bootstrap-min, band `ε`, L-BFGS-B | `d = 1` only; unweighted; in-house L-BFGS (Armijo, no bounds); bootstrap-min warm-started from full fit and including the full fit in the min | Oracle within 0.03 on `b_j`, axis corr > 0.98, bootstrap ≤ full, monotone capture cost | Same dataset, SciPy L-BFGS-B | `d = 2`; `n_min`; reviewer weights; uncertainty-band handling beyond a label | Non-convex objective reaches a "good" minimum from the seeded init | Behaviour on one synthetic dataset (N=200, M=10) |
-| IRT (B.1–B.2) | 3PL, `a ≥ 0.6`, `|b| ≤ 2.5`, `c ≤ 0.35`, infit/outfit 0.7–1.3, `r_pbis ≥ 0.20` | `θ` = standardized anchor total; `r_pbis`; per-item 2PL by logistic regression on fixed `θ` | `r_pbis` within 0.02 of oracle; `a` ranks items | `r_pbis` only (no 2PL fit in sim) | 3PL, `c`, infit/outfit, `|b|` bound (constant defined, never used) | — | `r_pbis` and `β₂` numerics on one dataset |
+| IRT (B.1–B.2) | 3PL, `a ≥ 0.6`, `\|b\| ≤ 2.5`, `c ≤ 0.35`, infit/outfit 0.7–1.3, `r_pbis ≥ 0.20` | `θ` = standardized anchor total; `r_pbis`; per-item 2PL by logistic regression on fixed `θ` | `r_pbis` within 0.02 of oracle; `a` ranks items | `r_pbis` only (no 2PL fit in sim) | 3PL, `c`, infit/outfit, `\|b\|` bound (constant defined, never used) | — | `r_pbis` and `β₂` numerics on one dataset |
 | DIF Variant 1 | logistic on continuous `f_i` from Level A; MH on tertiles | logistic on caller-supplied `group`; MH on `group > 0` dichotomy with `n_strata` | `β₂` within 0.02; MH class A/C on two items | logistic on an *observed* ±1 group | Source of `f_i` for respondents (see DIF-002) | — | Numerics only |
-| DIF Variant 2 | latent-class mixture, `G` by BIC, `max|b_g − b_h| > 0.5` | 2-class, fixed-`θ`, numerical-gradient L-BFGS; `|δ| > 0.5` | 3/8 biased detected (BIC>0, axis corr>0.4); 1/8 invisible | 1,2,3,5,8 of 8 × 3 seeds at NT=3000 | `G > 2`; scalable gradient; FP rate at 0 biased items | — | Detection regime at NT=3000, K=8 (auditor re-ran: matches) |
+| DIF Variant 2 | latent-class mixture, `G` by BIC, `max\|b_g − b_h\| > 0.5` | 2-class, fixed-`θ`, numerical-gradient L-BFGS; `\|δ\| > 0.5` | 3/8 biased detected (BIC>0, axis corr>0.4); 1/8 invisible | 1,2,3,5,8 of 8 × 3 seeds at NT=3000 | `G > 2`; scalable gradient; FP rate at 0 biased items | — | Detection regime at NT=3000, K=8 (auditor re-ran: matches) |
 | Purification (B.4) | iterate on anchors until flagged set stable | anchors + currently-clean batch items; fixed point on flagged set; `max_rounds` cap, non-convergence not signalled | ESM flagged, others not, fixed point re-verified | anchors only (single pass) | Convergence signalling | — | One dataset |
 | Reputation (C) | Beta-shrinkage `C_a`; log score; BSS vs crowd `p̄_j`; `E_u = σ(γ·BSS)`; asymmetric EMA; `w_max = 3·median` | `C_a` exact; BSS vs **base rate `mean(o)`**; `E_u`; EMA; cap | Matches sim BSS to 1e-6; docs examples | BSS vs base rate | Log score; consumption of `E_u` by bridging | — | Formula-level |
-| Anti-collusion | ρ-matrix, spectral clustering or `f_u` distance, `(Σw)^α` | dense Pearson; connected components at `|ρ| ≥ thr`; `(Σw)^α` split pro-rata | identical-vector cartels of 400/500 at thr 0.99, unit weights | none | spectral clustering; sparse handling; consumption by bridging | — | Identical-vector case only |
+| Anti-collusion | ρ-matrix, spectral clustering or `f_u` distance, `(Σw)^α` | dense Pearson; connected components at `\|ρ\| ≥ thr`; `(Σw)^α` split pro-rata | identical-vector cartels of 400/500 at thr 0.99, unit weights | none | spectral clustering; sparse handling; consumption by bridging | — | Identical-vector case only |
 | Identity M1 | threshold OPRF on anchor; no issuer learns anchor or label | `VoprfOracle` (RFC 9497) and `ThresholdOprfOracle` (2HashDH + Shamir + DLEQ), both run client+server **in one process with the cleartext anchor as argument**; `EnrollmentRegistry` stores labels | dedup across CIE/SPID; blind-independence; DLEQ soundness; t−1 refusal | none | DKG, transport, input binding to an authenticated anchor, label-authenticity check, key rotation | 2HashDH OPRF security; DDH on Ristretto255 | Functional tests |
 | Identity M2 | blind BBS+ issuance by threshold committee | `Issuer` and `ThresholdIssuer` (`bbs_plus::threshold` DKLS MPC, trusted-dealer keygen, in-process) | round trip; wrong-issuer rejection; PoK soundness on tampered request | none | DKG, transport, presentation, revocation, link to registry (issuer never checks label freshness) | BBS+ unforgeability (q-SDH), blindness | Functional tests |
 | Identity M3 | `H(secret, role)` + ZK proof of valid credential | `derive_nym` (SHA-256, no proof) **and** `nullifier` (`x·H_role` + BBS+-bound sigma proof); the protocol uses the former | determinism, role distinctness, proof verify/reject, wrong issuer | none | unification; protocol-side verification of any proof; revocation | SXDH (DDH in BLS12-381 G1) for cross-role unlinkability | Functional tests |
@@ -789,13 +843,13 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 §9.1 is now a real state machine: `protocol::lifecycle` (T12) owns per-item `State`, and `lifecycle::step`/`deposit` reject every checkable "invalid case" row (`tests/orchestrator.rs`). Preconditions that need primitives from other tasks (identity nullifier T6, RLN quota T11, checkpoint seed T8, commit-copy T7) enter as explicit proof inputs the machine checks. §9.2–9.5 below remain the **specification the code MUST be brought to**. `end_to_end.rs::run_epoch` (the fixture walk) is now routed through `lifecycle::step` (via `orchestrator::run_item`), so the flow no longer lives twice (RESOLVED@T12). The `SupplementaryReview` forward transition is defined via `Event::Resolve`, the D26 re-decision (RESOLVED@T10/T30, PROTO-008).
 
-**Model-tested (T43).** Random walks of `deposit`/`step` agree at every step with an independent reference model of the §9.1 table: the same next state, or the same `Invalid` (`tests/lifecycle_model.rs`). The walks mix the expected event with events that are out of order, from outsiders, repeated, carry copied, lifted or opaque commitments, or carry out-of-range probabilities. They also keep the invariants: no `Score` before every panelist revealed, no double commit or reveal, a distinct panel of odd size in [7, 11], a rejected event changes nothing, `Rejected`/`Retired` are never left, and `ActivePool` is entered only from `Pilot2` after `Pilot1`. `orchestrator::{review_round, run_item}` agree with a whole-round model for complete, partial, outsider and double-judge rounds (`tests/orchestrator_model.rs`). The model fixes which `Invalid` is reported when several apply at once (the table does not). The walks also pin a gap, not fixed: if a panelist never commits or never reveals, the round can never be scored and has no other way out of `Revealing`. The reveal-deadline row below (`k_min`, the non-revealer penalty) is still unspecified (G-15); the rule is decided and tracked as roadmap **T49** (replacement, then a quorum of 7 or re-queue, reputation loss and draw suspension for repeated no-shows).
+**Model-tested (T43).** Random walks of `deposit`/`step` agree at every step with an independent reference model of the §9.1 table: the same next state, or the same `Invalid` (`tests/lifecycle_model.rs`). The walks mix the expected event with events that are out of order, from outsiders, repeated, carry copied, lifted or opaque commitments, or carry out-of-range probabilities. They also keep the invariants: no `Score` before every panelist revealed, no double commit or reveal, a distinct panel of odd size in [7, 11], a rejected event changes nothing, `Rejected`/`Retired` are never left, and `ActivePool` is entered only from `Pilot2` after `Pilot1`. `orchestrator::{review_round, run_item}` agree with a whole-round model for complete, partial, outsider and double-judge rounds (`tests/orchestrator_model.rs`). The model fixes which `Invalid` is reported when several apply at once (the table does not). The walks also pin a gap, not fixed: if a panelist never commits or never reveals, the round can never be scored and has no other way out of `Revealing`. The reveal-deadline row below (`k_min`, the non-revealer penalty) is still unspecified (G-15); the rule is decided and tracked as roadmap **T58** (replacement, then a quorum of 7 or re-queue, reputation loss and draw suspension for repeated no-shows).
 
 ### 9.1 Item lifecycle
 
 | Current state | Event | Preconditions | Next state | Side effects | Invalid cases (MUST be rejected) |
 |---|---|---|---|---|---|
-| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID; unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
+| — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid (INV-9 ✓ T6); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID (✗ not checked by `deposit_with_identity`: a replay is appended and charged — T64); unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
 | `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
 | `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
@@ -803,10 +857,10 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
 | `Revealing` | reveal deadline | ≥ `k_min` reveals (unspecified) | `Gated` | non-revealers: `E_u` penalty (unspecified) | — |
 | `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(B_j, f_j, τ, ε, α_appeal)` | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
-| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide `b_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `b_j ≥ τ` else `Rejected(Borderline)` | — | resolved (T10/T30); production "add reviewers" folds them into the re-fit ratings |
-| `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` | `Pilot1{appealed}` | stake escrowed (REPUTATION-007) | appeal after window; appeal on `Reject` |
+| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide `b_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `b_j ≥ τ` else `Rejected(Borderline)` | — | defined terminal (T10/T30); ✗ the re-fit uses the first panel's ratings only — the extra round is T60; ✗ a polarized item that fails cannot appeal — T59 |
+| `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` (✗ `run_item` passes both as `true`: T61) | `Pilot1{appealed}` | stake escrowed (REPUTATION-007; ✗ never settled: T61) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
-| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✗ no check) |
+| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✗ no check, and the floor counts rows, not respondents: T65) |
 | `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
 | `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound) | `Retired{EmergingDif}` / stays | — | — |
@@ -991,7 +1045,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-COL-07 | like-minded honest reviewers (D39) | two camps, long histories, a jittered cross-camp cartel | residual-correlation detector flags the cartel and no honest pair; pairs with fewer than 30 shared items are never flagged | COLLUSION-002/006 |
 | AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `b_j < τ` | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
-| AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `|Δb_j| < 1e-9` without | REPRO-002 |
+| AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `\|Δb_j\| < 1e-9` without | REPRO-002 |
 | AT-BR-04 | cross-platform determinism | same input on linux-gnu, linux-musl, macOS-aarch64 | bit-equal, or documented divergence with tolerance | REPRO-001 |
 | AT-BR-05 | seed grinding | author regenerates draft whitespace 1000× to select a panel | panel independent of draft bytes | CRYPTO-008 |
 | AT-BR-06 | commitment copying | B copies A's commitment, reveals A's opening after A | B's reveal rejected | CRYPTO-007 |
@@ -1003,7 +1057,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
 | AT-DIF-03 | non-uniform DIF | class-specific `a_j` | detected or documented as out of scope | DIF-004 |
 | AT-DIF-04 | two axes | biased items split across two independent hidden axes | detected or documented | DIF-004 |
-| AT-DIF-05 | metric consistency | same data through docs' `2|δ|`, sim's 0.35, code's 0.5 | one rule | DIF-006 |
+| AT-DIF-05 | metric consistency | same data through docs' `2\|δ\|`, sim's 0.35, code's 0.5 | one rule | DIF-006 |
 | AT-DIF-06 | separation | item perfectly predicted by θ | fit reports separation; verdict "undetermined" | §6.3 |
 | AT-DIF-07 | sample poisoning | `c` coordinated respondents (c/NT ∈ {1,2,5,10 %}) answering to mask a real DIF / to create DIF on a clean item | fraction needed reported | §11.4 |
 | AT-DIF-08 | purification oscillation | adversarial batch constructed so flags alternate | non-convergence signalled | DIF-007 |
@@ -1203,7 +1257,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | BRIDGE-003 | polarized items rejected | `level_a.rs` | TESTED (1 dataset) | calibration procedure for τ, λ | docs/07 §13 |
 | BRIDGE-004 | bootstrap-min pessimistic & stable | `level_a.rs` (tautological) | IMPLEMENTED | warm vs cold comparison | new test |
 | BRIDGE-005 | capture cost ≈ 87 % | `level_a.rs` (monotone only), sim | TESTED (qualitative) | crossing distribution | AT-BR-02; fix docs/06 figure |
-| BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | IMPLEMENTED + semantics defined (T10/T30): D26 re-decision | — | G-15 |
+| BRIDGE-006 | band → supplementary review | `gate.rs` (`bridging_gate`, `supplementary_review`) | PARTIAL — D26 re-decision defined (T10/T30), but on the first panel's ratings: no extra reviewers (§0-quinquies) | expanded panel | T60, G-15 |
 | BRIDGE-007 | weights consumed | `bridging.rs` (`Ratings.weights`), `anti_collusion.rs` (AT-COL-06), `orchestrator.rs` (`bridging_weights`/`weighted_ratings`, `orchestrator_driver.rs`) | IMPLEMENTED (T5) — weighted objective `Σ w_u (r−r̂)²`; prior-epoch standing → `w_u` is computed by the orchestrator and consumed in `run_epoch`; a discounted cartel moves `b_j` less than the same number of independents | — | G-03 |
 | BRIDGE-008 | gate independent of the batch | paper §3.3, `levelA_relativity.py` | OPEN — `Σ_j b_j = 0`; verdicts depend on the batch | side-balanced score (D32) | T49, AT-BR-09 |
 | BRIDGE-009 | camp-size neutrality | paper §3.4, `levelA_leak.py` | OPEN — leak 0.53–0.87 at the defaults | side-balanced score (D32) | T49, AT-BR-08 |
@@ -1228,13 +1282,13 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | REPUTATION-004 | asymmetry deters long-con | `scoring/tests/adversarial.rs` | IMPLEMENTED; claim HYPOTHESIS | rates; game analysis | AT-REP-01 |
 | REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
 | REPUTATION-006 | probation | `probation.rs`, `orchestrator.rs` (`bridging_weights`) | WIRED (T5) — probation → `w_u = 0`, so a probationer's ratings do not move `b_j`; `orchestrator_driver.rs` | — | G-03 |
-| REPUTATION-007 | appeal stake coherent | `lifecycle.rs` | INCONSISTENT | — | redefine as pseudo-observation |
+| REPUTATION-007 | appeal stake coherent | `lifecycle.rs`, `gate.rs` (`settle_appeal`) | INCONSISTENT — `run_item` hard-wires `reputation_covers_stake: true`; `settle_appeal` never called outside tests (§0-quinquies) | — | redefine as pseudo-observation (D27); T61 |
 | REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py` | OPEN — ratio BSS improper | LOO difference score, exploration (D33, D35) | T50, T52, AT-REP-05/06 |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
 | COLLUSION-003 | sparse data | — | NOT IMPLEMENTED | — | AT-COL-03 |
 | COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5); `anti_collusion.rs` (AT-COL-04) | RESOLVED @289aae3 (was INV-14 VIOLATED) — see §0-bis | — | — |
-| COLLUSION-005 | chaining/griefing | — | UNSOLVED | analysis | AT-COL-05 |
+| COLLUSION-005 | chaining/griefing | review probe (§0-quinquies) | UNSOLVED — `\|ρ\|` with connected components joins honest camps on opposite sides | analysis | T56, AT-COL-05/07 |
 | COLLUSION-006 | per-epoch detection possible | paper §6.3 | OPEN — overlap `r²/m` ≈ 0.8 per epoch | residual detector on long histories; panel diversification (D39, D40) | T56, T57, AT-COL-07, AT-BR-10 |
 | ID-001 | dedup same anchor | `identity/tests/*` | TESTED (registry logic) | authenticated anchor | G-02 |
 | ID-002 | obliviousness | `voprf_oracle.rs` (primitive) | primitive TESTED; interface NOT IMPLEMENTED | split API | G-02 |
@@ -1250,7 +1304,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | CRYPTO-005 | nullifier bound to credential | `nullifier.rs`, `tests/nullifier.rs`, `protocol/tests/inv9_nym_proof.rs` | TESTED; message binding now present (T6) — `prove`/`verify` take an action `context` folded into the Fiat–Shamir challenge, so a proof does not verify under another context (AT-ID-05) | external review (§7.4) | AT-ID-05; §7.4 |
 | CRYPTO-006 | cross-role unlinkability | — | HYPOTHESIS (SXDH) | name the assumption | docs |
 | CRYPTO-007 | commit binding | `review.rs` (`commit`/`reveal`), `lifecycle.rs` (item in `Revealing`), `inv12_commit_binding.rs` | RESOLVED@T7 — binds committer + item; a copied commitment does not open (AT-BR-06) | — | INV-12 |
-| CRYPTO-008 | randomness source | `randomness.rs` (`Beacon`), `_from_beacon` wrappers, `inv10_checkpoint_seed.rs` | RESOLVED@T8 — every draw seeds from the signed checkpoint head; assignment keys on a byte-independent slot (AT-BR-05) | checkpoint publisher/timing at epoch close (T13–T18) | INV-10 |
+| CRYPTO-008 | randomness source | `randomness.rs` (`Beacon`), `_from_beacon` wrappers, `inv10_checkpoint_seed.rs` | PARTIAL (reopened, §5.6) — every draw seeds from the signed checkpoint head and assignment keys on a byte-independent slot (T8, AT-BR-05), but the head can be ground by whoever orders the last deposits | beacon separated from the state commitment (D41) | T37, INV-10 |
 | PRIV-001 | role nyms unlinkable | inequality tests | HYPOTHESIS | secret entropy rule | docs |
 | PRIV-002 | issuer unlinkability | — | HYPOTHESIS (docs contradict) | "label never revealed" | docs |
 | PRIV-003 | stat. deanonymization mitigations | — | NOT IMPLEMENTED | — | roadmap |
@@ -1260,7 +1314,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-002 | Merkle inclusion | proptest | TESTED | — | — |
 | NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |
 | NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
-| NET-005 | checkpoint threshold | `integrity.rs` | TESTED | — | — |
+| NET-005 | checkpoint threshold | `integrity.rs`, review probes (§0-quinquies) | PARTIAL — `t = 0` verifies with no signature, `t > n` never verifies, `Consortium::verify` ignores `member_set_hash` | constructor validation; member-set check in `verify` | T63 |
 | NET-006 | replay/equivocation/net id | `consortium.rs` (`Checkpoint` v2, `CheckpointClient`, `member_set_hash`), `checkpoint_replay.rs`, `checkpoint_fork.rs`, `checkpoint_model.rs` | RESOLVED@T15 — net/member-set binding in the signed message; client monotonic-height rule; same-height equivocation evidence (AT-NET-03..05); higher-height fork reported to a client holding the log (T38); model-tested, and a log behind the trusted checkpoint is `LogBehind`, no longer `LocalLogDiverged` (T43) | member-set rotation (T22) | §9.4 |
 | NET-007 | erasure | `erasure.rs` (`manifest`, `reconstruct_verified`, `check_layout`), `shard_authentication.rs`, `hostile_input.rs`, `fuzz/erasure` | RESOLVED@T16 — shard authentication before decode (AT-NET-06); layout validated before sizing (T44) | placement/repair/churn | AT-NET-06 |
 | NET-008 | OTS verify | `anchoring.rs` (`within_bounds`), `integrity.rs`, `hostile_input.rs`, `fuzz/ots_verify` | RESOLVED@T44 — bounded pre-scan before the library parser; fuzzed (AT-NET-07) | — | AT-NET-07 |
@@ -1269,15 +1323,16 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-001 | deposit needs source | `lifecycle.rs` | TESTED | structured citation | docs/03 |
 | PROTO-002 | lottery | `lifecycle.rs`, proptest | TESTED | seed source | G-05 |
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
-| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED | escrow semantics | G-15 |
+| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED; a polarized band item cannot appeal (§0-quinquies) | escrow semantics; band appeal | T59, T61, G-15 |
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
 | PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
-| PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass | cryptographic-grade enrollment/replay (T20), per-credential quota (T11), external review of the nullifier (§7.4) | G-04 |
-| PROTO-008 | supplementary review | `gate.rs` (`supplementary_review`), `lifecycle.rs` (`Resolve`), `supplementary_redecision.rs` | RESOLVED@T10/T30 — D26 re-decision (re-run bridging, `b_j` vs τ); defined terminal | — | G-15 |
-| PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics) | ground truth; self-review | G-16 |
+| PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A deposit can be replayed: duplicate CID appended and charged (§0-quinquies) | duplicate-CID check before the quota charge (T64); cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04, T64 |
+| PROTO-008 | supplementary review | `gate.rs` (`supplementary_review`), `lifecycle.rs` (`Resolve`), `supplementary_redecision.rs` | PARTIAL — defined terminal (T10/T30), but the re-decision re-fits the first panel's ratings, so it relaxes the robust threshold rather than adding reviewers (§0-quinquies) | expanded panel | T60, G-15 |
+| PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics); always injects the first `n` golden items (§0-quinquies) | ground truth; self-review; random golden subset | T67, G-16 |
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
 | PROTO-011 | Draft CID unambiguous | `lifecycle.rs` (AT-PRO-04) | RESOLVED @289aae3 (was DEFECT) — see §0-bis | — | — |
 | PROTO-012 | band resolution is a bridging decision (INV-2/D2/D26) | `gate.rs` (`supplementary_review`), `supplementary_redecision.rs` | RESOLVED@T30 — the weighted-mean tie-break (`aggregate` module + `review_aggregation.rs`/`composed_gate.rs`) is deleted; the band is re-decided by re-running bridging vs the plain threshold, so a polarized panel is not carried by the larger camp | — | D26, D2 |
+| PROTO-013 | respondents are identity-gated; pilot floors count persons | review probe (§0-quinquies) | OPEN — no `Respond` entry point; the floors count `theta.len()` rows | `submit_response` through `admit` + `NullifierSet`; floors from the set | T65, AT-PRO-09 |
 
 No claim in this matrix is at INDEPENDENTLY_REVIEWED, SCIENTIFICALLY_CHARACTERIZED, PRODUCTION_CANDIDATE, or PRODUCTION_READY. The auditor's re-execution of the Python simulations counts as REPRODUCED for DIF-004 and BRIDGE-002 *at the simulation level only*, and explicitly *fails* REPRODUCED for REPRO-003.
 

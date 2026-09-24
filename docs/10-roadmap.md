@@ -1,43 +1,260 @@
-# Isegoria — Remediation and Build Roadmap
+# Isegoria — Development Roadmap
 
 | | |
 |---|---|
-| **Purpose** | Turn the gaps found in `docs/08-formal-specification.md` and the decisions in `docs/01` (D17–D41) into an ordered plan of work. |
-| **Derived from** | `docs/08` §14 (gaps), §12 (adversarial tests AT-*), §16 (acceptance gate); the working paper in `paper/` (P1.6). |
-| **Status** | Living plan. Task ids (`T#`) are stable; sizes are S/M/L (relative effort, not dates). |
+| **Purpose** | The ordered plan of work: what is left to fix or build, in priority order, and what each step must show to count as done. |
+| **Derived from** | `docs/08` §14 (gaps), §12 (adversarial tests AT-*), §16 (acceptance gate); `docs/01` D17–D41; the working paper in `paper/`; three reviews — the `docs/08` audit, the second review (2026-09-23), the third review (2026-09-24, `docs/08` §0-quinquies). |
+| **Status** | Living plan, reordered on 2026-09-24 by priority: mathematics → P2P network → the rest. Task ids (`T#`) are stable across reorderings; sizes are S/M/L (relative effort, not dates). Completed tasks are in [Completed work](#completed-work). |
 
-## Where we start
+## Priorities
 
-Already done (branch `fix/audit-concrete-bugs`):
-- The six concrete code defects are closed with regression tests (see `docs/08` §0-bis).
-- The seventeen open design questions are decided and recorded as `docs/01` **D17–D31**.
-- The working paper (`paper/`, 2026-09-24) analysed the scoring mechanism; the design
-  revisions it led to are decided as `docs/01` **D32–D41** and planned in P1.6 below.
+Three phases, in this order:
 
-Everything below is what remains of the audit: the decisions turned into code, plus
-the parts of the system that are specified but not yet built.
+1. **[Phase 1 — Mathematics](#phase-1--mathematics).** Two severe defects first (T64,
+   T65), then the scoring mechanism and the decisions built on it. The mechanism is the
+   new part of the system, and on master it does not yet do what it claims: the bridge
+   score is batch-relative and partly majoritarian (D32), the evaluator score is
+   improper (D33), the latent DIF check raises false flags when the ability proxy is
+   noisy (D37), and two of the paths that follow the gate (the band and the appeal) are
+   thinner than specified. Every other layer consumes these numbers, and fixing them
+   changes the golden outputs, the fixtures and `sim/` on purpose: building the rest
+   first would mean validating it twice.
+2. **[Phase 2 — P2P network](#phase-2--p2p-network).** Nodes that persist, talk, agree,
+   and draw randomness nobody can grind. Today every node runs in one process and the
+   state lives in memory.
+3. **[Phase 3 — The rest](#phase-3--the-rest).** The protocol boundary (every entry point
+   checks, nothing is taken on the caller's word), distributed identity and the
+   cryptographic review, statistical privacy, real-world pilots.
 
-## Ordering principle
+**What falls where.** Phase 1 holds everything that *computes a verdict from the data*:
+the `scoring` crate and the `protocol` rules that turn its numbers into outcomes (gate,
+band re-decision, appeal, reputation weights, panel composition). It opens with two
+severe defects of the protocol boundary (T64, T65), moved ahead of their natural place
+for their severity. Phase 2 holds the `network` crate and the randomness beacon. Phase 3
+holds the rest of *who may act* (panels, no-shows, honeypot, validated types) and
+everything that needs people outside the project.
 
-Make the system **architecturally whole and honest first**, then harden it. Concretely:
+**Inside a phase,** defects in code that exists come before new features, and each task
+starts with a test that fails on the current code: see it fail, fix, see it pass. The
+docs that describe the behaviour (`docs/08` §15, this roadmap) change in the same commit.
 
-1. **Phase 1 (priority):** blocks 1 → 2 → 4, then a consolidation pass. At the end of
-   Phase 1 the reference implementation actually *uses* reputation, is Sybil-resistant
-   at its protocol boundary, and its nodes can talk and persist — so the README can
-   describe the state accurately. It is still a **single-organization testnet**, not
-   production.
-2. **Phase 2 (later):** blocks 3 → 5 → 6 — the expensive hardening that turns the
-   testnet into a production candidate.
+**External gates.** Three things are outside our control and block "production"
+regardless of code: external cryptographic review (T23, `docs/08` §7.4), external
+psychometric review (T26, SC-8), and real-world pilots for every empirical parameter
+(T27, `docs/08` §19). Until they are done, the README and the docs call the system a
+reference implementation / testnet.
 
-Two gates are **outside our control** and block "production" regardless of code:
-external cryptographic review (`docs/08` §7.4), external psychometric review (SC-8),
-and real-world pilots for every empirical parameter (`docs/08` §19).
+## Where we stand
+
+- **Done:** the audit's six concrete defects (`docs/08` §0-bis); the decisions D17–D41;
+  the wiring of reputation, identity proofs, commit binding, beacon seeding and batch
+  gates into the protocol; signed-log consistency, checkpoint hardening and shard
+  authentication; the second review's defects, mutation testing, property and
+  model-based suites, and the fuzzing of `network` and `identity`. Details and evidence:
+  [Completed work](#completed-work).
+- **Open:** the design revisions D32–D41 (none implemented); the defects found by the
+  third review (2026-09-24, each confirmed by a test that passes on master and describes
+  the defect); the network runtime (persistence, transport, live anchoring); distributed
+  identity; privacy hardening; everything external.
 
 ---
 
-## Phase 1 — priority
+## Phase 1 — Mathematics
 
-### P1.1 · Quick fixes (audit block 1) — like the bug fixes: small, isolated, tested
+### 1.0 · Two severe defects first
+
+The most severe defects the third review confirmed, done before the mechanism work: a
+Level B sample that one person can fill (T65, the evidence filter counts rows, not
+persons) and a replay that drains a proposer's quota (T64). Both are small and
+independent of the rest of the phase.
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T64 | **A deposit is accepted once.** `deposit_with_identity` does not check whether the CID is already on the log: the same `(draft, proof)` is accepted again and again, the log gets one entry per copy, and the proposer's quota is charged each time — anyone who sees a proposal in transit can drain its author's quota by replaying it. `lifecycle::deposit` has `DuplicateCid`, but only from a caller-supplied `fresh_cid: bool`. Add `TransparencyLog::contains(&Cid)` (a set kept by `append`); `deposit_with_identity` and `deposit` return `DepositRejected::DuplicateCid` **before** `admit` and the quota charge, so a replay costs the victim nothing. Also bind the `Propose` proof context to the epoch, as `review::review_context(item, epoch)` does, so a proof does not outlive its epoch | `docs/08` §9.1 row 1, PROTO-007, ID-008 | a second deposit of the same pair → `DuplicateCid`, `log.len() == 1`, one quota unit used; a `Propose` proof of epoch e is refused in e+1 | S |
+| T65 | **Respondents pass the identity gate; the pilot counts persons, not rows.** `Propose` and `Judge` go through `admission::admit`; `Respond` does not (`Role::Respond` appears nowhere in `protocol/src`). `pilot::screen`, `dif_batch` and `revalidation::revalidate_batch_latent` take `theta.len()` as the number of distinct respondents, so 300 rows from one person satisfy `N1_MIN`: Level B, the final verdict, is less Sybil-resistant than Level A. Mirror `review.rs`: `pilot::response_context(batch, epoch)`; `pilot::submit_response(proof, issuer, batch, epoch, &mut NullifierSet) -> Result<Nym, ResponseRejected>` (`admit(.., Role::Respond, ..)`, then `spend`); the gates take the respondent count from the `NullifierSet` (`NullifierSet::len`) and refuse rows without a respondent; `end_to_end.rs::run_epoch` issues one credential per fixture row | `docs/08` §9.1 `Pilot1` row, INV-9, `docs/02` §B.6 | `AT-PRO-09`: the same nullifier twice on one batch → `Duplicate`; 300 rows from one respondent → `NotEnoughRespondents`; a proof for batch A is refused on batch B | M |
+
+### 1.1 · Correct the mechanism (D32–D41)
+
+The working paper (`paper/`) found properties of the scoring mechanism that the
+specification did not anticipate: a batch-relative, partly majoritarian bridge score,
+spurious latent classes from error in the ability proxy, an improper evaluator score, a
+weight cap that never binds, and a coordination detector with almost no data per
+epoch. The decisions D32–D41 correct them. Several change the specified metrics, so the
+simulations in `sim/`, the oracle fixtures and the golden outputs change with them — on
+purpose, as in T48.
+
+| Task | What it means (plain) | Decision / refs | Done when | Size |
+|---|---|---|---|---|
+| T49 | **Side-balanced bridge score — first task of the mechanism work.** After the (unchanged) fit, split reviewers into two sides by 2-means on `f_u`, average the predicted ratings per side, and score each item by the mean of the two sides. Bootstrap-min, band and the D26 re-decision apply to it; the threshold becomes absolute (`τ ≈ 0.80`, provisional). Update `sim/bridging_irt_dif.py` and the fixtures. *Evidence from the third review* (two mirror-image partisan items, eight consensual ones, `BridgingParams::default()`, τ = 0.08 as in `end_to_end.rs`): the gap between the majority's item and its mirror is 0.00 at 50/50, 0.11 at 60/40, 0.35 at 80/20, 0.56 at 95/5, where the majority's item scores +0.122 and **passes** the gate. The bootstrap-min leaves the gap unchanged (its robustness is to sampling, not to the majority), and `\|f_j\|` *falls* as the camps become unequal (1.58 → 1.05), so the signal meant to trigger `AppealEligible` weakens exactly when it is needed: redefine polarization as the gap between the side means, `\|side_A − side_B\|` (used by T59) | D32; paper §3.3–3.4; BRIDGE-008/009 | `AT-BR-08` (swapping the camp sizes does not change which of two mirror-image items passes; leak ≤ 0.1 at 60/40 and 80/20 for 50–3,200 reviewers; on the review's mirror-item dataset `\|b_A − b_B\| < 0.02` at every ratio from 50/50 to 95/5 and neither mirror item passes) and `AT-BR-09` (ten weak decoy items move no other item's score by more than 0.02) pass — both fail on the intercept | M |
+| T50 | **Proper evaluator score, odds weights, short probation.** Leave-one-out difference score in `reputation`, used by `honeypot::reviewer_skills`; weights `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, capped at `3 × median`; `N_PROBATION` 200 → 30 | D33, D36; paper Props 12, 14, 15; REPUTATION-005/008, G-12 | `AT-REP-05` (for random beliefs the exact expected score is maximized by the true belief, `m ≤ 4`), `AT-REP-02` (a crowd copier scores exactly 0) and `AT-REP-04` (the cap binds on an outlier) pass; probation ends at 30 scored outcomes | M |
+| T51 | **Change detector instead of the asymmetric update.** Symmetric long-window mean for the weight; one-sided CUSUM (`k = 0.03`, `h = 1.5`, provisional) on each reviewer's per-item scores against their own mean; an alarm returns the reviewer to probation | D34; paper §5.5; REPUTATION-004 | `AT-REP-07`: a seeded honest stream of 10,000 scored items raises at most one alarm, and a reviewer who starts flipping 20% of forecasts is caught within 100 scored items (the game-theoretic `AT-REP-01` stays open) | M |
+| T52 | **Live outcomes with exploration.** Reviewer scores ingest the Level B outcome of every reviewed item that reaches a pilot; a random 5% of gate rejections, drawn from the beacon, go to the pilot for measurement only (`Rejected → Explored → pilots → Measured`, never `ActivePool`), weighted `1/0.05`; the gate's false-negative rate is recorded. The draw uses today's `Beacon`; it becomes grind-free with T37 (Phase 2) | D35; paper §5.2 | `AT-PRO-07` (an explored item never enters the pool; the draw is reproducible from the beacon and cannot be chosen) and `AT-REP-06` (on synthetic data the weighted score's expectation equals the full-information score, and truthful reporting stays optimal) pass | L |
+| T53 | **Anchor-reliability gate for latent DIF.** Compute KR-20 of the anchors on the batch's respondents; refuse the latent re-check below 0.90 (`PilotError::UnreliableAnchors`); report the differential gap in `MixtureDif` as a diagnostic only | D37; paper Prop 10, Table 6; DIF-010 | `AT-DIF-11`: the paper's null batches with 20 anchors are refused, those with 60 are accepted and raise no flag | S |
+| T54 | **Latent DIF with θ inside the likelihood.** Mixture IRT that integrates θ (quadrature) and includes the anchors with class-invariant parameters; re-derive the verdict threshold on it; retire the proxy-θ model | D37; DIF-006/008/010 | `AT-DIF-01` holds (item-level false-positive rate ≤ 5% on null batches) for anchor KR-20 from 0.80 to 0.95 at N = 3,000–12,000, and `AT-DIF-12` (campaigns with 2, 4 and 6 of 8 items biased are flagged correctly) passes; runtime per batch recorded | L |
+| T55 | **Contested-facts pool.** An item with DIF whose key a primary source establishes (evidence procedure of `docs/02` §B.5) becomes a *contested fact*: separate pool, drawn only in balanced sets so that differential test functioning stays within a tolerance; define the DTF statistic and the procedure in `docs/02`/`docs/05` first | D38; paper §4.7 | `AT-PRO-08`: every assembled test has DTF within tolerance; a DIF item without a verified source is rejected as before | L |
+| T56 | **Coordination detector on residuals.** In `collusion`: residuals from the bridging fit, accumulated across epochs; pairwise correlation only with at least 30 shared items, against a permutation null; average-linkage clusters. *Meanwhile (third review):* `cluster_by_correlation` joins on `\|ρ\| ≥ threshold` with connected components, so two honest camps on opposite sides of a polarized axis (ρ ≈ −1) fall into one cluster, and by transitive closure a whole polarized population can collapse into one. Nothing in `protocol` calls `collusion` (consistent with D40), so on the protocol path the cartel defence is the T5 reputation weight alone | D39; paper Prop 18; COLLUSION-002/003/005/006 | `AT-COL-02` (a cartel jittered by σ = 0.05 is detected) and `AT-COL-07` (honest reviewers of the same camp are not flagged; opposite camps are not joined; pairs with fewer than 30 shared items never are) pass | M |
+| T57 | **Panel diversification.** Reviewer assignment keeps at most one member of each detected cluster per panel; the protocol does not apply the weight discount | D40; paper Prop 17 | `AT-BR-10`: over randomized draws no panel holds two members of one flagged cluster, and no honest reviewer's weight changes | M |
+
+### 1.2 · The decisions built on the score: band and appeal
+
+The gate has four outcomes (`docs/02` §A.3–A.4, `docs/05` [5]/[5b], D26, D27). The third
+review found that the paths after two of them are thinner than specified, and one takes
+the caller's word.
+
+| Task | What it means (plain) | Decision / refs | Done when | Size |
+|---|---|---|---|---|
+| T59 | **A polarized band item keeps the appeal channel.** `Resolve { passed: false }` leads to `Rejected(Borderline)`, a terminal state, and `Appeal` from there is `UnexpectedEvent`: a true-but-divisive item that lands in the band and fails the re-decision loses the correction channel (`docs/05` [5b]) that an item scored clearly below the band keeps. **Decide first** (an amendment to D26 in `docs/01`), then: `supplementary_review` applies the below-band rule of `bridging_gate` (polarized → `AppealEligible`, otherwise `Reject`); `Event::Resolve` carries a `GateOutcome` (`Pass → Pilot1`, `AppealEligible → AppealEligible`, `Reject → Rejected(Borderline)`); update `orchestrator::run_item`, `ItemVerdicts::band_advances` (→ `band_outcome`), the reference models of `lifecycle_model.rs`/`orchestrator_model.rs`, and `supplementary_redecision.rs`. Polarization is the side gap of T49 | D26 (amendment), `docs/05` [5b], PROTO-004 | a polarized band item that fails the re-decision is `AppealEligible`, a non-polarized one `Rejected(Borderline)`; model tests extended | M |
+| T60 | **The supplementary review really adds reviewers.** `gate::supplementary_review` re-fits the *same* ratings and compares `b_j ≥ τ`. Since bootstrap-min ≤ full fit (a tested property), an item in the band because its bootstrap-min fell in `[τ−ε, τ+ε]` is re-decided by the full fit, which is higher by construction: the re-decision relaxes the robust threshold, it is not a second panel. `SupplementaryReview { item, extra_panel, commits, reveals }`: a second commit-reveal round (`orchestrator::review_round`) with `k_extra` beacon-drawn reviewers outside the first panel, whose ratings are *added* to `Ratings` before the re-decision; `Event::Resolve` becomes that round's result. Do it with T49 (the score changes anyway); until then `docs/01` D26 and `docs/08` PROTO-008 say what master does | D26, PROTO-008, BRIDGE-006, G-15 | the re-decision fits ratings from the first panel plus `k_extra` distinct new reviewers; a band item whose extra reviewers disapprove is rejected even though its first-panel full-fit `b_j ≥ τ` | L |
+| T61 | **An appeal checks the stake, and the escrow is settled.** `run_item` sends `Event::Appeal { within_window: true, reputation_covers_stake: true }` hard-wired: nothing computes whether the author's reputation covers the stake, and `gate::settle_appeal` is never called by the orchestrator, so the `appealed` flag of `Pilot1/Pilot2` reaches the terminal and is dropped. `ItemVerdicts` gains `appeal_within_window`, `author_reputation`, `appeal_stake`; `run_item` derives both flags from them and, for an appealed round, calls `settle_appeal(reputation, stake, promoted = reached ActivePool, gain)` and returns the new author reputation (or an event the caller applies). Fix `gain` in D27 if the spec leaves it open | D27, REPUTATION-007 | an appeal with reputation < stake → `Invalid::InsufficientReputation`; promoted → reputation + gain; failed → reputation − stake, never below 0 | S |
+
+### 1.3 · Engine robustness and the rest of the specification
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T62 | **The engine rejects malformed ratings instead of panicking.** `Ratings` has public fields; an observation with `u ≥ n` or `j ≥ m` panics on a bounds check inside the objective (`bridging.rs` gradient, reached through `lbfgs`). Nothing checks `weights.len() == n`, finite ratings and weights, non-negative weights, or duplicate `(u, j)` pairs, which today count twice in the objective. `Ratings::validate() -> Result<(), RatingsError>` at the start of `fit` and `bridge_scores`; `fit` returns a `Result` (the direction of T46); `gate::supplementary_review` and `orchestrator::weighted_ratings` propagate it. Then fuzz the public entry points of `scoring` (the `scoring` part of T44) | `docs/12` §2.3, T44, T46 | out-of-range index, wrong weight count, non-finite or negative value and duplicate pair each return an error, no panic; a property test: arbitrary `Ratings` never panics | S |
+| T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2` | BRIDGE-001, PROTO-003, `docs/02` §A.4 | the new-reviewer path of PROTO-003 exists; `d = 2` implemented or descoped in the docs | M |
+| T45 | **Wider differential oracles:** random datasets vs SciPy (not only the fixed fixture), analytic vs numerical gradient for the mixture, `lbfgs` on functions with known minima (Rosenbrock, ill-conditioned quadratics). Known from T41: Rosenbrock needed ~670 gradients vs SciPy's ~46 (fixed by the strong-Wolfe search of T48: ~51), and the relative-progress stall can report `Converged` with `‖g‖_∞ ≫ g_tol` near `f = 0` | OPT-001, REPRO-003 | the oracle suite runs under the pinned sim env | M |
+| — | **Cross-platform reproducibility** (`AT-BR-04`, RP-2): the same input gives bit-equal output on two platforms and in the release profile (INV-7) | REPRO-001 | `AT-BR-04` runs in CI | S |
+
+### 1.4 · Characterize the parameters
+
+Every value set above is provisional until it is measured: τ ≈ 0.80 (T49), the latent
+DIF cut (T35, T54), `γ` and the cap (T50), the CUSUM `k`/`h` (T51), the KR-20 floor
+(T53), `N_PROBATION`, and the sample floors of `docs/02` §B.6.
+
+| Task | What it means (plain) | Refs | Size |
+|---|---|---|---|
+| T24 | Simulation studies: bias-detector false-positive/false-negative rate and power; bridging robustness sweeps; sample poisoning. The only way to say the detectors "work": includes the **zero-biased** condition (false-positive rate), unbalanced classes, `δ` below 0.9, the T35/T54 threshold choice, and the discrimination-gap threshold left open by T40 | SC-2/3/7, AT-DIF-01..09, STAT-001 | L |
+| T25 | Declare the ability metric and add the guessing correction (D25); fix the bias threshold from the studies (D24); a calibration procedure for every operational threshold (τ, ε, λ, …) | SC-1/4/6 | M |
+| T26 | **External psychometric review** of the statistical method | SC-8 | *external* |
+
+**Milestone 1 — "the mechanism is sound".** Every verdict is computed as D32–D41
+specify; the band and appeal paths are decided by the gate, not by the caller; the engine
+returns errors instead of panicking on malformed input; `sim/`, the fixtures and the
+golden outputs are regenerated on purpose; every threshold is either characterized
+(T24/T25) or marked provisional. The README no longer needs its "partly majoritarian"
+warning.
+
+---
+
+## Phase 2 — P2P network
+
+At the end of this phase the reference implementation runs as a **single-organization
+testnet**: several processes, one organization holding the committee keys (a trusted
+dealer until T19).
+
+### 2.1 · Fix what exists
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T63 | **The consortium validates its threshold and the member set it verifies against.** `Consortium::new(members, 0)` accepts a checkpoint with no signature, `t > n` can never verify (a silent liveness failure), and duplicate member keys are accepted. `Consortium::verify` signs over a message that includes `member_set_hash` but does not compare it with `self.member_set_hash()`, so `t` real members who sign a checkpoint declaring another member set pass `verify` — and `Beacon::from_checkpoint` documents `verify` as the check to run first (`CheckpointClient` does compare it). `new` requires `1 ≤ t ≤ n` and distinct keys (a panic with a message, as `ThresholdOprfOracle::new`: this is operator configuration); `verify` rejects a foreign `member_set_hash` | NET-005, NET-006, `docs/12` §6 | threshold 0, `t > n` and duplicate keys are refused at construction; a checkpoint declaring another member set fails `verify`; `checkpoint_model.rs` unchanged | S |
+
+### 2.2 · Randomness nobody can grind
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T37 | **The beacon is not grind-free yet (reopens INV-10).** The seed is `H(checkpoint head ‖ …)` and the head is a deterministic function of the log content: whoever orders or includes the last deposits before the checkpoint — the publisher, a colluding threshold of signers, or a last depositor who sees the log — can try variants and keep the preferred seed. The third review adds that `lottery::admit` works in the order the caller passes the deposits (the log order), which the publisher controls. **Decided (D41):** commit-reveal among consortium members now, bound before the deposit window closes, with a public penalty for not revealing; a unique threshold signature over the epoch number (drand-style) once T19 gives the committees a real DKG | INV-10, CRYPTO-008, D29, D41 | a test shows the last depositor cannot choose among seeds; a member who withholds its reveal is excluded and recorded; `docs/08` status honest meanwhile | M |
+
+### 2.3 · Build the runtime
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T13 | **Persistent state** so a restart recovers (everything is in memory today); the rest of T12 | §10.6 | state survives a process restart | M |
+| T18 | **Transport and replication** (gossip + DHT + convergent state / CRDT): let nodes actually talk and agree. Every new wire codec (checkpoints, signatures, receipts, shards, nullifier proofs, OPRF partials) gets a fuzz target, as T44 did for the existing decoders | NET-010, DS-6, §10.3, `docs/12` §6 | two replicas converge on the same signed set; each codec is fuzzed | L |
+| T17 | **Real anchoring:** submit to a calendar, read Bitcoin headers, schedule it, anchor the checkpoint head | NET-009, DS-5 | a checkpoint head is anchored and verified end to end | M |
+
+**Milestone 2 — "nodes talk and agree".** Several processes persist, gossip, replicate
+the signed log and converge on the same checkpoint; the beacon is grind-free; checkpoint
+heads are anchored end to end.
+
+---
+
+## Phase 3 — The rest
+
+### 3.1 · The protocol boundary: nothing on the caller's word
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T58 | **A panelist who never reveals must not freeze the item.** *(Numbered T49 in commit `4b15ac6`; renumbered because T49 is the side-balanced score.)* Since T33 a round is scored only when every panelist has revealed, and nothing handles a panelist who never commits or never reveals: the item stays in `Revealing` forever (found by the T43 model tests). It is also an attack — being drawn and then vanishing blocks an item. **Decided (2026-09-24):** at the reveal deadline each missing panelist is *replaced* by a beacon-drawn reviewer from the same `f_u` stratum and the round reopens for them; after the second deadline the round is scored on the reveals present if at least **7** panelists revealed, otherwise the item returns to the admission queue (never stuck, never decided by a rump panel). A no-show loses reputation (vote weight), and since reputation does not affect the draw (`docs/05` [4]: stratified on `f_u` only), a reviewer with repeated recent no-shows is also *suspended from the draw* for a number of epochs, growing with repetition — it removes proven no-shows, the draw among the rest stays random. The quorum, the penalty and the suspension schedule are parameters to calibrate | §9.1, G-15, T33, T43, INV-10 | a missing reveal leads to replacement, then quorum or re-queue; no state is absorbing except the terminals; an adversary who vanishes delays an item by one round at most; model tests (T43) extended to the new transitions | M |
+| T66 | **An empty or invalid panel cannot be scored.** The `(Revealing, Score)` arm checks only that every panelist revealed; with an empty panel that is vacuously true and the state moves to `Pilot1`. Reachable only by building the state by hand (`AssignReviewers` refuses k ∉ [7, 11]), so it is a hole in the type, not in the transitions. Minimal fix: the `AssignReviewers` guard (odd `k` in [7, 11]) in the `Score` arm as well, or at least the T58 quorum of reveals; the real fix is T46's `Panel` | §9.1, T33, T46, T58 | a hand-built `Revealing` with an empty or even panel refuses `Score`; the `lifecycle_model.rs` reference model is updated | S |
+| T67 | **The honeypot draws a random subset of the golden items.** `honeypot::inject` takes `golden.iter().take(n_golden)`: always the *first* golden items, so the same traps return every epoch and reviewers can learn to behave well only on them. `golden.choose_multiple(&mut rng, n_golden)` (deterministic from the seed, so reproducibility holds); also return the golden positions, so the caller need not infer them | PROTO-009, G-16 | over many seeds every golden item is drawn; the same seed gives the same draw | S |
+| T46 | **Validated boundary types** (`Probability`, `ValidatedRatings` — the type form of T62 —, a distinct odd `Panel` of 7–11 — the real fix of T66), so whole classes of bad input cannot be constructed. Then fuzz the public entry points of `protocol` (the `protocol` part of T44) | `docs/12` §2.3 | public entry points take the validated types | M |
+| T47 | *(optional)* **Bounded model checking (Kani)** on small decisive functions: `bridging_gate`, `change_approved`, panel admission, `lagrange_at_zero` with distinct indices | — | proofs run in CI | S |
+
+Accepted residual risk, recorded rather than fixed: an author can be drawn onto the
+panel of their own item, since `assign_reviewers` cannot exclude an author whose role
+pseudonyms are unlinkable by design (`docs/08` §9.1 `Admitted` row, AT-PRO-05); the
+honeypot is the mitigation.
+
+### 3.2 · Distributed identity and cryptographic review
+
+| Task | What it means (plain) | Refs / decision | Size |
+|---|---|---|---|
+| T19 | Real distributed key generation and transport for both committees; remove the "trusted dealer"; independent setup randomness. Unlocks the threshold-signature beacon of T37 | CS-2 | L |
+| T20 | Real enrollment: the state-signed identity is bound to the anonymous label with proper client/server messages (no cleartext identity reaching the key holder); cryptographic-grade rate limiting, which supersedes T11's in-process form | CS-1, D22, ID-002/004/005 | L |
+| T22 | Key lifecycle (D30) and the "no recovery" revocation policy (D18) implemented and documented | CS-4 | M |
+| T23 | **External cryptographic review** of the bespoke constructions, and RFC/library test vectors pass | CS-5/6, §7.4 | *external* |
+
+### 3.3 · Statistical privacy
+
+| Task | What it means (plain) | Refs | Size |
+|---|---|---|---|
+| T28 | De-anonymization mitigations: text normalization, batched publication with random delay, no precise timestamps, topic quotas | PRIV-003, PV-3 | M |
+| T29 | A small-network anonymity (k-anonymity) model, with the population floor stated as a deployment precondition | PRIV-005, PV-3 | M |
+
+### 3.4 · Real-world pilots
+
+| Task | What it means (plain) | Refs | Size |
+|---|---|---|---|
+| T27 | A closed calibration pilot with declared attributes, then real-world pilots — the only way to establish the empirical parameters | OR-3, §19 | *external* |
+
+**Milestone 3 — "production candidate".** Distributed trust, externally reviewed
+cryptography, a reviewed statistical method, empirically characterized parameters,
+privacy hardened. Reachable only once the external tasks (T23, T26, T27) are complete.
+
+---
+
+## Continuous work
+
+Not a phase; done alongside every task.
+
+- Keep `clippy -D warnings` and `fmt` green (IQ-4), including under newer clippy; the
+  NaN policy on caller-supplied floats stays `f64::total_cmp` at every sort site (IQ-2).
+- Re-run mutation testing after each block of changes (`docs/11`); every new survivor is
+  killed or justified.
+- Report a coverage figure with the command and date (IQ-5); assemble the adversarial
+  tests into `docs/08` §13's tree.
+- Re-walk the `docs/08` §15 matrix, raise the status of every claim that now has
+  evidence, and derive `docs/09-verification-matrix.md` from it.
+- The README and the docs keep calling the system a reference implementation / testnet
+  until T23, T26 and T27 are done.
+
+## Dependency notes
+
+- **Phase 1.** T64 and T65 open the phase: small, severe, independent. Then T49: it
+  restores the central claim (bridging instead of majority) and changes the golden
+  outputs, the fixtures and `sim/` on purpose. T59 and
+  T60 follow T49 (T59 measures polarization by T49's side gap; T60 changes the score
+  anyway). T61 and T62 are independent and small. T50 before T51 and T52. T53 before
+  T54. T55 needs its evidence procedure specified first. T57 needs T56. T24/T25 close
+  the phase: the thresholds of T35, T49–T54 are final only after them.
+- **Phase 1 → 2.** T52's exploration draw works on today's beacon and becomes grind-free
+  with T37.
+- **Phase 2.** T63 and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
+  and the reputation histories of T50–T51 a durable place to live.
+- **Phase 3.** T66 is the minimal form of T46's `Panel`. T58 builds on T33/T43 and
+  draws replacements from the beacon (after T37). T20 supersedes T11. T37's
+  threshold-signature variant needs T19.
+- **External.** Nothing in Phases 1–2 needs the external gates.
+
+---
+
+## Completed work
+
+Grouped as they were first planned (P1.1–P1.5), with their evidence; other documents
+and commit messages refer to these ids and block names.
+
+### P1.1 · Quick fixes (audit block 1)
 
 | Task | What it means (plain) | Audit refs | Done when | Size |
 |---|---|---|---|---|
@@ -46,174 +263,71 @@ and real-world pilots for every empirical parameter (`docs/08` §19).
 | T3 | Fix a canonical order for the engine input, so re-ordering votes cannot change the result **Done:** `Ratings::canonical` sorts observations before every fit (`scoring/tests/canonical_input.rs`, `AT-BR-03`); property-tested in T42. | INV-13, REPRO-002 | `AT-BR-03` (permutation invariance) passes | M |
 | T4 | Record the exact numpy/scipy/OS used to generate the fixtures; re-enable the drift check in CI under a pinned environment. **Done (2026-09-21):** env pinned in `sim/requirements.txt` (numpy 2.4.4 / scipy 1.17.1, CPython 3.13); `expected_levelA.csv` / `expected_meta.csv` regenerated under it; `fixture_drift` de-ignored (self-skips only without the env) and run for real by CI after `pip install -r sim/requirements.txt` (`fixtures/PROVENANCE.md`, docs/08 §0-ter) | REPRO-003/004 | `AT-PRO-06` runs on every push; `fixture_drift` no longer ignored | S |
 
-### P1.2 · Wiring (audit block 2) — connect pieces that already exist; **highest value**
-
-This is where the decisions of `docs/01` become code. It is what makes "the engine is
-complete" honest.
+### P1.2 · Wiring (audit block 2)
 
 | Task | What it means (plain) | Audit refs / decision | Done when | Size |
 |---|---|---|---|---|
 | T5 | **Reputation actually counts.** The score computation consumes per-reviewer weights (reputation, anti-collusion discount, probation = 0), computed from the previous epoch. **Done:** `bridging::fit` minimizes the weighted objective `Σ w_u (r−r̂)²` over `Ratings.weights` (`AT-COL-06`), and `orchestrator::bridging_weights`/`weighted_ratings` now turn prior-epoch reviewer standing (probation = 0, founder = 1, established = `min(w_max, E_u)`) into those `w_u` and hand them to the fit — wired into `end_to_end.rs::run_epoch` (bootstrap epoch = founders, unit weight) and covered by `orchestrator_driver.rs::lower_reputation_moves_the_bridge_score_less` | BRIDGE-007 / G-03, D23 | `AT-COL-06`: a cartel moves a score less than the same number of independents | L |
-| T6 | **The protocol stops trusting bare pseudonyms.** Every entry point requires a verified identity proof (nullifier); reputation and rate limits are keyed on it. **Done:** `protocol::admission::{admit, NullifierSet}` verifies a role `NullifierProof` and returns the proven `NullifierProof::id()` (never `derive_nym`); `deposit_with_identity` and `review::submit_review` are the identity-gated entry points; `nullifier::{prove,verify}` gained an action `context` so a proof cannot be replayed (AT-ID-05); `end_to_end.rs::run_epoch` deposits through the gate. `inv9_nym_proof.rs` covers `AT-PRO-01`, `AT-ID-05` and per-item dedup. *Note:* the cryptographic-grade enrollment/replay hardening and the per-credential quota stay **T20/T11** | PROTO-007 / G-04, INV-9 | `AT-PRO-01`, `AT-ID-05` pass | L |
+| T6 | **The protocol stops trusting bare pseudonyms.** Every entry point requires a verified identity proof (nullifier); reputation and rate limits are keyed on it. **Done:** `protocol::admission::{admit, NullifierSet}` verifies a role `NullifierProof` and returns the proven `NullifierProof::id()` (never `derive_nym`); `deposit_with_identity` and `review::submit_review` are the identity-gated entry points; `nullifier::{prove,verify}` gained an action `context` so a proof cannot be replayed (AT-ID-05); `end_to_end.rs::run_epoch` deposits through the gate. `inv9_nym_proof.rs` covers `AT-PRO-01`, `AT-ID-05` and per-item dedup. *Note:* the cryptographic-grade enrollment/replay hardening and the per-credential quota stay **T20/T11**. *Third review:* the `Respond` entry point was never gated (T65), and a deposit can be replayed (T64) | PROTO-007 / G-04, INV-9 | `AT-PRO-01`, `AT-ID-05` pass | L |
 | T7 | A blind review commits to *who* cast it and *which* item, and only that person can reveal it. **Done:** `review::commit`/`reveal` bind the committer nym and item cid (`H(prob, nonce, committer, item)`); the `lifecycle` `Revealing` state carries the item and the reveal recomputes against the revealer + item, so a copied commitment cannot be opened by anyone else. `inv12_commit_binding.rs` (`AT-BR-06`) | CRYPTO-007 / INV-12 | `AT-BR-06` (commitment-copying blocked) passes | S |
-| T8 | The "luck" (lottery, reviewer assignment, honeypot, sortition) comes from the signed checkpoint, so nobody can pick their own reviewers. **Done:** `randomness::Beacon::from_checkpoint` + `seed(purpose, index)` = `H(signed head ‖ height ‖ purpose ‖ index)`, and the `_from_beacon` wrappers in `lottery`/`review`/`honeypot`/`governance` seed each draw from it; reviewer assignment keys on a byte-independent admitted slot, so the panel does not depend on draft bytes. `inv10_checkpoint_seed.rs` (`AT-BR-05`) | D29 / INV-10 / G-05 | `AT-BR-05` (seed grinding blocked) passes | M |
-| T9 | Enforce the batch minimum and the pilot sample-size gates (never validate a single item). **Done:** `pilot::{screen, dif_batch, admit_dif_batch}` and `revalidation::revalidate_batch_latent` reject a DIF batch below `K_MIN` items (INV-8) and a sample below its floor (`N1_MIN`=300, `N2_MIN`=1500, `N_LATENT_MIN`=3000, §B.6); the per-item DIF math stays pure. `run_epoch` runs the pilot through the gates. `inv8_batch_min.rs` (`AT-PRO-02`) | INV-8, PROTO-006, G-15 | `AT-PRO-02` (batch of one rejected) passes | S |
-| T10 | Borderline items get extra reviewers then a clean re-decision; a failed appeal is a pseudo-observation with escrow. **Done:** `gate::supplementary_review` re-runs bridging over the (expanded) panel and re-decides `b_j` vs the plain threshold; the `lifecycle` `SupplementaryReview` state gains its forward transition (`Event::Resolve` → `Pilot1` or `Rejected(Borderline)`), so a band item reaches a defined terminal (`supplementary_redecision.rs`). Failed-appeal escrow: `gate::settle_appeal` (tested in `lifecycle.rs`); full escrow bookkeeping deferred | D26, D27, G-15 | `AT-PRO-03` (defined outcome) passes | M |
+| T8 | The "luck" (lottery, reviewer assignment, honeypot, sortition) comes from the signed checkpoint, so nobody can pick their own reviewers. **Done:** `randomness::Beacon::from_checkpoint` + `seed(purpose, index)` = `H(signed head ‖ height ‖ purpose ‖ index)`, and the `_from_beacon` wrappers in `lottery`/`review`/`honeypot`/`governance` seed each draw from it; reviewer assignment keys on a byte-independent admitted slot, so the panel does not depend on draft bytes. `inv10_checkpoint_seed.rs` (`AT-BR-05`). Reopened by the second review: T37 | D29 / INV-10 / G-05 | `AT-BR-05` (seed grinding blocked) passes | M |
+| T9 | Enforce the batch minimum and the pilot sample-size gates (never validate a single item). **Done:** `pilot::{screen, dif_batch, admit_dif_batch}` and `revalidation::revalidate_batch_latent` reject a DIF batch below `K_MIN` items (INV-8) and a sample below its floor (`N1_MIN`=300, `N2_MIN`=1500, `N_LATENT_MIN`=3000, §B.6); the per-item DIF math stays pure. `run_epoch` runs the pilot through the gates. `inv8_batch_min.rs` (`AT-PRO-02`). *Third review:* the floors count rows, not distinct respondents (T65) | INV-8, PROTO-006, G-15 | `AT-PRO-02` (batch of one rejected) passes | S |
+| T10 | Borderline items get extra reviewers then a clean re-decision; a failed appeal is a pseudo-observation with escrow. **Partial.** Done: `gate::supplementary_review` re-runs bridging and re-decides `b_j` vs the plain threshold; the `lifecycle` `SupplementaryReview` state gains its forward transition (`Event::Resolve` → `Pilot1` or `Rejected(Borderline)`), so a band item reaches a defined terminal (`supplementary_redecision.rs`); `gate::settle_appeal` exists (tested in `lifecycle.rs`). *Third review:* the re-decision re-fits the same panel's ratings, so it relaxes the robust threshold instead of adding reviewers — the expanded panel is **T60**; the escrow is never settled by the orchestrator — **T61** | D26, D27, G-15 | `AT-PRO-03` (defined outcome) passes | M |
 | T30 | **Retire the band tie-break. Done:** the `aggregate` module (`resolve_band`/`aggregate_pass_probability`) and its tests (`review_aggregation.rs`, `composed_gate.rs`) are deleted; the D26 re-decision (`gate::supplementary_review`) replaces it — re-run bridging, decide `b_j` against the plain threshold. `end_to_end.rs::run_epoch` resolves the band through it, `EXPECTED_POOL={0,6}` preserved; `supplementary_redecision.rs` shows the polarized items 07/08 are *not* passed (bridging, not a vote). The √k anti-collusion stays covered at the scoring layer (`anti_collusion.rs`) and in the T5 weights | PROTO-012, D26, D2 | the `documents_limitation_*` tests are deleted; a polarized panel is *not* resolved by the larger camp | M |
 | T31 | **Crowd baseline in code.** Implement the D23 baseline (`p̄_j` = weight-adjusted mean of the reviewers' own predictions) and use it for `E_u` everywhere the base rate is used today. **Done:** `reputation::crowd_baseline`; `honeypot::reviewer_skills` normalizes BSS against `p̄_j`; `AT-REP-02` passes (`level_c.rs`). *Residual:* the sim's `levelc_bss` reference still uses the base rate | D23, G-09, REPUTATION-003 | `AT-REP-02` (consensus follower ≈ 0) passes | M |
 | T32 | **Gate Variant-1 DIF behind a calibration flag.** `pilot::stage2_dif`, `revalidation::revalidate_pool`, `logistic_dif`/`mantel_haenszel`/`purify_theta` callers in the production path require a `calibration` feature; the e2e epoch uses Variant 2 **Done:** the `calibration` feature (`scoring`, `protocol`) gates every `group`-taking path; the default build has none (`docs/08` DIF-002 RESOLVED). | D20, G-01, DIF-002 | production build has no code path that accepts a per-respondent `group` | S |
 | T11 | Structural rate-limit and one-credential-per-label enforcement (the in-process form; the cryptographic-grade version is T20). **Done:** `credential::{IssuanceRegistry, Issuer::issue_once}` refuse a second credential for a label (`AlreadyIssued`, whatever the secret — `id007_one_credential.rs`); `admission::QuotaLedger` + `deposit_with_identity` reject a proposer over its per-epoch quota (`OverQuota`), keyed on the proven Propose id, with the quota set from `C_a` via `reputation::proposal_rate` (`id008_proposal_quota.rs`) | ID-007, ID-008 | `AT-ID-02/03` pass; over-quota rejected | M |
+| T21 | Identity proofs are bound to the specific action (cannot be replayed onto another). Planned for distributed identity; **done in T6:** `nullifier::{prove, verify}` take an action `context` and the protocol binds it to the item and epoch (`protocol/tests/inv9_nym_proof.rs`, `AT-ID-05`). The cryptographic-grade enrollment it sits on is T20. | CS-3, AT-ID-05 | — | M |
 
-### P1.3 · Network and runtime layer (audit block 4) — build what is missing
+### P1.3 · Network and runtime layer (audit block 4)
 
 | Task | What it means (plain) | Audit refs | Done when | Size |
 |---|---|---|---|---|
-| T12 | A real lifecycle **state machine / orchestrator** (today the flow lives only inside a test) that rejects every invalid transition. **Core done:** `protocol::lifecycle` (`State`/`Event`/`step`/`deposit`) rejects every checkable §9.1 invalid case (`orchestrator.rs`); proof-gated preconditions (T6/T7/T8/T11) enter as explicit inputs; dead `Stage` removed. `end_to_end.rs::run_epoch` is now routed through it: every stage-to-stage decision (gate outcome → pilot entry, pilot verdict → pool or reject) goes through `lifecycle::step` via `orchestrator::run_item`/`ItemVerdicts`, and the pool is exactly the items left in `ActivePool`. *Remaining:* persistence (T13) and the `SupplementaryReview` forward transition (T30) | §2.2, §9.1, PC-1 | the "invalid cases" of §9.1 are rejected in code | L |
-| T13 | **Persistent state** so a restart recovers (everything is in-memory today) | §10.6 | state survives a process restart | M |
+| T12 | A real lifecycle **state machine / orchestrator** (today the flow lives only inside a test) that rejects every invalid transition. **Core done:** `protocol::lifecycle` (`State`/`Event`/`step`/`deposit`) rejects every checkable §9.1 invalid case (`orchestrator.rs`); proof-gated preconditions (T6/T7/T8/T11) enter as explicit inputs; dead `Stage` removed. `end_to_end.rs::run_epoch` is now routed through it: every stage-to-stage decision (gate outcome → pilot entry, pilot verdict → pool or reject) goes through `lifecycle::step` via `orchestrator::run_item`/`ItemVerdicts`, and the pool is exactly the items left in `ActivePool`. *Remaining:* persistence (T13); the `SupplementaryReview` forward transition was done by T30 | §2.2, §9.1, PC-1 | the "invalid cases" of §9.1 are rejected in code | L |
 | T14 | **Signed** append-only log + consistency proofs + truncation detection. **Done:** `log::checkpoint()` yields the `Checkpoint{height, head}` the consortium signs, and `log::verify_extends(&prior)` proves the current log consistently extends a trusted signed checkpoint — catching the consistent suffix rewrite (`ForkedHistory`) and truncation (`Truncated`) that `verify()` alone cannot (`log_consistency.rs`, AT-NET-01) | NET-004 / G-14, DS-1 | `AT-NET-01` passes | M |
-| T15 | Checkpoint hardening: network id, member-set hash, client monotonic-height rule, fork/equivocation evidence. **Done:** `Checkpoint` gains `network_id` + `member_set_hash` inside the signed message (v2); `Consortium::member_set_hash`; `CheckpointClient` follows one network under a fixed member set — `Rejected(WrongNetwork/WrongMemberSet/InsufficientSignatures)`, `Stale` on a non-monotonic replay, `Forked{trusted,conflicting}` on same-height equivocation (`checkpoint_replay.rs`, AT-NET-03..05). Higher-height fork detection combines with `log::verify_extends` (T14) | NET-006, §9.4, DS-3 | `AT-NET-03..05` pass | M |
+| T15 | Checkpoint hardening: network id, member-set hash, client monotonic-height rule, fork/equivocation evidence. **Done:** `Checkpoint` gains `network_id` + `member_set_hash` inside the signed message (v2); `Consortium::member_set_hash`; `CheckpointClient` follows one network under a fixed member set — `Rejected(WrongNetwork/WrongMemberSet/InsufficientSignatures)`, `Stale` on a non-monotonic replay, `Forked{trusted,conflicting}` on same-height equivocation (`checkpoint_replay.rs`, AT-NET-03..05). Higher-height fork detection combines with `log::verify_extends` (T14). *Third review:* `Consortium::verify` itself does not compare the member-set hash, and the threshold is unvalidated (T63) | NET-006, §9.4, DS-3 | `AT-NET-03..05` pass | M |
 | T16 | Authenticate backup shards (detect a corrupted shard before decoding). **Done:** `Encoded` carries a per-shard `manifest` (`erasure::shard_hash`), and `erasure::reconstruct_verified` drops any present-but-wrong shard (failing its manifest hash) before Reed–Solomon, failing with `TooFewAuthenticShards` rather than trusting a bad one (`shard_authentication.rs`, AT-NET-06) | NET-007, DS-4 | `AT-NET-06` passes | S |
-| T17 | Real anchoring: submit to a calendar, read Bitcoin headers, schedule it, anchor the checkpoint head | NET-009, DS-5 | a checkpoint head is anchored and verified end-to-end | M |
-| T18 | **Transport/replication** (gossip + DHT + convergent state / CRDT): let nodes actually talk and agree | NET-010, DS-6, §10.3 | two replicas converge on the same signed set | L |
 
-### P1.4 · Consolidation pass — cleanup, tests, analysis
+### P1.4 · Consolidation pass
 
-Run after P1.1–P1.3, before Phase 2.
-
-- **Cleanup:** NaN policy on caller-supplied floats is `f64::total_cmp` (NaN sorts
-  last) at every sort site — done (IQ-2, docs/08 §0-ter); keep `clippy -D warnings`
-  and `fmt` green (IQ-4), including under newer clippy (1.89 adds
-  `cloned_ref_to_slice_refs`, already addressed).
-- **Tests:** assemble the adversarial suite added along the way into `docs/08` §13's
-  tree; report a coverage figure with the command and date (IQ-5); add the
-  cross-platform reproducibility check (`AT-BR-04`, RP-2).
-- **Analysis:** re-walk the `docs/08` §15 matrix and raise the status of every claim
-  that now has evidence; create `docs/09-verification-matrix.md` from it.
+- **Done:** the NaN policy on caller-supplied floats is `f64::total_cmp` (NaN sorts last)
+  at every sort site (IQ-2, `docs/08` §0-ter); `clippy -D warnings` and `fmt` green,
+  including clippy 1.89's `cloned_ref_to_slice_refs`.
+- **Moved:** the adversarial-suite assembly, the coverage figure and the §15 re-walk to
+  [Continuous work](#continuous-work); the cross-platform check `AT-BR-04` to Phase 1.3.
 
 ### P1.5 · Second review — spec-to-code closure and test consolidation
 
 A second, independent review (2026-09-23) re-read the code against `docs/02`, `docs/05`
-and `docs/08`. Line coverage is already ~97% (`cargo llvm-cov --workspace --features
-calibration --summary-only`), yet every confirmed defect below sits in a file covered at
-96–100%: the lines run, but no test asserts that they *reject* the wrong input. So this
-block is two things — close the confirmed defects, then add the kinds of test that
-measure *verification*, not execution. Only property-based tests exist today in
-`network` (4) and `protocol` (3); `scoring` and `identity` have none.
+and `docs/08`. Line coverage was already ~97% (`cargo llvm-cov --workspace --features
+calibration --summary-only`), yet every confirmed defect sat in a file covered at
+96–100%: the lines ran, but no test asserted that they *reject* the wrong input. So this
+block was two things — close the confirmed defects, then add the kinds of test that
+measure *verification*, not execution. Its open tasks moved into the phases: T37 (Phase
+2.2), T58 (Phase 3.1), T39 and T45 (Phase 1.3), T46 and T47 (Phase 3.1).
 
-**Confirmed defects (fix first, each with a failing-first regression test):**
+**Confirmed defects:**
 
 | Task | What it means (plain) | Audit refs | Done when | Size |
 |---|---|---|---|---|
-| T33 | **The review round is checked from the state, not trusted from the caller.** **Done:** distinct panel (`DuplicatePanelist`), one reveal per nym (`AlreadyRevealed`), `Revealing` carries the panel and `Score { outcome }` checks every panelist revealed; `orchestrator::review_round` + `run_item(reviewed, …)`, and the e2e epoch walks a real 9-panel round per item. `AssignReviewers` accepts a panel with a repeated nym (7 slots, 6 people); `Score { all_reveals_in: bool }` takes the caller's word that everyone revealed; the same nym can reveal twice. The panel must be distinct, a reveal is accepted once, and `Score` succeeds only when every panelist has revealed — derived from the state | §9.1, PC-1 | duplicate panel / double reveal / partial reveal each rejected in `orchestrator.rs`; `run_item` walks a real review round | S |
-| T34 | **The 2PL item fit reports whether it can be trusted.** **Done:** `Fit2pl { a, b, status }`; `stage1_screen` requires `Converged` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`). `fit_2pl_item` drops the logistic status, so a separated fit's huge slope passes the `a ≥ A_MIN` screen. Return the status; the stage-1 screen fails an item whose fit is not `Converged` | OPT-001, T2 | a perfectly separating item fails the screen | S |
-| T35 | **The latent re-check reports the specified quantity and only acts on a trustworthy fit.** **Done:** `MixtureDif::dif = 2|δ|`, `MIXTURE_DIF_MAX = 1.0` (provisional), `revalidation::latent_flags` gates on convergence and BIC (`latent_revalidation.rs`). Report `DIF_j = 2|δ_j|` (the b-gap `docs/02` defines, not the half-gap) and flag nothing when the free fit did not converge or the BIC does not favour two classes. The rejection threshold on the b-gap stays **1.0** (the current behaviour, now stated) — the literature 0.5 applied to this estimator flags all 8 items of the one-biased-item fixture — until T24/T25 calibrate it | DIF-006, DIF-004, D24 | threshold on `DIF_j`; non-converged / BIC ≤ 0 flags nothing; docs/02 and docs/08 record the provisional value | S |
-| T36 | **Degenerate inputs have a defined answer.** **Done:** θ ≡ 0 with no spread, `point_biserial` = 0 with no variance, malformed tally never approves, `DuplicateCandidate` (`degenerate_inputs.rs`, `lifecycle.rs`, `properties.rs`). `standardize` on an empty or constant vector returns NaN (IRT-001); `point_biserial` divides by a zero variance; `change_approved` accepts `votes_for > total_eligible`; `stratified_sortition` can seat the same id twice | IRT-001, §6 | each case has a documented, conservative result and a test | S |
-| T37 | **The beacon is not grind-free yet (reopens INV-10).** **Decided (2026-09-24, D41):** commit-reveal among consortium members now, with a public penalty for not revealing; a unique threshold signature over the epoch number once T19 gives the committees a real DKG. Options that were on the table: (a) a unique threshold signature over the epoch number, drand-style — unbiasable, but inherits the trusted-dealer caveat until T19; or (b) commit-reveal among members bound before the deposit window closes — simpler, but the last revealer can abort and bias one bit. The seed is `H(checkpoint head ‖ …)` and the head is a deterministic function of the log content: whoever orders or includes the last deposits before the checkpoint — the publisher, a colluding threshold of signers, or a last depositor who sees the log — can try variants and keep the preferred seed. Separate the randomness from the state commitment (commit-reveal among members, or a threshold signature/VRF over the epoch as the beacon) | INV-10, CRYPTO-008, D29, D41 | a test shows the last depositor cannot choose among seeds; a member who withholds its reveal is excluded and recorded; docs/08 status honest meanwhile | M |
-| T38 | **A higher checkpoint must extend the trusted one.** **Done:** `CheckpointClient::ingest_with_log` (`checkpoint_fork.rs`). `CheckpointClient::ingest` accepts any threshold-signed checkpoint of greater height; a client that holds the log must also require `log::verify_extends(prior)` (or a consistency proof) before moving its trust | NET-006 residual, T14/T15 | a threshold-signed higher-height fork is reported, not accepted | S |
-| T48 | **The bridging fit can stop far from a minimum, and depends on the seed.** Found by the T42 property tests: the relative-progress stall criterion ends a slow Armijo-only descent early and reports `Converged` (on the fixture, seed 5 stops at 4× the objective of the other seeds, with `b_j` up to 1.08); on random data several local minima exist and 8 seeds disagree on some `b_j` by > 0.01 in 57–84% of cases, sometimes across `τ`. **Decided (2026-09-24): both** — a strong-Wolfe line search with a gradient-based stop, so each start really reaches a minimum, *and* a deterministic multi-start keeping the lowest objective, so the choice among genuine minima does not depend on the seed. Changes the golden outputs (regenerate on purpose) and multiplies the fit time by the number of starts. **Done:** strong-Wolfe `lbfgs`; `fit` with `n_starts = 8` and a canonical sign of `f`; disjoint seed sets disagree in 2/300 random cases (was 105/300), the fixture agrees across 8 base seeds to 1e-4; Rosenbrock 670 → 51 gradients. The progress-stall stop is kept (SciPy has an equivalent `ftol`): the measurements showed the seed-dependence came from distinct minima, not from it | OPT-001, BRIDGE-001, T40, T45 | the verdict of every item on the fixture is the same for every seed; a fit reported `Converged` has `‖∇‖_∞` near `g_tol` | M |
-| T49 | **A panelist who never reveals must not freeze the item.** Since T33 a round is scored only when every panelist has revealed, and nothing handles a panelist who never commits or never reveals: the item stays in `Revealing` forever (found by the T43 model tests). It is also an attack — being drawn and then vanishing blocks an item. **Decided (2026-09-24):** at the reveal deadline each missing panelist is *replaced* by a beacon-drawn reviewer from the same `f_u` stratum and the round reopens for them; after the second deadline the round is scored on the reveals present if at least **7** panelists revealed, otherwise the item returns to the admission queue (never stuck, never decided by a rump panel). A no-show loses reputation (vote weight), and since reputation does not affect the draw (`docs/05` [4]: stratified on `f_u` only), a reviewer with repeated recent no-shows is also *suspended from the draw* for a number of epochs, growing with repetition — it removes proven no-shows, the draw among the rest stays random. The quorum, the penalty and the suspension schedule are parameters to calibrate | §9.1, G-15, T33, T43, INV-10 | a missing reveal leads to replacement, then quorum or re-queue; no state is absorbing except the terminals; an adversary who vanishes delays an item by one round at most; model tests (T43) extended to the new transitions | M |
+| T33 | **The review round is checked from the state, not trusted from the caller.** **Done:** distinct panel (`DuplicatePanelist`), one reveal per nym (`AlreadyRevealed`), `Revealing` carries the panel and `Score { outcome }` checks every panelist revealed; `orchestrator::review_round` + `run_item(reviewed, …)`, and the e2e epoch walks a real 9-panel round per item. `AssignReviewers` accepted a panel with a repeated nym (7 slots, 6 people); `Score { all_reveals_in: bool }` took the caller's word that everyone revealed; the same nym could reveal twice. The panel must be distinct, a reveal is accepted once, and `Score` succeeds only when every panelist has revealed — derived from the state. *Third review:* an empty panel, built by hand, is vacuously "all revealed" (T66) | §9.1, PC-1 | duplicate panel / double reveal / partial reveal each rejected in `orchestrator.rs`; `run_item` walks a real review round | S |
+| T34 | **The 2PL item fit reports whether it can be trusted.** **Done:** `Fit2pl { a, b, status }`; `stage1_screen` requires `Converged` (`lifecycle.rs::pilot_stage1_fails_an_item_whose_2pl_fit_is_separated`). `fit_2pl_item` dropped the logistic status, so a separated fit's huge slope passed the `a ≥ A_MIN` screen | OPT-001, T2 | a perfectly separating item fails the screen | S |
+| T35 | **The latent re-check reports the specified quantity and only acts on a trustworthy fit.** **Done:** `MixtureDif::dif = 2\|δ\|`, `MIXTURE_DIF_MAX = 1.0` (provisional), `revalidation::latent_flags` gates on convergence and BIC (`latent_revalidation.rs`). Reports `DIF_j = 2\|δ_j\|` (the b-gap `docs/02` defines, not the half-gap) and flags nothing when the free fit did not converge or the BIC does not favour two classes. The rejection threshold on the b-gap stays **1.0** (the literature 0.5 applied to this estimator flags all 8 items of the one-biased-item fixture) until T24/T25 calibrate it | DIF-006, DIF-004, D24 | threshold on `DIF_j`; non-converged / BIC ≤ 0 flags nothing; docs/02 and docs/08 record the provisional value | S |
+| T36 | **Degenerate inputs have a defined answer.** **Done:** θ ≡ 0 with no spread, `point_biserial` = 0 with no variance, malformed tally never approves, `DuplicateCandidate` (`degenerate_inputs.rs`, `lifecycle.rs`, `properties.rs`). `standardize` on an empty or constant vector returned NaN (IRT-001); `point_biserial` divided by a zero variance; `change_approved` accepted `votes_for > total_eligible`; `stratified_sortition` could seat the same id twice | IRT-001, §6 | each case has a documented, conservative result and a test | S |
+| T38 | **A higher checkpoint must extend the trusted one.** **Done:** `CheckpointClient::ingest_with_log` (`checkpoint_fork.rs`). `CheckpointClient::ingest` accepted any threshold-signed checkpoint of greater height; a client that holds the log must also require `log::verify_extends(prior)` before moving its trust | NET-006 residual, T14/T15 | a threshold-signed higher-height fork is reported, not accepted | S |
+| T48 | **The bridging fit can stop far from a minimum, and depends on the seed.** Found by the T42 property tests: the relative-progress stall criterion ended a slow Armijo-only descent early and reported `Converged` (on the fixture, seed 5 stopped at 4× the objective of the other seeds, with `b_j` up to 1.08); on random data several local minima exist and 8 seeds disagreed on some `b_j` by > 0.01 in 57–84% of cases, sometimes across `τ`. **Decided (2026-09-24): both** — a strong-Wolfe line search with a gradient-based stop, so each start really reaches a minimum, *and* a deterministic multi-start keeping the lowest objective, so the choice among genuine minima does not depend on the seed. Changed the golden outputs (regenerated on purpose) and multiplies the fit time by the number of starts. **Done:** strong-Wolfe `lbfgs`; `fit` with `n_starts = 8` and a canonical sign of `f`; disjoint seed sets disagree in 2/300 random cases (was 105/300), the fixture agrees across 8 base seeds to 1e-4; Rosenbrock 670 → 51 gradients. The progress-stall stop is kept (SciPy has an equivalent `ftol`): the measurements showed the seed-dependence came from distinct minima, not from it | OPT-001, BRIDGE-001, T40, T45 | the verdict of every item on the fixture is the same for every seed; a fit reported `Converged` has `‖∇‖_∞` near `g_tol` | M |
 
-**Spec features still missing (tracked, not defects of the code that exists):**
+**Spec features:**
 
 | Task | What it means (plain) | Audit refs | Size |
 |---|---|---|---|
-| T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2` | BRIDGE-00x, PROTO-003, `docs/02` §A.4 | M |
 | T40 | Mixture DIF: multi-start with deterministically derived seeds (keep the best converged likelihood), per-class discrimination (non-uniform DIF), `G > 2` selected by BIC, analytic gradient **Done:** the specified model `σ(a_jg(θ − b_jg))` with `G ∈ {1..4}` and uniform/non-uniform chosen by BIC (staged), 4 seeded starts per candidate, analytic gradient, classes < 5% excluded from the gap; `latent_flags` requires ≥ 2 classes. ~4 s per 3000×8 batch; `scoring` is built optimized in dev/test (same bits). *Open:* a threshold for the discrimination gap (`a_gap`, reported, not yet a verdict) — T24/T25 | DIF-004, §6.6 | M |
 
-**Test consolidation (what gives confidence beyond coverage):**
+**Test consolidation:**
 
 | Task | What it means (plain) | Done when | Size |
 |---|---|---|---|
 | T41 | **Mutation testing** (`cargo-mutants`) over `protocol` and `scoring`, then `network`/`identity`: every surviving mutant is either killed by a new test or justified. Run periodically (not on every push: slow). **Done:** 1482 mutants; survivors 220 → 0 real (32 equivalent, each justified); found the bridging tolerance hiding gradient errors and `lbfgs` reporting a failed line search as `Converged` (both fixed). Report: `docs/11-mutation-testing.md` | a report with the survivors triaged | M |
-| T42 | **Property tests where there are none:** `scoring` (bit-for-bit determinism, permutation invariance, bootstrap ≤ full fit, no NaN on finite input, monotonicity of `b_j` in agreeing ratings, `f` sign symmetry, zero weight = absent observation) and `identity` (any valid credential verifies, any flipped byte fails, nullifier distinct per role, any `t`-quorum reconstructs the same value, duplicate quorum always refused). **Identity half done:** proptest suites in `credential`, `nullifier`, `oprf` (in-crate, since the byte encodings and the quorum entry point are private) and `tests/{properties,threshold_bbs}.rs` — any issued credential (single and threshold) verifies, any single altered byte of the credential or nullifier-proof encoding is rejected, a proof fails under another role or an altered context, nullifiers/nyms distinct per role and per person, any quorum of ≥ `t` distinct members yields the same label, a quorum with a duplicate, a missing or a foreign index is refused, a shifted partial fails its DLEQ. **Scoring half done:** `scoring/tests/properties.rs` + in-crate `bridging` proptests — bit-for-bit determinism, observation-order invariance, zero weight = absent (bit-for-bit, after fixing the start point), finite outputs, bootstrap ≤ full fit, `f`-sign symmetry of the objective, gradient vs central differences anywhere; `C_a` ∈ (0, 1) and monotone in quality, crowd baseline within the predictions, BSS ≤ 1 and 0 for the baseline, EMA between old and new; correlation matrix well-formed, cluster discount never a boost (INV-14); θ standardized, point-biserial scale-free. *Not a property:* monotonicity of `b_j` in agreeing ratings — it fails for start-point reasons (T48) | proptest suites in both crates | M |
-| T43 | **Model-based tests of the state machines** (`lifecycle`, `orchestrator`, `CheckpointClient`): random event sequences checked against a small reference model; invariants — no score without every reveal, no double commit/reveal, trusted height never decreases. **Done:** three proptest suites. Each has a reference model written from `docs/08` §9.1/§9.4 rather than from the code, checked at every step (the exact next state, or the exact `Invalid`/`CheckpointUpdate`), and a fixed-seed test that the walks reach every state and every rejection. `protocol/tests/lifecycle_model.rs`: walks of `deposit`/`step` that mix the expected event with out-of-order, outsider, repeated, copied/lifted/opaque-commitment and out-of-range ones. Invariants: `Score` only once every panelist has revealed; no double commit or reveal; a distinct panel of odd size in [7, 11]; a rejected event changes nothing (the accepted events alone replay the walk); `Rejected`/`Retired` are never left; `ActivePool` only from `Pilot2`, after `Pilot1`. `protocol/tests/orchestrator_model.rs`: `review_round` + `run_item` against a whole-round model, for complete, partial, empty, outsider, double-judge, bad-probability and bad-panel rounds, from any start state. `network/tests/checkpoint_model.rs`: `ingest`/`ingest_with_log` against a model in which a log extends a checkpoint iff its payloads are a prefix. Invariants: the trusted height never decreases; a wrong network or member set, or too few signatures (down to a whole quorum over another message), never changes the state; two heads at one height always give `Forked`; with the log, a higher checkpoint is accepted iff the log extends both. On their own, the suites kill every viable cargo-mutants mutant of `lifecycle.rs` (38) and `consortium.rs` (24). They also kill 20 of 21 hand mutations of `review_round`/`run_item` and of the `ingest_with_log` closure, which cargo-mutants does not mutate; the 21st is equivalent. **Found and fixed:** `ingest_with_log` reported a local log shorter than the *trusted* checkpoint as `LocalLogDiverged` instead of `LogBehind`, even when the log was an honest prefix, e.g. after trusting a checkpoint without the log (`checkpoint_fork.rs::a_local_log_behind_the_trusted_checkpoint_is_behind_not_diverged`, NET-006). **Pinned, still open:** a round in which a panelist never commits or never reveals can never be scored, and has no way out of `Revealing` (the non-reveal rule, G-15) | proptest state-machine suites | M |
-| T44 | **Fuzzing and panic audit** of every byte decoder (`oprf`, `erasure`, `consortium`, and later the network codecs) with `cargo-fuzz`; classify the ~70 `unwrap`/`expect`/`assert` in `src/` as internal invariant vs external input, and turn the latter into errors. **Done for `network` and `identity`** (`docs/12-panic-audit.md`): 35 sites outside tests classified; nine external-input crashes fixed — the `.ots` parser (overlong varint panic, declared-length allocation abort, unbounded `Hexlify` growth, fork amplification: now a bounded pre-scan before the library), erasure layout (count overflow, `orig_len` allocation), `merkle_proof` out-of-range index, VOPRF anchors over `u16::MAX` bytes, fallible transcripts on the verify paths; eight `cargo fuzz` targets in `crates/{network,identity}/fuzz/`, and stable no-panic properties (`hostile_input.rs`) on every push. *Remaining:* `scoring`/`protocol` entry points (their sites are classified; not touched while they were being changed in parallel); fuzz targets for the codecs T18 adds | no panic on arbitrary bytes; the classification is recorded | M |
-| T45 | **Wider differential oracles:** random datasets vs SciPy (not only the fixed fixture), analytic vs numerical gradient for the mixture, `lbfgs` on functions with known minima (Rosenbrock, ill-conditioned quadratics). Known from T41: Rosenbrock needed ~670 gradients vs SciPy's ~46 (fixed by the strong-Wolfe search of T48: ~51), and the relative-progress stall can report `Converged` with `‖g‖_∞ ≫ g_tol` near `f = 0` | oracle suite runs under the pinned sim env | M |
-| T46 | **Validated boundary types** (`Probability`, `ValidatedRatings`, a distinct odd `Panel` of 7–11) so whole classes of bad input cannot be constructed | public entry points take the validated types | M |
-| T47 | *(optional)* **Bounded model checking (Kani)** on small decisive functions: `bridging_gate`, `change_approved`, panel admission, `lagrange_at_zero` with distinct indices | proofs run in CI | S |
-
-T24 (below) is the statistical counterpart: it is the only way to say the detectors
-"work", and it now explicitly includes the **zero-biased** condition (false-positive
-rate), unbalanced classes, `δ` below 0.9, and the T35 threshold choice.
-
-### P1.6 · Design revisions from the working paper (D32–D41)
-
-The working paper (`paper/`) found properties of the scoring mechanism that the
-specification did not anticipate: a batch-relative, partly majoritarian bridge score,
-spurious latent classes from error in the ability proxy, an improper evaluator score, a
-weight cap that never binds, and a coordination detector with almost no data per
-epoch. The decisions D32–D41 correct them. Each task below starts with the test that
-fails on the current code, as in P1.5. Several change the specified metrics, so the
-simulations in `sim/`, the oracle fixtures and the golden outputs change with them —
-on purpose, as in T48.
-
-| Task | What it means (plain) | Decision / refs | Done when | Size |
-|---|---|---|---|---|
-| T49 | **Side-balanced bridge score.** After the (unchanged) fit, split reviewers into two sides by 2-means on `f_u`, average the predicted ratings per side, and score each item by the mean of the two sides. Bootstrap-min, band and the D26 re-decision apply to it; the threshold becomes absolute (`τ ≈ 0.80`, provisional). Update `sim/bridging_irt_dif.py` and the fixtures | D32; paper §3.3–3.4; BRIDGE-008/009 | `AT-BR-08` (swapping the camp sizes does not change which of two mirror-image items passes; leak ≤ 0.1 at 60/40 and 80/20 for 50–3,200 reviewers) and `AT-BR-09` (ten weak decoy items move no other item's score by more than 0.02) pass — both fail on the intercept | M |
-| T50 | **Proper evaluator score, odds weights, short probation.** Leave-one-out difference score in `reputation`, used by `honeypot::reviewer_skills`; weights `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, capped at `3 × median`; `N_PROBATION` 200 → 30 | D33, D36; paper Props 12, 14, 15; REPUTATION-005/008, G-12 | `AT-REP-05` (for random beliefs the exact expected score is maximized by the true belief, `m ≤ 4`), `AT-REP-02` (a crowd copier scores exactly 0) and `AT-REP-04` (the cap binds on an outlier) pass; probation ends at 30 scored outcomes | M |
-| T51 | **Change detector instead of the asymmetric update.** Symmetric long-window mean for the weight; one-sided CUSUM (`k = 0.03`, `h = 1.5`, provisional) on each reviewer's per-item scores against their own mean; an alarm returns the reviewer to probation | D34; paper §5.5; REPUTATION-004 | `AT-REP-07`: a seeded honest stream of 10,000 scored items raises at most one alarm, and a reviewer who starts flipping 20% of forecasts is caught within 100 scored items (the game-theoretic `AT-REP-01` stays open) | M |
-| T52 | **Live outcomes with exploration.** Reviewer scores ingest the Level B outcome of every reviewed item that reaches a pilot; a random 5% of gate rejections, drawn from the beacon, go to the pilot for measurement only (`Rejected → Explored → pilots → Measured`, never `ActivePool`), weighted `1/0.05`; the gate's false-negative rate is recorded | D35; paper §5.2 | `AT-PRO-07` (an explored item never enters the pool; the draw is reproducible from the beacon and cannot be chosen) and `AT-REP-06` (on synthetic data the weighted score's expectation equals the full-information score, and truthful reporting stays optimal) pass | L |
-| T53 | **Anchor-reliability gate for latent DIF.** Compute KR-20 of the anchors on the batch's respondents; refuse the latent re-check below 0.90 (`PilotError::UnreliableAnchors`); report the differential gap in `MixtureDif` as a diagnostic only | D37; paper Prop 10, Table 6; DIF-010 | `AT-DIF-11`: the paper's null batches with 20 anchors are refused, those with 60 are accepted and raise no flag | S |
-| T54 | **Latent DIF with θ inside the likelihood.** Mixture IRT that integrates θ (quadrature) and includes the anchors with class-invariant parameters; re-derive the verdict threshold on it; retire the proxy-θ model | D37; DIF-006/008/010 | `AT-DIF-01` holds (item-level false-positive rate ≤ 5% on null batches) for anchor KR-20 from 0.80 to 0.95 at N = 3,000–12,000, and `AT-DIF-12` (campaigns with 2, 4 and 6 of 8 items biased are flagged correctly) passes; runtime per batch recorded | L |
-| T55 | **Contested-facts pool.** An item with DIF whose key a primary source establishes (evidence procedure of `docs/02` §B.5) becomes a *contested fact*: separate pool, drawn only in balanced sets so that differential test functioning stays within a tolerance; define the DTF statistic and the procedure in `docs/02`/`docs/05` first | D38; paper §4.7 | `AT-PRO-08`: every assembled test has DTF within tolerance; a DIF item without a verified source is rejected as before | L |
-| T56 | **Coordination detector on residuals.** In `collusion`: residuals from the bridging fit, accumulated across epochs; pairwise correlation only with at least 30 shared items, against a permutation null; average-linkage clusters | D39; paper Prop 18; COLLUSION-002/003/005/006 | `AT-COL-02` (a cartel jittered by σ = 0.05 is detected) and `AT-COL-07` (honest reviewers of the same camp are not flagged; pairs with fewer than 30 shared items never are) pass | M |
-| T57 | **Panel diversification.** Reviewer assignment keeps at most one member of each detected cluster per panel; the protocol does not apply the weight discount | D40; paper Prop 17 | `AT-BR-10`: over randomized draws no panel holds two members of one flagged cluster, and no honest reviewer's weight changes | M |
-
-**Milestone M1 — "whole and honest testnet":** reputation is consumed and scored
-properly (P1.6), the protocol boundary is Sybil-resistant, nodes talk and persist, the
-docs match the code. Not yet production (single-org committees, unreviewed bespoke
-crypto, uncharacterized parameters).
-
----
-
-## Phase 2 — later (the expensive hardening)
-
-### P2.1 · Distributed identity and cryptographic review (audit block 3)
-
-| Task | What it means (plain) | Audit refs / decision | Size |
-|---|---|---|---|
-| T19 | Real distributed key generation and transport for both committees; remove the "trusted dealer"; independent setup randomness | CS-2 | L |
-| T20 | Real enrollment: the state-signed identity is bound to the anonymous label with proper client/server messages (no cleartext identity reaching the key holder); cryptographic-grade rate limiting | CS-1, D22, ID-002/004/005 | L |
-| T21 | Identity proofs are bound to the specific action (cannot be replayed onto another) **Done in T6:** `nullifier::{prove, verify}` take an action `context` and the protocol binds it to the item and epoch (`protocol/tests/inv9_nym_proof.rs`, `AT-ID-05`). The cryptographic-grade enrollment it sits on is T20. | CS-3, AT-ID-05 | M |
-| T22 | Key lifecycle (D30) and the "no recovery" revocation policy (D18) implemented and documented | CS-4 | M |
-| T23 | **External cryptographic review** of the bespoke constructions, and RFC/library test vectors pass | CS-5/6, §7.4 | *external* |
-
-### P2.2 · Scientific characterization and pilots (audit block 5)
-
-| Task | What it means (plain) | Audit refs / decision | Size |
-|---|---|---|---|
-| T24 | Simulation studies: bias-detector false-positive/false-negative and power; bridging robustness sweeps; sample-poisoning | SC-2/3/7, AT-DIF-01..09 | L |
-| T25 | Declare the ability metric and add the guessing correction (D25); fix the bias threshold from the studies (D24); calibration procedure for every operational threshold (τ, ε, λ, …) | SC-1/4/6 | M |
-| T26 | **External psychometric review** of the statistical method | SC-8 | *external* |
-| T27 | A closed calibration pilot with declared attributes, then real-world pilots — the only way to establish the empirical parameters | OR-3, §19 | *external* |
-
-### P2.3 · Statistical privacy (audit block 6)
-
-| Task | What it means (plain) | Audit refs | Size |
-|---|---|---|---|
-| T28 | De-anonymization mitigations: text normalization, batched publication with random delay, no precise timestamps, topic quotas | PRIV-003, PV-3 | M |
-| T29 | A small-network anonymity (k-anonymity) model, with the population floor stated as a deployment precondition | PRIV-005, PV-3 | M |
-
-**Milestone M2 — "production candidate":** distributed trust, externally reviewed
-crypto, empirically characterized parameters, privacy hardened. Reachable only once
-the *external* tasks (T23, T26, T27) are complete.
-
----
-
-## Dependency notes
-
-- T5 (weights) and T6 (identity proofs) are the backbone of Phase 1; T7–T11 build on
-  T6, and T14–T18 give T5’s weighting a durable place to live.
-- T30 depends on T5 (a clean re-decision needs the weighted bridging fit) and T10;
-  T31 and T32 are independent and small.
-- T20 supersedes T11’s in-process rate limiting with the cryptographic form.
-- T33–T36 are small and independent; do them before T41 (mutation testing), so the
-  mutants report measures the fixed code. T35's threshold is final only after T24/T25.
-- T37 (beacon) and T38 (higher-height fork) are prerequisites for T18 (transport).
-- Nothing in Phase 1 requires the *external* gates; but the README/docs MUST keep
-  calling the system a reference/testnet until T23, T26 and T27 are done.
-- P1.6: T49 comes first (it restores the central claim, bridging instead of majority);
-  it changes the golden outputs, the fixtures and `sim/` on purpose. T50 before T51 and
-  T52; T52 also needs the beacon of T37 (the exploration draw). T53 before T54, whose
-  threshold is final only after T24/T25. T55 needs its evidence procedure specified
-  first. T57 needs T56.
+| T42 | **Property tests where there were none:** `scoring` and `identity`. **Identity half done:** proptest suites in `credential`, `nullifier`, `oprf` (in-crate, since the byte encodings and the quorum entry point are private) and `tests/{properties,threshold_bbs}.rs` — any issued credential (single and threshold) verifies, any single altered byte of the credential or nullifier-proof encoding is rejected, a proof fails under another role or an altered context, nullifiers/nyms distinct per role and per person, any quorum of ≥ `t` distinct members yields the same label, a quorum with a duplicate, a missing or a foreign index is refused, a shifted partial fails its DLEQ. **Scoring half done:** `scoring/tests/properties.rs` + in-crate `bridging` proptests — bit-for-bit determinism, observation-order invariance, zero weight = absent (bit-for-bit, after fixing the start point), finite outputs, bootstrap ≤ full fit, `f`-sign symmetry of the objective, gradient vs central differences anywhere; `C_a` ∈ (0, 1) and monotone in quality, crowd baseline within the predictions, BSS ≤ 1 and 0 for the baseline, EMA between old and new; correlation matrix well-formed, cluster discount never a boost (INV-14); θ standardized, point-biserial scale-free. *Not a property:* monotonicity of `b_j` in agreeing ratings — it fails for start-point reasons (T48) | proptest suites in both crates | M |
+| T43 | **Model-based tests of the state machines** (`lifecycle`, `orchestrator`, `CheckpointClient`): random event sequences checked against a small reference model. **Done:** three proptest suites, each with a reference model written from `docs/08` §9.1/§9.4 rather than from the code, checked at every step (the exact next state, or the exact `Invalid`/`CheckpointUpdate`), and a fixed-seed test that the walks reach every state and every rejection. `protocol/tests/lifecycle_model.rs`: walks of `deposit`/`step` that mix the expected event with out-of-order, outsider, repeated, copied/lifted/opaque-commitment and out-of-range ones. Invariants: `Score` only once every panelist has revealed; no double commit or reveal; a distinct panel of odd size in [7, 11]; a rejected event changes nothing (the accepted events alone replay the walk); `Rejected`/`Retired` are never left; `ActivePool` only from `Pilot2`, after `Pilot1`. `protocol/tests/orchestrator_model.rs`: `review_round` + `run_item` against a whole-round model, for complete, partial, empty, outsider, double-judge, bad-probability and bad-panel rounds, from any start state. `network/tests/checkpoint_model.rs`: `ingest`/`ingest_with_log` against a model in which a log extends a checkpoint iff its payloads are a prefix. Invariants: the trusted height never decreases; a wrong network or member set, or too few signatures (down to a whole quorum over another message), never changes the state; two heads at one height always give `Forked`; with the log, a higher checkpoint is accepted iff the log extends both. On their own, the suites kill every viable cargo-mutants mutant of `lifecycle.rs` (38) and `consortium.rs` (24), and 20 of 21 hand mutations of `review_round`/`run_item` and of the `ingest_with_log` closure (the 21st is equivalent). **Found and fixed:** `ingest_with_log` reported a local log shorter than the *trusted* checkpoint as `LocalLogDiverged` instead of `LogBehind` (`checkpoint_fork.rs::a_local_log_behind_the_trusted_checkpoint_is_behind_not_diverged`, NET-006). **Pinned, still open:** a round in which a panelist never commits or never reveals can never be scored (T58) | proptest state-machine suites | M |
+| T44 | **Fuzzing and panic audit** of every byte decoder with `cargo-fuzz`; classify the `unwrap`/`expect`/`assert` in `src/` as internal invariant vs external input, and turn the latter into errors. **Done for `network` and `identity`** (`docs/12-panic-audit.md`): 35 sites outside tests classified; nine external-input crashes fixed — the `.ots` parser (overlong varint panic, declared-length allocation abort, unbounded `Hexlify` growth, fork amplification: now a bounded pre-scan before the library), erasure layout (count overflow, `orig_len` allocation), `merkle_proof` out-of-range index, VOPRF anchors over `u16::MAX` bytes, fallible transcripts on the verify paths; eight `cargo fuzz` targets in `crates/{network,identity}/fuzz/`, and stable no-panic properties (`hostile_input.rs`) on every push. *Remaining, now inside the phases:* `scoring` entry points with T62 (Phase 1.3), the codecs T18 adds (Phase 2.3), `protocol` entry points with T46 (Phase 3.1) | no panic on arbitrary bytes; the classification is recorded | M |

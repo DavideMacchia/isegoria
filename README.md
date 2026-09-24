@@ -6,11 +6,15 @@ single authority decides what counts as a fair question.**
 *Isegoria* (ἰσηγορία) was the ancient Athenian principle of the equal right of
 every citizen to speak in the assembly.
 
-> **Status:** the mathematical core (the scoring engine) is complete and validated
-> against reference simulations; the working paper in [`paper/`](paper/) led to design
-> revisions (`docs/01` D32–D41) that are planned but not yet implemented. The identity, network, and protocol layers are
-> working, tested scaffolds with the heavy cryptography and transport behind clean
-> plug points. See [Project status](#project-status).
+> **Status:** a reference implementation. The scoring engine reproduces its reference
+> simulations bit for bit, but the working paper in [`paper/`](paper/) showed that the
+> bridge score on master is batch-relative and partly majoritarian (paper §3.3–3.4): with
+> unequal camps it favours the question the larger camp likes. The corrections
+> (`docs/01` D32–D41) are decided and are the first phase of the
+> [roadmap](docs/10-roadmap.md): mathematics first, then the P2P network, then the rest.
+> The identity, network and protocol layers are working, tested scaffolds with the heavy
+> cryptography and transport behind clean plug points. See
+> [Project status](#project-status).
 
 ---
 
@@ -58,6 +62,10 @@ people **from different sides** like it.
 > praise. That agreement across very different tastes is a strong sign the film is
 > genuinely good — not just pandering to one crowd. A film only one camp loves
 > gets filtered out.
+
+*Where the code stands:* today's version of Check 1 still leans towards the larger
+camp — when the camps are very unequal, a question only the majority likes can scrape
+through. The fix is designed and is the first item of the [roadmap](docs/10-roadmap.md).
 
 **Check 2 — "Does the question actually work when we try it?"**
 The questions that survive Check 1 are tried out on real people, and we **measure**
@@ -281,6 +289,10 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
   - [`04-storage-network.md`](docs/04-storage-network.md) — storage & network
   - [`05-question-lifecycle.md`](docs/05-question-lifecycle.md) — lifecycle protocol
   - [`06-threat-model.md`](docs/06-threat-model.md) — threat model
+  - [`07-verification-and-assurance.md`](docs/07-verification-and-assurance.md) — verification methodology
+  - [`08-formal-specification.md`](docs/08-formal-specification.md) — independent audit: what is implemented, tested, still open
+  - [`10-roadmap.md`](docs/10-roadmap.md) — **the development plan, by priority**
+  - [`11-mutation-testing.md`](docs/11-mutation-testing.md), [`12-panic-audit.md`](docs/12-panic-audit.md) — test-quality reports
   - [`99-glossary.md`](docs/99-glossary.md) — glossary, from scratch
 - **[`sim/`](sim/)** — the executable specification (research prototypes).
 - **[`paper/`](paper/)** — working paper on the mathematics of the mechanism: formal statement,
@@ -292,11 +304,25 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 | Layer | State |
 |---|---|
-| Scoring engine (A + B + C + anti-collusion) | Complete, reproducible bit-for-bit, validated against the sims |
-| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; implementation planned (`docs/10` P1.6) |
+| Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit, matches the sims; the bridge score is batch-relative and partly majoritarian until D32 (T49) |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; roadmap Phase 1, the first priority |
+| Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Confirmed by tests on master; planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
+
+**What comes next** ([`docs/10-roadmap.md`](docs/10-roadmap.md)), in order:
+
+1. **Mathematics** — first two severe defects (respondents not identity-gated, so one
+   person can fill a Level B sample; a replayed deposit drains its author's quota), then
+   correct the mechanism (D32–D41) and the paths after the gate (band re-decision with
+   extra reviewers, appeal for band items, appeal stake), make the engine reject
+   malformed input, and characterize the thresholds.
+2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
+   can grind, live anchoring.
+3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot
+   sampling), distributed identity and the external cryptographic review, statistical
+   privacy, real-world pilots.
 
 This is a research/specification-stage project. Nothing here is production-ready
 security; the cryptographic plug points are explicitly non-production.

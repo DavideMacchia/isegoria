@@ -41,24 +41,32 @@ guaranteed by an external enrollment layer (national eID / CIE / SPID / others),
 | [`06-threat-model.md`](06-threat-model.md) | Attack surface and countermeasures; what the system does NOT solve |
 | [`07-verification-and-assurance.md`](07-verification-and-assurance.md) | Verification, assurance and falsification methodology |
 | [`08-formal-specification.md`](08-formal-specification.md) | Independent audit: what is implemented, tested and still open |
-| [`10-roadmap.md`](10-roadmap.md) | Remediation and build plan (task ids `T#`) |
+| [`10-roadmap.md`](10-roadmap.md) | **Development plan by priority** — mathematics, then P2P network, then the rest (task ids `T#`) |
 | [`11-mutation-testing.md`](11-mutation-testing.md) | Mutation-testing report: how much the tests verify, and every accepted survivor |
 | [`12-panic-audit.md`](12-panic-audit.md) | Panic audit and fuzzing report: every `unwrap`/`expect`/`assert` classified, every crash on hostile input fixed |
 | [`99-glossary.md`](99-glossary.md) | Every concept explained from scratch, from the problem to the formula |
 | [`sim/`](../sim/) | Executable simulations that demonstrate the behavior and the corner cases |
 | [`paper/`](../paper/) | Working paper: formal statement and analysis of the scoring mechanism, with proofs, reproducible experiments and open problems |
 
-## Recommended implementation order
+## Development priorities
 
-1. **Offline scoring engine** (`02`) on synthetic data — it is the genuinely new
-   piece and validates itself. The simulations in `sim/` are the starting point.
-2. **Closed pilot** on a low-political-temperature domain, with manually managed
-   identities, to calibrate the thresholds on real data.
-3. **Identity layer** (`03`) — the longest technical and regulatory lead time; start
-   it in parallel from phase 1.
-4. **Storage and network layer** (`04`) with public reproducibility of the
-   computation.
-5. **Opening up** and recruiting independent operators.
+The reference implementation exists (see Status below); what remains is ordered in
+[`10-roadmap.md`](10-roadmap.md) in three phases:
+
+1. **Mathematics** (`02`, `01` D32–D41) — after two severe defects of the protocol
+   boundary (a replayed deposit, respondents without an identity gate), correct the
+   scoring mechanism and the decisions built on it (band, appeal), make the engine
+   robust to malformed input, and characterize every threshold. It is the genuinely new
+   piece, and everything else consumes its numbers.
+2. **P2P network** (`04`) — persistence, transport and replication, a grind-free
+   randomness beacon, live anchoring: a single-organization testnet.
+3. **The rest** — the protocol boundary (`05`), distributed identity and the external
+   cryptographic review (`03`), statistical privacy (`06`), and the real-world pilots
+   that fix the empirical parameters.
+
+The original build order (offline engine first, then identity, network, protocol) is
+done as a reference implementation; the closed pilot and the opening to independent
+operators come after the three phases.
 
 ## Status
 
