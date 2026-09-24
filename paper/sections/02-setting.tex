@@ -1,0 +1,181 @@
+\section{Setting, requirements and threat model}\label{sec:setting}
+
+\subsection{Actors and roles}
+
+A \emph{person} enrolls once and receives an anonymous credential. From it the person derives
+exactly one pseudonym for each of three roles:
+\begin{itemize}
+  \item \textbf{author}: proposes items;
+  \item \textbf{evaluator}: reviews items proposed by others;
+  \item \textbf{respondent}: answers trial items, which are mixed with validated ones and do not count
+    toward the respondent's own score.
+\end{itemize}
+The three pseudonyms of one person are unlinkable to each other and to the person. A
+\emph{consortium} of independent, always-on signer nodes stores the append-only record of items
+and reviews, recomputes the scores and signs the result. Anyone may run a light node that
+verifies signatures. A threshold \emph{issuing committee}, distinct from both the consortium and
+the state identity provider, issues credentials. The state authenticates a person but never
+issues the credential, so it cannot link a person to their activity.
+
+\subsection{Requirements}
+
+The following requirements are the invariants of the design~\cite{isegoria-repo}. Every
+mechanism below is evaluated against them.
+
+\begin{requirement}[Anonymity]\label{req:anon}
+No personal, demographic or affiliation data enters the system, not even optionally.
+\end{requirement}
+\begin{requirement}[No majority rule]\label{req:nomajority}
+Acceptance of an item is never decided by counting votes.
+\end{requirement}
+\begin{requirement}[No money]\label{req:nomoney}
+There is no token, stake or payment. Proposing costs reputation and is rate-limited.
+\end{requirement}
+\begin{requirement}[Separated reputations]\label{req:separate}
+The author score and the evaluator score live on unlinkable pseudonyms and are never combined.
+\end{requirement}
+\begin{requirement}[Non-rotatable pseudonyms]\label{req:norotate}
+A person can derive exactly one pseudonym per role, so a bad reputation cannot be discarded~\cite{friedman2001pseudonyms}.
+\end{requirement}
+\begin{requirement}[Reproducibility]\label{req:repro}
+The scores are a deterministic function of the recorded inputs, identical bit for bit on every
+recomputation.
+\end{requirement}
+\begin{requirement}[Batch validation]\label{req:batch}
+Empirical validation is performed on groups of items, never on a single item.
+\end{requirement}
+
+\subsection{Adversaries}
+
+\Cref{tab:threats} lists the adversaries the design addresses and where each is analysed.
+The adversary that motivates the whole design is the \emph{majority faction}: a large, cohesive
+group of real persons that votes sincerely but one-sidedly. It needs no fraud to capture a
+voting system. A \emph{cartel} is a coordinated bloc of real persons. A \emph{Sybil}
+adversary creates fake identities. A \emph{long-con} reviewer builds reputation in order to spend
+it later. A \emph{biased author} writes items whose wording favours one group.
+
+\begin{table}[t]
+\centering\small
+\caption{Adversaries, primary countermeasures, and where this paper analyses them.}
+\label{tab:threats}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.43\linewidth}>{\raggedright\arraybackslash}p{0.24\linewidth}@{}}
+\toprule
+Adversary & Primary countermeasure & Analysis \\
+\midrule
+Majority faction & Bridging aggregation (Level A) & \cref{sec:levela} \\
+Biased item passing review & Empirical DIF on latent classes (Level B) & \cref{sec:levelb} \\
+Cartel & Random assignment; sublinear discount & \cref{sec:collusion} \\
+Sybil, whitewashing & External uniqueness; non-rotatable pseudonyms & \cref{ass:unique} \\
+Brigading, herding & Unpredictable assignment; blind commit--reveal & \cref{ass:assign,ass:blind} \\
+Long-con reviewer & Evaluator score on honeypots; asymmetric updates; cap & \cref{sec:levelc} \\
+Dishonest signer & Deterministic recomputation by a threshold consortium & \cref{ass:repro} \\
+Sample poisoning & Distinct respondents; batch validation & \cref{sec:limitations} \\
+Statistical deanonymization & Out of scope here (text normalization, delays) & \cref{sec:limitations} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Assumptions that abstract the identity and network layers}\label{sec:assumptions}
+
+The scoring mechanism is the subject of this paper. The cryptographic identity layer and the
+replicated storage layer enter only through the following assumptions, so the analysis does
+not depend on how they are realized.
+
+\begin{assumption}[Uniqueness and unlinkability]\label{ass:unique}
+Each person holds at most one credential. Each credential yields exactly one pseudonym per role.
+Pseudonyms of different roles are computationally unlinkable to each other and to the
+person's identity.
+\end{assumption}
+
+\begin{assumption}[Unpredictable assignment]\label{ass:assign}
+Admission, reviewer assignment, honeypot placement and sortition use public randomness that no
+participant can predict or bias before the inputs it applies to are fixed.
+\end{assumption}
+
+\begin{assumption}[Blind simultaneous review]\label{ass:blind}
+Every reviewer of an item commits to a judgment before any judgment is revealed. Reviewers
+see neither the author nor the other judgments.
+\end{assumption}
+
+\begin{assumption}[Reproducible computation]\label{ass:repro}
+The scores are recomputed from the recorded inputs by a threshold of independent signers, and
+a result is accepted only if enough signers agree.
+\end{assumption}
+
+\begin{assumption}[Respondent sampling]\label{ass:sample}
+The respondents of a pilot are distinct persons. Their abilities and latent group memberships
+represent the population for which the item bank is intended.
+\end{assumption}
+
+In the reference implementation, \cref{ass:unique} is realized with a threshold
+oblivious pseudorandom function over the state identity~\cite{rfc9497},
+threshold BBS+ blind credentials~\cite{boneh2004short,au2006bbsplus,tessaro2023bbs} and
+per-role nullifiers. Two parts are still missing: binding the OPRF input to the
+state-authenticated identity (roadmap item T20), and a distributed key generation that removes the
+trusted dealer from both committees (T19). \Cref{ass:assign} uses randomness derived from the latest signed
+checkpoint; the repository records that this derivation can still be ground by whoever orders
+the last deposits (roadmap item T37), so \cref{ass:assign} is not yet met. \Cref{ass:blind}
+uses commitments that bind the committer and the item. \Cref{ass:repro} relies on a deterministic
+Rust engine (\cref{sec:implementation}). \Cref{ass:sample} is the strongest assumption and the
+least under the system's control, because respondents are self-selected members of the network
+(\cref{sec:limitations}).
+
+\subsection{Lifecycle of an item}
+
+\Cref{fig:pipeline} shows the lifecycle.
+\begin{enumerate}
+  \item \textbf{Deposit.} An author deposits a draft item with a mandatory primary source.
+  \item \textbf{Admission.} Each epoch a lottery admits a subset of the deposits, because
+    validation capacity, not proposals, is the bottleneck.
+  \item \textbf{Review.} Each admitted item is reviewed blind by $k=7$--$11$ reviewers,
+    assigned at random and stratified on their estimated latent position. Each reviewer
+    declares a probability that the item will pass empirical validation; that number is both
+    the rating used by Level~A and the forecast scored by Level~C.
+  \item \textbf{Bridging gate.} Level~A computes a bridge score $B_j$. The item passes if
+    $B_j\ge\tau+\varepsilon$. If $B_j$ falls in the band $[\tau-\varepsilon,\tau+\varepsilon)$,
+    the item gets more reviewers and is re-decided against $\tau$. Below the band, it is
+    rejected, or, if it was rejected for polarization (large $|f_j|$), its author may appeal
+    to the evidence filter.
+  \item \textbf{Pilots.} Stage~1 ($\approx300$ respondents) screens out broken and
+    non-discriminating items. Stage~2 (batches, $\approx3000$ respondents for latent DIF)
+    fits IRT and tests for DIF.
+  \item \textbf{Pool.} Surviving items enter the active pool. The pool is periodically
+    re-validated as a whole, and items are retired for exposure, drift or emerging DIF.
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm and 5mm,
+  box/.style={draw, rounded corners=2pt, align=center, font=\small, minimum height=8mm, inner sep=3pt, fill=gray!6},
+  dec/.style={draw, diamond, aspect=2.2, align=center, font=\small, inner sep=1pt, fill=blue!5},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+\node[box] (dep) {Deposit\\(item + source)};
+\node[box, right=of dep] (lot) {Admission\\lottery};
+\node[box, right=of lot] (rev) {Blind review\\$k$ random reviewers};
+\node[dec, right=of rev] (gate) {Bridging\\gate};
+\node[box, below=9mm of gate] (p1) {Pilot 1\\screen};
+\node[box, left=of p1] (p2) {Pilot 2 (batch)\\IRT + latent DIF};
+\node[box, left=of p2] (pool) {Active pool\\re-validation};
+\node[box, left=of pool] (ret) {Retirement};
+\node[box, right=8mm of gate, fill=red!6] (rej) {Rejected};
+\node[box, above=6mm of gate, fill=orange!8] (app) {Appeal to\\evidence};
+\node[box, above=6mm of rev, fill=yellow!10] (band) {Supplementary\\review};
+\draw[arr] (dep) -- (lot);
+\draw[arr] (lot) -- (rev);
+\draw[arr] (rev) -- (gate);
+\draw[arr] (gate) -- node[right, font=\scriptsize]{pass} (p1);
+\draw[arr] (gate) -- node[above, font=\scriptsize]{defect} (rej);
+\draw[arr] (gate) -- node[right, font=\scriptsize]{polarized} (app);
+\draw[arr] (gate.north west) -- node[above, font=\scriptsize, pos=0.55, sloped]{band} (band.east);
+\draw[arr] (band.south) -- (rev.north);
+\draw[arr] (app.east) -| ($(rej.east)+(4mm,0)$) |- (p1.east);
+\draw[arr] (p1) -- (p2);
+\draw[arr] (p2) -- (pool);
+\draw[arr] (pool) -- (ret);
+\end{tikzpicture}
+\caption{Lifecycle of an item. Level~A (bridging) is only an upstream filter; the verdict comes
+from the pilots (Level~B). A polarization rejection can be appealed directly to the pilots at the
+cost of the author's reputation.}
+\label{fig:pipeline}
+\end{figure}

@@ -1,0 +1,195 @@
+\section{Level C: reputation}\label{sec:levelc}
+
+Reputation enters in two separate scores on unlinkable pseudonyms (\cref{req:separate}). The
+author score limits how much an author may propose. The evaluator score weights reviews.
+
+\subsection{Author score}
+
+Let $q_j\in[0,1]$ be the final quality of author $a$'s item $j$, a function of its Level~B
+statistics whose exact definition is still open. The author score is the shrunken, time-discounted
+average
+\begin{equation}\label{eq:author}
+  C_a=\frac{\alpha_0+\sum_j w_jq_j}{\alpha_0+\beta_0+\sum_j w_j},\qquad w_j=e^{-\Delta t_j/T},
+\end{equation}
+with prior $(\alpha_0,\beta_0)=(2,3)$ and $T=18$ months. Two accepted items out of two give
+$4/7\approx0.57$; 180 out of 200 give $182/205\approx0.89$. $C_a$ sets the proposal rate
+$q_{\min}+(q_{\max}-q_{\min})C_a$. It never weights a vote \designchoice. A failed appeal to
+evidence is to be recorded as a negative pseudo-observation inside $C_a$, escrowed when the appeal
+is filed (design decision D27). The reference implementation still applies a simpler
+stake-and-refund rule.
+
+\subsection{Evaluator score: forecasts scored on golden items}
+
+Every reviewer declares a probability $p_{uj}$ that item $j$ will pass empirical validation. The
+same number is the rating $r_{uj}$ of Level~A. About 5\% of every review queue consists of
+\emph{golden} items. These are indistinguishable from the rest, and their outcome
+$o_j\in\{0,1\}$ is known from validated history (design decision D21). The forecasts on golden
+items are scored. The design goal (design decision D6) is that honest forecasting is optimal, that
+copying the crowd earns nothing, and that being right where the crowd is wrong is what pays. Its
+opposite would be a Schelling-point mechanism that rewards agreement with the majority. The
+current rule is the Brier skill score against the crowd~\cite{brier1950,murphy1988skill}:
+\begin{equation}\label{eq:bss}
+  \mathrm{BSS}_u=1-\frac{\sum_j(p_{uj}-o_j)^2}{\sum_j(\bar p_j-o_j)^2},\qquad
+  \bar p_j=\frac{\sum_v w_vp_{vj}}{\sum_v w_v},
+\end{equation}
+where the crowd forecast $\bar p_j$ averages the whole panel, the reviewer included (design
+decision D23). The evaluator score is $E_u=\sig(\gamma\,\mathrm{BSS}_u)$. It is updated by an
+asymmetric moving average that rises slowly and falls fast, and it gives the weight
+$w_u=\min(w_{\max},E_u)$ with $w_{\max}=3\operatorname{median}(w)$.
+
+Scoring only golden items is more than a convenience. On a live item the outcome is observed only
+if the item reaches Level~B, and whether it does depends on the forecasts themselves, because they
+are also the bridging ratings. When a forecast influences whether its outcome is observed, known
+results on decision scoring show that strict properness requires randomizing the
+decision~\cite{othman2010decision,chen2014eliciting}.
+Golden items avoid the problem because their outcome is fixed in advance.
+
+\subsection{The ratio-form skill score is not proper}
+
+\begin{proposition}[Non-properness of the skill score]\label{prop:bss}\proved{}
+Score a single item with baseline $b\in(0,1)$ that does not depend on the report, and let the
+reviewer believe $P(o=1)=q\in(0,1)$. The expected skill score
+\[
+  \E[\mathrm{BSS}]=1-\frac{q(1-p)^2}{(1-b)^2}-\frac{(1-q)\,p^2}{b^2}
+\]
+is strictly concave in $p$, and its maximizer satisfies
+\begin{equation}\label{eq:bss-opt}
+  \logit p^{*}=\logit q+2\logit b .
+\end{equation}
+Truthful reporting is optimal if and only if $b=\tfrac12$.
+\end{proposition}
+\begin{proof}
+The expectation over $o$ is immediate. The first-order condition
+$q(1-p)/(1-b)^2=(1-q)p/b^2$ gives $p/(1-p)=\frac{q}{1-q}\cdot\frac{b^2}{(1-b)^2}$, which is
+\eqref{eq:bss-opt}. The second derivative is $-2q/(1-b)^2-2(1-q)/b^2<0$.
+\end{proof}
+
+That skill scores built on a proper score are themselves improper, and that the resulting hedging
+shrinks as the number of scored forecasts grows, is known in forecast
+verification~\cite{murphy1973hedging}. What matters here is the direction of the hedge. A ratio of
+two random sums is not an expectation of a score. The denominator gives more weight to outcomes
+where the crowd was right, and \eqref{eq:bss-opt} shows the result: the report is pushed
+toward the outcome the crowd favours, by twice the crowd's log-odds. With the crowd at $0.65$,
+a reviewer who believes $0.78$ should report $0.92$, and a reviewer who believes $0.30$ should
+report $0.60$, crossing to the crowd's side (\cref{fig:bss}). The distortion is largest for the
+dissenter, who is exactly the reviewer the design wants to reward.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.62\linewidth, height=5.6cm,
+  xlabel={belief $q$}, ylabel={optimal report $p^*$},
+  xmin=0, xmax=1, ymin=0, ymax=1,
+  legend style={font=\scriptsize, at={(0.98,0.03)}, anchor=south east, draw=none, fill=white, fill opacity=0.8, text opacity=1},
+  grid=major, grid style={gray!20}, tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[gray, dashed, domain=0:1] {x};
+\addlegendentry{truthful}
+\addplot[thick, blue!70!black] table[col sep=comma, x=q, y=pstar_fixed] {data/levelC_bss_curve.csv};
+\addlegendentry{BSS, baseline $0.65$ (closed form)}
+\addplot[thick, orange!85!black, densely dotted] table[col sep=comma, x=q, y=pstar_selfincl] {data/levelC_bss_curve.csv};
+\addlegendentry{BSS, baseline includes the reviewer}
+\addplot[only marks, mark=*, mark size=1.8pt, red!70!black] coordinates {(0.30,0.5965)};
+\end{axis}
+\end{tikzpicture}
+\caption{Report that maximizes the expected Brier skill score on one golden item, against the
+reviewer's belief, when the other panelists' mean forecast is $0.65$. Solid line: baseline
+excluding the reviewer (\cref{prop:bss}). Dotted line: baseline including the reviewer with
+weight $1/9$, as in the implementation (numerical). The marked point is a dissenter who
+believes $0.30$ and is best off reporting $0.60$. Source: \texttt{scripts/levelC\_bss.py}.}
+\label{fig:bss}
+\end{figure}
+
+With several items the ratio couples them, and there is no closed form. \Cref{tab:bss} gives the
+exact optimum, enumerating all $2^m$ outcomes, for random beliefs and baselines.
+
+\begin{table}[t]
+\centering\small
+\caption{Distortion of the optimal report under the ratio-form skill score, $|p^*_j-q_j|$,
+for $m$ jointly scored items with beliefs uniform on $[0.1,0.9]$ and baselines uniform on
+$[0.2,0.8]$ (200 random instances; 60 for $m=8$). Source: \texttt{scripts/levelC\_bss.py}.}
+\label{tab:bss}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+& \multicolumn{2}{c}{baseline: others only} & \multicolumn{2}{c}{baseline includes reviewer}\\
+\cmidrule(lr){2-3}\cmidrule(l){4-5}
+$m$ & mean & max & mean & max\\
+\midrule
+1 & 0.229 & 0.577 & 0.227 & 0.569\\
+2 & 0.127 & 0.434 & 0.118 & 0.416\\
+4 & 0.061 & 0.173 & 0.061 & 0.227\\
+8 & 0.030 & 0.081 & 0.035 & 0.095\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{finding}\label{find:bss}\empirical{}
+The mean distortion falls roughly as $0.23/m$ in the number of jointly scored golden items,
+consistent with Murphy's observation. Including the reviewer in the baseline, as the
+implementation does, changes it little. At a golden-item rate of 5\%, a reviewer who judges about
+ten items per epoch meets a golden item about every other epoch. A score computed over a few
+golden items is therefore in the regime of the largest distortion.
+\end{finding}
+
+\subsection{A proper alternative}
+
+\begin{proposition}[Leave-one-out difference score]\label{prop:loo}\proved{}
+Let $\bar p_{-u,j}$ be the weighted mean forecast of the \emph{other} panelists on item $j$, and
+\begin{equation}\label{eq:loo}
+  S_u=\frac1m\sum_{j}\Bigl[(\bar p_{-u,j}-o_j)^2-(p_{uj}-o_j)^2\Bigr].
+\end{equation}
+Under \cref{ass:blind}, so that $\bar p_{-u,j}$ does not depend on $p_{uj}$:
+\begin{enumerate}[label=(\roman*)]
+  \item $S_u$ is strictly proper: $\E[S_u]=c_u-\frac1m\sum_j(p_{uj}-q_j)^2$ with $c_u$ not
+    depending on the reports, so truthful reporting is the unique optimum;
+  \item a reviewer who copies the crowd ($p_{uj}=\bar p_{-u,j}$) scores exactly $0$ for every
+    outcome, not only in expectation;
+  \item $S_u>0$ if and only if the reviewer's Brier score on the scored items beats the crowd's;
+  \item $S_u$ is additive over items, so it aggregates across epochs without reweighting.
+\end{enumerate}
+\end{proposition}
+\begin{proof}
+For (i), use $\E[(p-o)^2]=(p-q)^2+q(1-q)$ for $o\sim\mathrm{Bernoulli}(q)$~\cite{gneiting2007scoring}.
+Parts (ii)--(iv) are immediate from \eqref{eq:loo}.
+\end{proof}
+
+The difference score keeps what D6 wants from the skill score, namely zero for copying the crowd
+and a positive score only for beating it, and drops the ratio that breaks properness. One new
+exposure deserves mention. Because the baseline is formed by the other panelists, a coalition can
+raise a member's score by degrading its own forecasts. This costs the saboteurs their own scores,
+is bounded by their share of the panel weight, and is blunted by the fact that golden items are
+indistinguishable from live ones, whose ratings also enter bridging.
+
+\subsection{From scores to weights}
+
+\begin{proposition}[A cap that never binds]\label{prop:cap}\proved{}
+If all weights lie in $(0,1)$ and $\operatorname{median}(w)\ge\tfrac13$, then
+$w_{\max}=3\operatorname{median}(w)\ge1>w_u$ for every $u$, so $\min(w_{\max},E_u)=E_u$ always.
+\end{proposition}
+
+With $E_u=\sig(\gamma\,\mathrm{BSS}_u)$ and a crowd baseline that puts the typical reviewer's
+score near zero, the median of $E$ is close to $\tfrac12$, so the cap is vacuous in the regime the
+design expects. The repository audit notes the same point. Expressing weights relative to the
+median, $w_u=E_u/\operatorname{median}(E)$, or on the odds scale, $w_u=e^{\gamma S_u}$, would give
+the cap force \openq.
+
+A subtler issue concerns incentives. The weight is a non-linear function of the realized score,
+first through $\sig$ and then through a moving average that falls faster than it rises (a guard
+against the long con). A reviewer who maximizes expected future weight therefore faces a
+loss-averse objective, and reducing variance pays. Under \cref{prop:loo} the zero-variance
+strategy is to copy the crowd. The asymmetry that deters the long con thus pulls in the same
+direction as herding, against D6. How strongly depends on $\gamma$, on the two rates and on the
+number of scored items, none of which the design specifies \openq. A natural mitigation is to
+accumulate the linear score \eqref{eq:loo} over a long window and map it to a weight only
+afterwards, so that each item's contribution stays small and truthful reporting remains
+approximately optimal.
+
+\subsection{Judgments without ground truth}
+
+Some dimensions never receive an empirical verdict, such as clarity or the quality of the cited
+source. For these the design proposes peer prediction. Candidates include the output-agreement
+score of Dasgupta and Ghosh~\cite{dasgupta2013crowdsourced}, which rewards agreement with a peer
+on a shared item minus the agreement on unrelated items, multi-task correlated
+agreement~\cite{shnayder2016informed}, and the Bayesian truth serum~\cite{prelec2004bts}. Only the
+pairwise Dasgupta--Ghosh score is implemented. How it is aggregated over pairs and items, and the
+incentive analysis in the presence of reputation weights, remain open \openq.

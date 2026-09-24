@@ -1,0 +1,14 @@
+# LaTeX build artefacts (main.pdf is committed on purpose)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.run.xml
+
+# Rust harness build output
+scripts/dif-harness/target/

@@ -1,0 +1,43 @@
+\section{Derivations}\label{app:proofs}
+
+\subsection{\texorpdfstring{\Cref{prop:leak}}{The majoritarian-leak proposition} step by step}
+
+Under (T1)--(T2), camp $s$ satisfies $\mu+\iota_j+\varphi_sf_j=m_{sj}$. Subtracting the equation of
+camp $A$ from that of camp $B$ gives $(\varphi_B-\varphi_A)f_j=m_{Bj}-m_{Aj}$, that is,
+$2hf_j=2\Delta_j$, so $f_j=\Delta_j/h$. Averaging the two equations gives
+$\mu+\iota_j+cf_j=\mbar_j$, so $\iota_j=\mbar_j-\mu-(c/h)\Delta_j$. This is part (i).
+
+For (ii), the reviewer positions sum to
+$\sum_uf_u=n_A(c-h)+n_B(c+h)=nc+h(n_B-n_A)=nh(t+\kappa)$. The left side of
+\eqref{eq:gauge-rev} is
+$\lambda_b\sum_jf_j\iota_j=\frac{\lambda_b}{h}\sum_j\Delta_j(\mbar_j-\mu-t\Delta_j)
+=\frac{\lambda_b}{h}(S_{\Delta m}-tS)$. Equating the two and multiplying by $h$ gives
+$\lambda_b(S_{\Delta m}-tS)=\lambda_fnh^2(t+\kappa)$, which is linear in $t$ and solves to (ii).
+
+For (iii), with $S_{\Delta m}=0$ we get $t=-\kappa\lambda_fnh^2/(\lambda_bS+\lambda_fnh^2)=-\kappa/(1+\rho)$.
+Then $\mu+\iota_j=\mbar_j+\frac{\kappa}{1+\rho}\Delta_j=(1-\ell)\mbar_j+\ell(\mbar_j+\kappa\Delta_j)$,
+and $\mbar_j+\kappa\Delta_j=\pi_Am_{Aj}+\pi_Bm_{Bj}$ because $\pi_A+\pi_B=1$.
+
+For (iv), \eqref{eq:scale} with $f_u\in\{c-h,c+h\}$ gives
+$\sum_uf_u^2=n(c^2+h^2+2\kappa ch)=nh^2(1+t^2+2\kappa t)$ and $\sum_jf_j^2=S/h^2$, hence
+$h^4=S/\bigl(n(1+t^2+2\kappa t)\bigr)$. The function $g(t)=1+t^2+2\kappa t$ is convex with its
+minimum $1-\kappa^2$ at $t=-\kappa$ and $g(0)=1$, so $g\in[1-\kappa^2,1]$ on $[-\kappa,0]$, which
+contains $t$ by (iii). Substituting
+$h^2=\sqrt{S/(ng(t))}$ into $\rho=\lambda_bS/(\lambda_fnh^2)$ gives
+$\rho=(\lambda_b/\lambda_f)\sqrt{g(t)}\sqrt{S/n}$, so $\gamma=\sqrt{g(t)}\in[\sqrt{1-\kappa^2},1]$.
+Since $t$ depends on $\rho$, this is a fixed-point characterization. The bounds on $\gamma$ make the
+explicit approximation $\rho\approx(\lambda_b/\lambda_f)\sqrt{S/n}$ accurate to a factor
+$\sqrt{1-\kappa^2}$, which is $0.98$ for $\kappa=0.2$.
+
+\subsection{Information computations for \texorpdfstring{\cref{tab:information}}{the information table}}
+
+Ability is integrated against $\mathcal N(0,1)$ with an 80-node Gauss--Hermite rule. For one biased
+item, the per-respondent information that no 2PL absorbs is
+$\min_{a',b'}\E_\theta\bigl[\mathrm{KL}\bigl(\mathrm{Bern}(m_j(\theta))\,\|\,\mathrm{Bern}(\sig(a'(\theta-b')))\bigr)\bigr]$,
+minimized by Nelder--Mead. For a pair it is
+$\E_\theta\bigl[I(X_j;X_k\mid\theta)\bigr]$, computed exactly over the four response patterns.
+The Kullback--Leibler divergence between the joint mixture and the product of any two 2PLs splits
+into this mutual information plus two single-item terms, so the pair column is exactly the part
+that no conditionally independent model can absorb. The expected likelihood ratio of a correctly
+specified alternative grows as $2N$ times the per-respondent information. For mixtures this is a
+heuristic, because the null lies on the boundary of the parameter space~\cite{self1987}.

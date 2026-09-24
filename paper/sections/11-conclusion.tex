@@ -1,0 +1,23 @@
+\section{Conclusion}\label{sec:conclusion}
+
+The central idea of Isegoria is to use opinion as a filter and evidence as the verdict, so that
+the decision rests on what an item \emph{does} rather than on what the network \emph{thinks}. That
+idea survives the analysis. Each level, however, has a property that the design documents did not
+anticipate:
+\begin{itemize}
+  \item bridging scores are relative to their batch, and at the default penalties they retain most
+    of the camp-size effect that bridging is meant to remove;
+  \item latent-class DIF can mistake error in the ability proxy for a latent class;
+  \item the evaluator's skill score is not proper, and the weight cap never binds;
+  \item the anti-collusion discount depends on a detector that has almost no data within an epoch.
+\end{itemize}
+Each finding comes with a candidate correction. None of the corrections is validated yet.
+The next steps are the evaluation plan of \cref{sec:plan}, which will turn provisional thresholds
+into characterized ones, and independent review of both the statistics and the cryptography. The
+paper is versioned with the repository and will be revised as those results arrive.
+
+\section*{Acknowledgements and disclosure}
+The analysis, the experiments and the text were prepared with the assistance of an AI system
+(Claude, by Anthropic), used as a research and writing assistant. The author is responsible for
+the content. Every numerical result can be regenerated with the scripts listed in
+\cref{app:reproducibility}.

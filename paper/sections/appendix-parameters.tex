@@ -1,0 +1,41 @@
+\section{Parameters and their status}\label{app:parameters}
+
+\begin{table}[H]
+\centering\small
+\caption{Operational parameters of the reference design. ``Provisional'' means not yet derived
+from a calibration study. Sources: the repository's design documents and code at the described
+commit.}
+\label{tab:parameters}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}p{0.40\linewidth}@{}}
+\toprule
+Parameter & Value & Status and remarks\\
+\midrule
+Penalties $\lambda_b$ / $\lambda_f$ & 0.15 / 0.03 & provisional; the leak depends on $(\lambda_b/\lambda_f)\sqrt{S/n}$ (\cref{prop:leak})\\
+Bridging threshold $\tau$ & $\approx0.08$ & provisional; relative to the batch (\cref{prop:zerosum})\\
+Band half-width $\varepsilon$ & $\approx0.008$ & provisional\\
+Latent dimensions $d$ & 1 & design decision D31\\
+Reviewers per item $k$ & 7--11, odd & stratified on $f_u$\\
+Bootstrap refits / keep rate & 10 / 0.85 & pessimistic minimum, warm-started\\
+Starts of the bridging fit & 8 & lowest objective kept\\
+Minimum ratings to define the axis & 30 & specified, not implemented\\
+Pilot 1 respondents & $\ge300$ & hypothesis\\
+Pilot 2 respondents (latent DIF) & $\ge3000$ & hypothesis\\
+Minimum DIF batch & 2 items & structural (\cref{prop:single,prop:pair})\\
+Discrimination $a_{\min}$ & 0.6 & literature value; metric mismatch (D25)\\
+$|b|$ maximum & 2.5 & specified, not applied\\
+Point-biserial minimum & 0.20 & literature value\\
+Logistic DIF $|\beta_2|$ maximum & 0.40 & calibration pilots only\\
+Mantel--Haenszel $|\Delta_{\mathrm{MH}}|$ & 1.0 / 1.5 & calibration pilots only (ETS B / C)\\
+Latent DIF gap threshold & 1.0 & provisional; literature 0.5; tuned to 30 anchors (\cref{find:proxy})\\
+Latent classes $G$ & 1--4 & chosen by BIC\\
+Minimum class share for the gap & 0.05 & ---\\
+Discount exponent $\alpha$ & 0.5 & ---\\
+Weight cap $w_{\max}$ & $3\times$ median & vacuous for $E_u\in(0,1)$ (\cref{prop:cap})\\
+Evaluator slope $\gamma$ & unspecified & tests use 2\\
+Moving-average rates (up, down) & unspecified & up $<$ down\\
+Author prior $(\alpha_0,\beta_0)$, decay $T$ & (2, 3), 18 months & ---\\
+Golden-item rate $\eta$ & 5\% & ---\\
+Probation & 200 scored judgments & weight 0 before\\
+\bottomrule
+\end{tabular}
+\end{table}

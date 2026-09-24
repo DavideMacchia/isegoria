@@ -1,0 +1,95 @@
+\section{Introduction}\label{sec:intro}
+
+\subsection{The problem}
+
+Many social processes rest on a bank of test items: civic-knowledge questionnaires,
+professional certifications, licensing examinations, the claims checked by a fact-checking
+service. Whoever writes and selects the items shapes what the test measures, and in many
+settings no institution is credibly impartial. A government that selects the questions of a
+civic test can select questions that flatter it. A professional body that writes its own
+licensing exam has a stake in who passes it.
+
+The obvious decentralized alternative is to let participants propose items and vote on them.
+Voting moves control from the institution to whichever faction holds the majority. Reputation
+systems in which approval earns weight make matters worse: a cohesive group gains weight
+faster than a dispersed one and then uses it. The hard part is not collecting items. It is
+deciding which items are fair \emph{without trusting a single authority and without turning
+the decision into a popularity contest}.
+
+\subsection{The mechanism in brief}
+
+Isegoria\footnote{Greek \emph{isēgoria}: the equal right of every citizen to speak in the
+assembly.} is a design for this problem~\cite{isegoria-repo}. It rests on three pillars, in
+order of importance.
+\begin{enumerate}
+  \item \textbf{Uniqueness without identification.} Participants are anonymous, but each
+    anonymous participant is backed by exactly one real person. Uniqueness is certified by an
+    external identity system and then cryptographically severed from everything the person
+    does. Without it no aggregation rule survives a Sybil attack~\cite{douceur2002sybil}.
+  \item \textbf{A quality signal that is not an opinion.} Items are trialled on samples of
+    respondents, and the final verdict comes from psychometrics on the response data: item
+    response theory (IRT) for discrimination and difficulty, and differential item
+    functioning (DIF) for bias~\cite{lord1980,holland1993dif}. Because no attribute of any
+    person is ever collected, DIF is detected on \emph{latent} classes.
+  \item \textbf{Bridging instead of majority.} Peer review is aggregated by a matrix
+    factorization that credits approval only to the extent that it is not explained by a
+    latent axis of division, in the style of Community Notes~\cite{wojcik2022birdwatch}. An
+    item approved only by the largest camp is filtered out.
+\end{enumerate}
+Peer review (Level~A) is only an upstream filter deciding which items are worth trialling. The
+verdict is empirical (Level~B). Reviewer reputation (Level~C) weights the review and is scored
+against outcomes, with a proper scoring rule so that honest forecasting is the best strategy. A
+sublinear discount limits coordinated blocs. Because bridging cannot tell a true but divisive
+fact from partisan propaganda, an author may appeal a polarization rejection directly to the
+evidence filter, staking reputation. No money enters the system at any point.
+
+\subsection{Contributions}
+
+This paper states the mechanism formally and analyses it. The analysis is the main
+contribution. Several of its results expose properties that the design documents do not
+anticipate. We report them as findings with proposed corrections, not as settled
+features of the design.
+
+\begin{enumerate}
+  \item \textbf{Formal statement} (\cref{sec:setting}). Requirements, adversaries and a set
+    of assumptions that abstract the identity and network layers. The analysis therefore
+    holds for any realization of those layers that meets the assumptions.
+  \item \textbf{Level A} (\cref{sec:levela}). We characterize the invariances of the
+    bridging objective (\cref{lem:gauge}) and derive three consequences. Bridge scores sum to
+    zero within a fit, so the gate is relative to the batch (\cref{prop:zerosum}). The origin
+    of the latent axis, which decides whether the score is camp-balanced or majoritarian, is
+    fixed only by the regularization; in a two-camp model we obtain the interpolation weight
+    in closed form (\cref{prop:leak}) and confirm it on the full model (\cref{tab:leak}).
+    Finally, no rule that reads only ratings can separate true-but-divisive items from
+    partisan ones (\cref{prop:equivalence}).
+  \item \textbf{Level B} (\cref{sec:levelb}). We show why latent-class DIF is identified by
+    the conditional covariance between biased items, and why a single biased item is nearly
+    invisible (\cref{prop:single,prop:pair}). We also show that measurement error in the
+    ability proxy produces spurious latent classes (\cref{prop:proxy}), and we measure its
+    effect on the production detector.
+  \item \textbf{Level C} (\cref{sec:levelc}). The ratio-form Brier skill score is not proper,
+    a known property of skill scores that here reverses the intended incentive (\cref{prop:bss}). A leave-one-out difference score is proper and keeps the property that
+    matters for the design, namely zero reward for following the crowd (\cref{prop:loo}).
+    As currently parameterized, the weight cap never binds (\cref{prop:cap}).
+  \item \textbf{Coordination} (\cref{sec:collusion}). The sublinear discount rewards evading
+    its detector (\cref{prop:split}). At design scale reviewers share almost no items within
+    an epoch (\cref{prop:overlap}), so the per-epoch defence is random assignment.
+  \item \textbf{Evidence and plan} (\cref{sec:implementation,sec:limitations,sec:plan}).
+    The evidence level of every claim, the structural limits, and an evaluation plan with
+    decision rules fixed in advance.
+\end{enumerate}
+
+\subsection{Status and reading guide}
+
+This is a design-and-analysis paper about a research-stage system. It does not claim that the
+mechanism works in the field. No component has been externally reviewed, every operational
+threshold is provisional, and the identity and network layers are partly scaffolds. To keep
+claims honest, results carry one of four labels, following the verification methodology of
+the repository~\cite{isegoria-repo}:
+\proved{} (a proof is given),
+\empirical{} (a simulation result, valid in the stated regime only),
+\designchoice{} (a choice that is motivated but not derived), and
+\openq{} (a question we cannot yet answer).
+Every number in the paper can be regenerated with the scripts listed in
+\cref{app:reproducibility}. Where we report the behaviour of the production code, we run the
+Rust engine itself rather than a re-implementation.

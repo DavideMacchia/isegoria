@@ -1,0 +1,12 @@
+# Runs the production latent-class DIF detector on batches written by levelB_detector.py.
+# Standalone (its own workspace), so it is not part of the repository's Cargo workspace.
+[package]
+name = "dif-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+scoring = { path = "../../../crates/scoring" }
+
+[workspace]

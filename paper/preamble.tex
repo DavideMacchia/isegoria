@@ -1,0 +1,60 @@
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage[font=small,labelfont=bf,tableposition=top,skip=5pt]{caption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{pgfplotstable}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=green!35!black,urlcolor=blue!60!black]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\parskip}{0.3em}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}{Assumption}
+\renewcommand{\theassumption}{A\arabic{assumption}}
+\newtheorem{requirement}{Requirement}
+\renewcommand{\therequirement}{R\arabic{requirement}}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{finding}[theorem]{Empirical finding}
+
+\crefname{assumption}{Assumption}{Assumptions}
+\crefname{requirement}{Requirement}{Requirements}
+\crefname{finding}{Empirical finding}{Empirical findings}
+
+% claim labels (evidence levels, following docs/07 of the repository)
+\newcommand{\evlabel}[1]{{\normalfont\sffamily\small[#1]}}
+\newcommand{\proved}{\evlabel{proved}}
+\newcommand{\empirical}{\evlabel{empirical}}
+\newcommand{\designchoice}{\evlabel{design}}
+\newcommand{\openq}{\evlabel{open}}
+
+% notation
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\logit}{\operatorname{logit}}
+\newcommand{\sig}{\sigma}
+\newcommand{\ind}{\mathbb{1}}
+\newcommand{\mbar}{\bar m}
+\newcommand{\code}[1]{\texttt{#1}}
