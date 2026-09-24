@@ -34,7 +34,6 @@ where
     let mut x = x0;
     let mut g = grad(&x);
     let mut fx = cost(&x);
-    let mut line_search_failed = false;
     let mut status = Convergence::MaxIters;
 
     let mut s_hist: Vec<Vec<f64>> = Vec::with_capacity(m_hist);
@@ -89,45 +88,21 @@ where
             }
         }
 
-        let c1 = 1e-4;
-        let mut step = 1.0;
-        let mut x_new = add_scaled(&x, step, &d);
-        let mut f_new = cost(&x_new);
-        let mut backtracks = 0;
-        while f_new > fx + c1 * step * gd {
-            step *= 0.5;
-            if step < 1e-20 {
-                line_search_failed = true;
-                break;
-            }
-            x_new = add_scaled(&x, step, &d);
-            f_new = cost(&x_new);
-            backtracks += 1;
-            if backtracks > 60 {
-                line_search_failed = true;
-                break;
-            }
-        }
-
-        // Armijo can also "succeed" by rounding: once `x + step·d` rounds back to `x`,
-        // `f_new == fx` satisfies the test without any progress. No movement is a failure.
-        if x_new == x {
-            line_search_failed = true;
-        }
-
-        // A failed line search is reported as such, and its last trial point is not
-        // taken if it raised the cost. This check must precede the stall test below: a
-        // step halved 60 times barely moves `f`, which would otherwise read as a stall
-        // and report `Converged` (T41).
-        if line_search_failed {
-            if f_new <= fx {
-                x = x_new;
-            }
+        // Strong-Wolfe line search (T48). Armijo-only backtracking accepted tiny steps in
+        // narrow valleys, where the stall test below then declared a premature
+        // "convergence" far from any minimum.
+        let accepted = wolfe_search(&x, fx, gd, &d, &cost, &grad);
+        let Some(Trial {
+            x: x_new,
+            f: f_new,
+            g: g_new,
+        }) = accepted.filter(|t| t.x != x)
+        else {
+            // No point along `d` lowers the cost (or the step rounds back to `x`). The
+            // start point is kept, and this is not reported as convergence (T41).
             status = Convergence::LineSearchFailed;
             break;
-        }
-
-        let g_new = grad(&x_new);
+        };
 
         let s: Vec<f64> = (0..n).map(|i| x_new[i] - x[i]).collect();
         let y: Vec<f64> = (0..n).map(|i| g_new[i] - g[i]).collect();
@@ -157,6 +132,135 @@ where
     }
 
     Minimized { x, status }
+}
+
+/// A point evaluated during the line search: position, cost and gradient.
+struct Trial {
+    x: Vec<f64>,
+    f: f64,
+    g: Vec<f64>,
+}
+
+/// One end of a line-search bracket: step length, `φ(a)`, `φ'(a)`, and the evaluated
+/// point (absent for `a = 0`, the start).
+struct End {
+    a: f64,
+    f: f64,
+    dg: f64,
+    trial: Option<Trial>,
+}
+
+// Sufficient decrease and curvature constants (Nocedal & Wright, quasi-Newton values).
+const WOLFE_C1: f64 = 1e-4;
+const WOLFE_C2: f64 = 0.9;
+const MAX_EXPANSIONS: usize = 40;
+const MAX_ZOOM: usize = 60;
+
+/// Line search satisfying the strong Wolfe conditions along a descent direction `d`
+/// (`gd = ∇f(x)·d < 0`), after Nocedal & Wright, Algorithms 3.5 and 3.6, with a
+/// safeguarded cubic interpolation. Returns a point with sufficient decrease — one that
+/// also satisfies the curvature condition whenever the bracket allows it — or `None`
+/// when no step lowers the cost. Deterministic.
+fn wolfe_search<C, G>(x: &[f64], fx: f64, gd: f64, d: &[f64], cost: &C, grad: &G) -> Option<Trial>
+where
+    C: Fn(&[f64]) -> f64,
+    G: Fn(&[f64]) -> Vec<f64>,
+{
+    let eval = |a: f64| -> End {
+        let xa = add_scaled(x, a, d);
+        let f = cost(&xa);
+        let g = grad(&xa);
+        let dg = dot(&g, d);
+        End {
+            a,
+            f,
+            dg,
+            trial: Some(Trial { x: xa, f, g }),
+        }
+    };
+    let sufficient = |e: &End| e.f.is_finite() && e.f <= fx + WOLFE_C1 * e.a * gd;
+    let curvature = |e: &End| e.dg.abs() <= -WOLFE_C2 * gd;
+
+    let mut prev = End {
+        a: 0.0,
+        f: fx,
+        dg: gd,
+        trial: None,
+    };
+    let mut a = 1.0;
+    for i in 0..MAX_EXPANSIONS {
+        let cur = eval(a);
+        if !sufficient(&cur) || (i > 0 && cur.f >= prev.f) {
+            return zoom(prev, cur, &eval, &sufficient, &curvature);
+        }
+        if curvature(&cur) {
+            return cur.trial;
+        }
+        if cur.dg >= 0.0 {
+            return zoom(cur, prev, &eval, &sufficient, &curvature);
+        }
+        prev = cur;
+        a *= 2.0;
+    }
+    prev.trial
+}
+
+/// The bracketing phase: `lo` always satisfies sufficient decrease and has the lower
+/// cost; the bracket shrinks until a strong-Wolfe point is found or it collapses, in
+/// which case the best sufficient-decrease point seen (`lo`) is returned.
+fn zoom<E, S, K>(mut lo: End, mut hi: End, eval: &E, sufficient: &S, curvature: &K) -> Option<Trial>
+where
+    E: Fn(f64) -> End,
+    S: Fn(&End) -> bool,
+    K: Fn(&End) -> bool,
+{
+    for _ in 0..MAX_ZOOM {
+        let width = (hi.a - lo.a).abs();
+        if width <= 1e-16 * lo.a.abs().max(1.0) {
+            break;
+        }
+        let a = interpolate(&lo, &hi);
+        let cur = eval(a);
+        if !sufficient(&cur) || cur.f >= lo.f {
+            hi = cur;
+        } else {
+            if curvature(&cur) {
+                return cur.trial;
+            }
+            if cur.dg * (hi.a - lo.a) >= 0.0 {
+                hi = lo;
+            }
+            lo = cur;
+        }
+    }
+    // `lo.trial` is `None` only while `lo` is still the start point: no decrease found.
+    lo.trial
+}
+
+/// Minimizer of the cubic through both bracket ends (values and slopes), kept at least
+/// 0.1% of the bracket away from either end so the bracket keeps shrinking; bisection
+/// when the cubic is unusable. (A 10% margin rejects the exact minimizer of a quadratic
+/// whenever it lies near an end — the usual case on a first, overshooting step.)
+fn interpolate(lo: &End, hi: &End) -> f64 {
+    let (a0, a1) = (lo.a, hi.a);
+    let mid = 0.5 * (a0 + a1);
+    if !hi.f.is_finite() || !hi.dg.is_finite() {
+        return mid;
+    }
+    let d1 = lo.dg + hi.dg - 3.0 * (lo.f - hi.f) / (a0 - a1);
+    let disc = d1 * d1 - lo.dg * hi.dg;
+    if disc < 0.0 {
+        return mid;
+    }
+    let d2 = (a1 - a0).signum() * disc.sqrt();
+    let a = a1 - (a1 - a0) * (hi.dg + d2 - d1) / (hi.dg - lo.dg + 2.0 * d2);
+    let (lo_b, hi_b) = (a0.min(a1), a0.max(a1));
+    let margin = 1e-3 * (hi_b - lo_b);
+    if a.is_finite() && a >= lo_b + margin && a <= hi_b - margin {
+        a
+    } else {
+        mid
+    }
 }
 
 /// Central-difference gradient, for objectives whose analytic gradient is not
@@ -282,8 +386,8 @@ mod tests {
         assert!(grads.get() <= 800, "{} gradient evaluations", grads.get());
     }
 
-    /// Rosenbrock to 1e-6. The budget is loose on purpose: this Armijo-only line search
-    /// needs ~670 gradients where SciPy's Wolfe search needs ~46 (docs/10 T45).
+    /// Rosenbrock to 1e-6 within a SciPy-like budget: ~51 gradients with the strong-Wolfe
+    /// search (SciPy L-BFGS-B ~46). The former Armijo-only search needed ~670 (T48).
     #[test]
     fn solves_rosenbrock_within_a_budget() {
         let cost = |x: &[f64]| (1.0 - x[0]).powi(2) + 100.0 * (x[1] - x[0] * x[0]).powi(2);
@@ -301,7 +405,7 @@ mod tests {
             "{:?}",
             m.x
         );
-        assert!(grads.get() <= 1000, "{} gradient evaluations", grads.get());
+        assert!(grads.get() <= 80, "{} gradient evaluations", grads.get());
     }
 
     /// Started at the minimizer, the gradient test stops the run before any step: no

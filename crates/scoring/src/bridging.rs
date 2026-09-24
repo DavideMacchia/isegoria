@@ -79,6 +79,9 @@ pub struct BridgingParams {
     pub max_iters: usize,
     pub g_tol: f64,
     pub seed: u64,
+    /// Independent starts of the non-convex fit (T48); the lowest objective wins. Start
+    /// `k` is seeded `seed + k`, so `n_starts = 1` is the single seeded fit.
+    pub n_starts: usize,
 }
 
 impl Default for BridgingParams {
@@ -90,6 +93,7 @@ impl Default for BridgingParams {
             max_iters: 4000,
             g_tol: 1e-7,
             seed: 0,
+            n_starts: DEFAULT_STARTS,
         }
     }
 }
@@ -133,11 +137,45 @@ impl Layout {
     }
 }
 
+/// Default number of starts (T48): see `docs/08` BRIDGE-001 for the measurements.
+pub const DEFAULT_STARTS: usize = 8;
+
+/// The bridging fit. The objective is non-convex and has distinct local minima on real
+/// data, which a single seeded start reaches depending on the seed — sometimes on
+/// either side of `τ` (`docs/08` BRIDGE-001, T48). So the fit runs `n_starts` seeded
+/// starts and keeps the lowest objective (the earliest start on a tie): deterministic,
+/// and the verdict no longer hinges on one start's basin.
 pub fn fit(data: &Ratings, p: &BridgingParams) -> Fit {
     // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
     let data = data.canonical();
-    let x0 = random_init(&data, p.seed);
-    fit_with_init(&data, p, x0)
+    let mut best: Option<(f64, Fit)> = None;
+    for k in 0..p.n_starts.max(1) {
+        let x0 = random_init(&data, p.seed.wrapping_add(k as u64));
+        let f = fit_with_init(&data, p, x0);
+        let obj = objective(&data, p, &pack(&f));
+        if best.as_ref().is_none_or(|(b, _)| obj < *b) {
+            best = Some((obj, f));
+        }
+    }
+    let mut f = best.expect("at least one start").1;
+    canonical_sign(&mut f);
+    f
+}
+
+/// `f` is identified only up to sign (the objective is unchanged by `(f_u, f_j) →
+/// (−f_u, −f_j)`), so the start that wins can return either twin. Downstream draws order
+/// reviewers by `f_u`, so the sign is fixed: the largest `|f_j|` (earliest on a tie) is
+/// made non-negative. Exact negation: `b_j` and the objective are untouched (T48).
+fn canonical_sign(f: &mut Fit) {
+    let lead = f.f_j.iter().copied().fold(
+        0.0_f64,
+        |best, v| if v.abs() > best.abs() { v } else { best },
+    );
+    if lead < 0.0 {
+        for v in f.f_u.iter_mut().chain(f.f_j.iter_mut()) {
+            *v = -*v;
+        }
+    }
 }
 
 // RNG consumption order is part of the reproducibility contract.
