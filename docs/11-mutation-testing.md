@@ -19,15 +19,23 @@ suite does not make.
 
 ```sh
 cargo install cargo-mutants --version 26.0.0 --locked
-# whole workspace (~2 h on 16 cores with -j 4)
-cargo mutants --workspace --features calibration -j 4
+# whole workspace
+cargo mutants --workspace -j 4
 # one file, or selected mutants by name
-cargo mutants -p scoring --features calibration -f crates/scoring/src/optim.rs
-cargo mutants -p scoring --features calibration --re 'optim.rs:97:'
+cargo mutants -p scoring -f crates/scoring/src/optim.rs
+cargo mutants -p scoring --re 'optim.rs:97:'
+# only the lines a branch changed
+git diff master > /tmp/branch.diff && cargo mutants --workspace --in-diff /tmp/branch.diff -j 4
 ```
 
-Each mutant runs the tests of the crate that contains it. It is too slow for every
-push; run it after changing decision logic, and before a release.
+`.cargo/mutants.toml` is read automatically. It builds every mutant under the optimized
+`mutants` profile (`Cargo.toml`), which runs the `scoring` suite in ~10 s instead of ~47 s
+with identical bits (the golden test passes under it); it enables the `calibration`
+feature; and it sets a 60 s minimum test timeout, because the automatic timeout is scaled
+from a baseline that runs alone and parallel jobs otherwise produced false timeouts.
+Each mutant runs the tests of the crate that contains it. It is too slow for every push:
+run it after changing decision logic (`--in-diff` for a branch), and before a release.
+Output goes to `mutants.out/` (ignored by git).
 
 ## Results
 

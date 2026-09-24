@@ -1,0 +1,15 @@
+# cargo-mutants configuration (T41, docs/11-mutation-testing.md). Read automatically
+# by `cargo mutants`; override any of it on the command line.
+
+# Build and test every mutant under the optimized `mutants` profile (Cargo.toml): the
+# scoring tests run ~5x faster and give the same bits (the golden test checks it).
+profile = "mutants"
+
+# Mutate and test the calibration-only code too (Variant-1 DIF, purification).
+additional_cargo_args = ["--features", "calibration"]
+
+# The automatic timeout is scaled from the unmutated baseline, which runs alone; with
+# several jobs in parallel each suite is slower, and a correct run was reported as a
+# timeout. Keep the multiplier, and never go below a minute.
+timeout_multiplier = 3.0
+minimum_test_timeout = 60
