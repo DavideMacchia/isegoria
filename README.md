@@ -306,16 +306,15 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit, matches the sims; the bridge score is batch-relative and partly majoritarian until D32 (T49) |
 | Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; roadmap Phase 1, the first priority |
-| Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay fixed (T64); the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
+| Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64) and respondent gate (T65) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
 
 **What comes next** ([`docs/10-roadmap.md`](docs/10-roadmap.md)), in order:
 
-1. **Mathematics** — first the severe defect left (respondents not identity-gated, so one
-   person can fill a Level B sample; the replayed deposit that drained its author's quota
-   is fixed, T64), then
+1. **Mathematics** — the two severe defects are fixed (a replayed deposit drained its
+   author's quota, T64; one person could fill a Level B sample, T65); then
    correct the mechanism (D32–D41) and the paths after the gate (band re-decision with
    extra reviewers, appeal for band items, appeal stake), make the engine reject
    malformed input, and characterize the thresholds.

@@ -54,7 +54,7 @@ them.
 ## Current priorities
 
 The four crates exist; the work left is ordered in `10-roadmap.md`. Follow its phases in
-order — **mathematics** (the severe boundary defect T65 first, T64 being done; then the
+order — **mathematics** (the two severe boundary defects T64/T65 are done; now the
 scoring mechanism and the decisions built on it: D32–D41, band and appeal), then the
 **P2P network**, then **the rest** (protocol boundary, distributed identity, privacy,
 pilots) — and inside a phase, fix defects in existing code before adding features. Every

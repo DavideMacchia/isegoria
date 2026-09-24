@@ -5,8 +5,9 @@
 //! the axis is unknown — via the latent-class mixture. The result feeds
 //! [`crate::exposure::should_retire`] as `ItemHealth`.
 
+use crate::admission::NullifierSet;
 use crate::exposure::{should_retire, ExposureLedger, ItemHealth, RetirementReason};
-use crate::pilot::{admit_dif_batch, PilotError};
+use crate::pilot::{admit_dif_batch, respondent_rows, PilotError};
 use network::cid::Cid;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
@@ -83,15 +84,31 @@ pub fn latent_flags(res: &MixtureDif) -> Vec<bool> {
 
 /// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6): the
 /// pool is re-checked only as a batch of at least `K_MIN` items with at least
-/// `N_LATENT_MIN` respondents. A single item is rejected (AT-PRO-02) — it cannot reveal
-/// latent bias. `responses` is respondents × items.
+/// `N_LATENT_MIN` admitted respondents — persons, counted from the [`NullifierSet`] that
+/// `pilot::submit_response` filled, never rows (T65) — whose rows are those respondents
+/// one to one. A single item is rejected (AT-PRO-02) — it cannot reveal latent bias.
+/// `responses` is respondents × items.
 pub fn revalidate_batch_latent(
+    respondents: &NullifierSet,
     theta: &[f64],
     responses: &[Vec<f64>],
     seed: u64,
 ) -> Result<Vec<bool>, PilotError> {
     let m = responses.first().map_or(0, |row| row.len());
-    admit_dif_batch(m, theta.len(), N_LATENT_MIN)?;
+    admit_dif_batch(m, respondents.len(), N_LATENT_MIN)?;
+    if responses.len() != respondents.len() {
+        return Err(PilotError::RowCountMismatch {
+            rows: responses.len(),
+            respondents: respondents.len(),
+        });
+    }
+    respondent_rows(respondents, theta, std::iter::empty())?;
+    if let Some(row) = responses.iter().find(|row| row.len() != m) {
+        return Err(PilotError::RowCountMismatch {
+            rows: row.len(),
+            respondents: m,
+        });
+    }
     Ok(revalidate_pool_latent(theta, responses, seed))
 }
 

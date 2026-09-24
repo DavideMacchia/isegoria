@@ -125,7 +125,11 @@ regression test are on master.
 - **PROTO-013 — respondents are not identity-gated.** `Role::Respond` appears nowhere in
   `protocol/src`, and the pilot and re-validation gates count `theta.len()` rows as
   distinct respondents: 300 rows from one person satisfy `N1_MIN`. Level B, the final
-  verdict, is less Sybil-resistant than Level A. **OPEN** → T65 (`AT-PRO-09`).
+  verdict, is less Sybil-resistant than Level A. **RESOLVED** (T65): `pilot::submit_response`
+  admits a `Respond` proof bound to `(batch, epoch)` into a `NullifierSet`; `screen`,
+  `dif_batch` and `revalidate_batch_latent` count that set and refuse rows that are not the
+  admitted respondents one to one; `run_epoch` admits one person per fixture row —
+  `proto013_respondent_gate.rs` (`AT-PRO-09`).
 - **NET-005 (update) — the consortium threshold is not validated, and `verify` ignores the
   member set.** `Consortium::new(members, 0)` verifies a checkpoint with no signature;
   `t > n` never verifies; `Consortium::verify` does not compare the checkpoint's
@@ -288,13 +292,13 @@ The eight invariants of `docs/CLAUDE.md` are restated here as runtime invariants
 | INV-5 | One deterministic, non-rotatable pseudonym per role. | `nym::derive_nym` and `nullifier::prove` are both deterministic in `(secret, role)`. Rotation is prevented only if a second credential is impossible (ID-001…ID-005). | Enforced for derivation; depends on identity layer |
 | INV-6 | The authenticator (state) MUST be distinct from the issuer (committee). | Distinct types (`IdentityDocument` vs `Issuer`). No protocol message separates them; see §3.2. | Asserted |
 | INV-7 | Same input ⇒ bit-identical output. | `tests/reproducibility.rs` (same process, same binary). "Input" has no canonical serialization; see REPRO-001/002. | Tested within a process |
-| INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
+| INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items and a sample below its §B.6 floor, counting admitted respondents (`NullifierSet::len`), never rows (T65); `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
 
 Additional invariants this specification introduces (not in `docs/CLAUDE.md`), each derived from a gap found in §10:
 
 | # | Invariant | Reason |
 |---|---|---|
-| INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6): `admission::admit` + `deposit_with_identity`/`submit_review` key on `NullifierProof::id()`; PROTO-007 |
+| INV-9 | Every `Nym` accepted by the protocol MUST be accompanied by a verified `NullifierProof` for the same role, and the protocol MUST key reputation and rate limits on `NullifierProof::nullifier()`, not on `nym::derive_nym`. | ENFORCED at the entry points (T6, T65): `admission::admit` + `deposit_with_identity`/`submit_review`/`pilot::submit_response` key on `NullifierProof::id()`; PROTO-007, PROTO-013 |
 | INV-10 | The seed of every lottery, reviewer assignment, honeypot placement, and sortition MUST be derived from public randomness that is fixed *after* the set of candidates is fixed and that no participant can influence. | PARTIAL (T8, reopened as T37): `randomness::Beacon` derives every draw's seed from the signed checkpoint head, so an author cannot grind a draft; but the head is a function of the log content, so whoever orders or includes the last deposits can grind it; CRYPTO-008 |
 | INV-11 | The uniqueness-label key (OPRF key) MUST NOT be rotated without a documented migration that preserves dedup; the label MUST be stable for the lifetime of the registry. | ID-006 |
 | INV-12 | A commitment in commit–reveal MUST bind the committer's nullifier and the item CID. | ENFORCED (T7): `review::commit = H(prob, nonce, committer, item)`; the reveal recomputes against the revealer + item; CRYPTO-007 |
@@ -865,7 +869,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide `b_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `b_j ≥ τ` else `Rejected(Borderline)` | — | defined terminal (T10/T30); ✗ the re-fit uses the first panel's ratings only — the extra round is T60; ✗ a polarized item that fails cannot appeal — T59 |
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` (✗ `run_item` passes both as `true`: T61) | `Pilot1{appealed}` | stake escrowed (REPUTATION-007; ✗ never settled: T61) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
-| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)`; item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✗ no check, and the floor counts rows, not respondents: T65) |
+| `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
 | `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
 | `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound) | `Retired{EmergingDif}` / stays | — | — |
@@ -1086,6 +1090,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-PRO-06 | oracle version pin | regenerate fixtures under pinned numpy/scipy in CI | matches | REPRO-003/004 |
 | AT-PRO-07 | exploration (D35) | 5% of gate rejections drawn from the beacon and piloted | draw reproducible from the beacon and not choosable; an explored item never reaches `ActivePool` | REPUTATION-008 |
 | AT-PRO-08 | contested facts (D38) | assemble tests from a pool with contested facts leaning both ways | every assembled test within the DTF tolerance; a DIF item without a verified source rejected | DIF-010 |
+| AT-PRO-09 ✓ | respondent Sybil (T65) | the same `Respond` nullifier twice on one batch; 300 rows from one admitted respondent; a proof for batch A presented on batch B | `Duplicate`; `NotEnoughRespondents{have: 1}`; refused (`BadProof`) | PROTO-013 |
 
 ---
 
@@ -1337,7 +1342,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-010 | governance | `lifecycle.rs`, proptest | TESTED (mechanics) | acting-role linkage | G-19 |
 | PROTO-011 | Draft CID unambiguous | `lifecycle.rs` (AT-PRO-04) | RESOLVED @289aae3 (was DEFECT) — see §0-bis | — | — |
 | PROTO-012 | band resolution is a bridging decision (INV-2/D2/D26) | `gate.rs` (`supplementary_review`), `supplementary_redecision.rs` | RESOLVED@T30 — the weighted-mean tie-break (`aggregate` module + `review_aggregation.rs`/`composed_gate.rs`) is deleted; the band is re-decided by re-running bridging vs the plain threshold, so a polarized panel is not carried by the larger camp | — | D26, D2 |
-| PROTO-013 | respondents are identity-gated; pilot floors count persons | review probe (§0-quinquies) | OPEN — no `Respond` entry point; the floors count `theta.len()` rows | `submit_response` through `admit` + `NullifierSet`; floors from the set | T65, AT-PRO-09 |
+| PROTO-013 | respondents are identity-gated; pilot floors count persons | `pilot.rs` (`submit_response`, `screen`, `dif_batch`), `revalidation.rs`, `proto013_respondent_gate.rs`, `end_to_end.rs` | RESOLVED (T65) — `submit_response` admits a `Respond` proof bound to `(batch, epoch)` into a `NullifierSet`; the floors count that set and refuse rows that do not match it one to one; `run_epoch` admits one person per fixture row; AT-PRO-09 passes | — | — |
 
 No claim in this matrix is at INDEPENDENTLY_REVIEWED, SCIENTIFICALLY_CHARACTERIZED, PRODUCTION_CANDIDATE, or PRODUCTION_READY. The auditor's re-execution of the Python simulations counts as REPRODUCED for DIF-004 and BRIDGE-002 *at the simulation level only*, and explicitly *fails* REPRODUCED for REPRO-003.
 

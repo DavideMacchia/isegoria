@@ -24,6 +24,8 @@ use identity::nym::{Nym, Role};
 #[cfg(feature = "calibration")]
 use network::log::TransparencyLog;
 #[cfg(feature = "calibration")]
+use protocol::admission::NullifierSet;
+#[cfg(feature = "calibration")]
 use protocol::admission::QuotaLedger;
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
@@ -37,7 +39,9 @@ use protocol::orchestrator::{
 };
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
-use protocol::pilot::{dif_batch, screen, stage2_dif, DifVerdict, N1_MIN};
+use protocol::pilot::{
+    batch_id, dif_batch, response_context, screen, stage2_dif, submit_response, DifVerdict, N1_MIN,
+};
 use protocol::revalidation::revalidate_pool_latent;
 #[cfg(feature = "calibration")]
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
@@ -229,8 +233,36 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let grp = read_vector("levelb_grp.csv");
     let x = read_matrix("levelb_X.csv");
 
+    // --- identity: every respondent is one person (INV-9, T65) ---
+    // Each fixture row is a respondent who proves a `Respond` nullifier bound to this
+    // pilot batch and epoch (`submit_response`); the floors count the admitted set, not
+    // the rows, so one person cannot fill a sample (PROTO-013, AT-PRO-09).
+    let batch = batch_id(&advancing.iter().map(|&j| item_cid[j]).collect::<Vec<_>>());
+    let mut respondents = NullifierSet::new();
+    for i in 0..theta.len() as u32 {
+        let mut secret = [0u8; 32];
+        secret[..4].copy_from_slice(&i.to_le_bytes());
+        secret[4] = 0xA5;
+        let mut label = [0u8; 32];
+        label[..4].copy_from_slice(&i.to_le_bytes());
+        label[4] = 0x5A;
+        let holder = Credential::from_secret(secret);
+        let (req, pending) = holder.request_issuance(&Label(label), &issuer.public());
+        let cred = pending.finalize(issuer.issue(&req).unwrap());
+        let proof = nullifier::prove(
+            &cred,
+            &issuer.public(),
+            Role::Respond,
+            &response_context(batch, EPOCH),
+        );
+        submit_response(&proof, &issuer.public(), batch, EPOCH, &mut respondents)
+            .expect("each fixture row is a distinct person");
+    }
+    assert_eq!(respondents.len(), theta.len());
+
     let cols: Vec<Vec<f64>> = advancing.iter().map(|&j| column(&x, j)).collect();
-    let keep1 = screen(&theta, &cols).expect("stage-1 respondent floor met on the fixtures");
+    let keep1 =
+        screen(&respondents, &theta, &cols).expect("stage-1 respondent floor met on the fixtures");
     let screen_passed: HashMap<usize, bool> = advancing
         .iter()
         .copied()
@@ -243,7 +275,8 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .collect();
 
     let cols2: Vec<Vec<f64>> = after1.iter().map(|&j| column(&x, j)).collect();
-    let keep2 = dif_batch(&theta, &grp, &cols2).expect("stage-2 batch and respondent floors met");
+    let keep2 = dif_batch(&respondents, &theta, &grp, &cols2)
+        .expect("stage-2 batch and respondent floors met");
     // Only a clean Pass advances; a Reject or an Undetermined (separated) fit does not.
     let dif_passed: HashMap<usize, bool> = after1
         .iter()
@@ -284,7 +317,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
                 gate: gate[j],
                 appealed: appeals.contains(&j),
                 band_advances: band_advances[j],
-                enough_respondents: theta.len() >= N1_MIN,
+                enough_respondents: respondents.len() >= N1_MIN,
                 screen_passed: *screen_passed.get(&j).unwrap_or(&false),
                 dif_passed: *dif_passed.get(&j).unwrap_or(&false),
                 pilot2_batch_size,

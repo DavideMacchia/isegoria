@@ -10,10 +10,10 @@
 
 Three phases, in this order:
 
-1. **[Phase 1 — Mathematics](#phase-1--mathematics).** One severe defect first (T65;
-   T64, its twin, is done), then the scoring mechanism and the decisions built on it.
-   The mechanism is the new part of the system, and on master it does not yet do what
-   it claims: the bridge
+1. **[Phase 1 — Mathematics](#phase-1--mathematics).** The two severe defects of the
+   protocol boundary (T64, T65) are done; then the scoring mechanism and the decisions
+   built on it. The mechanism is the new part of the system, and on master it does not
+   yet do what it claims: the bridge
    score is batch-relative and partly majoritarian (D32), the evaluator score is
    improper (D33), the latent DIF check raises false flags when the ability proxy is
    noisy (D37), and two of the paths that follow the gate (the band and the appeal) are
@@ -30,9 +30,10 @@ Three phases, in this order:
 **What falls where.** Phase 1 holds everything that *computes a verdict from the data*:
 the `scoring` crate and the `protocol` rules that turn its numbers into outcomes (gate,
 band re-decision, appeal, reputation weights, panel composition). It opens with two
-severe defects of the protocol boundary (T64, done; T65), moved ahead of their natural
-place for their severity. Phase 2 holds the `network` crate and the randomness beacon.
-Phase 3 holds the rest of *who may act* (panels, no-shows, honeypot, validated types) and
+severe defects of the protocol boundary (T64, T65, both done), moved ahead of their
+natural place for their severity. Phase 2 holds the `network` crate and the randomness
+beacon. Phase 3 holds the rest of *who may act* (panels, no-shows, honeypot, validated
+types) and
 everything that needs people outside the project.
 
 **Inside a phase,** defects in code that exists come before new features, and each task
@@ -52,10 +53,12 @@ reference implementation / testnet.
   gates into the protocol; signed-log consistency, checkpoint hardening and shard
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
-  (T64). Details and evidence: [Completed work](#completed-work).
+  (T64) and the respondent gate (T65). Details and evidence:
+  [Completed work](#completed-work).
 - **Open:** the design revisions D32–D41 (none implemented); the defects found by the
-  third review (2026-09-24), all but T64; the network runtime (persistence, transport,
-  live anchoring); distributed identity; privacy hardening; everything external.
+  third review (2026-09-24), all but T64 and T65; the network runtime (persistence,
+  transport, live anchoring); distributed identity; privacy hardening; everything
+  external.
 
 ---
 
@@ -64,14 +67,9 @@ reference implementation / testnet.
 ### 1.0 · The severe defects first
 
 The most severe defects the third review confirmed, done before the mechanism work: a
-replay that drained a proposer's quota (T64, **done**, see
-[Completed work](#completed-work)) and a Level B sample that one person can fill (T65,
-the evidence filter counts rows, not persons). Both are small and independent of the
-rest of the phase.
-
-| Task | What it means (plain) | Refs | Done when | Size |
-|---|---|---|---|---|
-| T65 | **Respondents pass the identity gate; the pilot counts persons, not rows.** `Propose` and `Judge` go through `admission::admit`; `Respond` does not (`Role::Respond` appears nowhere in `protocol/src`). `pilot::screen`, `dif_batch` and `revalidation::revalidate_batch_latent` take `theta.len()` as the number of distinct respondents, so 300 rows from one person satisfy `N1_MIN`: Level B, the final verdict, is less Sybil-resistant than Level A. Mirror `review.rs`: `pilot::response_context(batch, epoch)`; `pilot::submit_response(proof, issuer, batch, epoch, &mut NullifierSet) -> Result<Nym, ResponseRejected>` (`admit(.., Role::Respond, ..)`, then `spend`); the gates take the respondent count from the `NullifierSet` (`NullifierSet::len`) and refuse rows without a respondent; `end_to_end.rs::run_epoch` issues one credential per fixture row. *Cost to measure first:* the latent re-validation fixture has 3,000 rows, so an end-to-end epoch that proves every respondent needs 3,000 credentials and proofs — time it, or build the respondent count once per epoch and hand the gates the count | `docs/08` §9.1 `Pilot1` row, INV-9, `docs/02` §B.6 | `AT-PRO-09`: the same nullifier twice on one batch → `Duplicate`; 300 rows from one respondent → `NotEnoughRespondents`; a proof for batch A is refused on batch B | M |
+replay that drained a proposer's quota (T64) and a Level B sample that one person could
+fill (T65, the evidence filter counted rows, not persons). **Both done** (2026-09-24):
+see [Completed work](#completed-work).
 
 ### 1.1 · Correct the mechanism (D32–D41)
 
@@ -133,7 +131,7 @@ DIF cut (T35, T54), `γ` and the cap (T50), the CUSUM `k`/`h` (T51), the KR-20 f
 Fixed on 2026-09-24, after the reordering. The sections above are thematic; this is the
 order the work is done in. Sizes are the ones in the rows.
 
-1. T65 (M) — the severe defect left (T64 is done).
+1. T65 (M) — done (2026-09-24), as T64 before it.
 2. T62 (S) — the engine returns errors; `fit` becomes a `Result` before T49 rewrites
    the file.
 3. T49 (M) — the side-balanced score; sim, fixtures, golden outputs and the README warning
@@ -268,16 +266,15 @@ Not a phase; done alongside every task.
 
 ## Dependency notes
 
-- **Phase 1.** T65 opens the phase (T64, its twin, is done): small, severe, independent.
-  Then T62, then T49: T62 changes `fit`'s signature in the file T49 rewrites; T49
-  restores the central claim (bridging instead of majority) and changes the golden
-  outputs, the fixtures and `sim/` on purpose, with `AT-BR-04` right after it. T59 and
-  T60 follow T49 (T59 measures polarization by T49's side gap; T60 changes the score
-  anyway). T61 is independent and small, after the D27 decision. T50 before T51 and
-  T52. T53 before T54. T55 needs its evidence procedure specified first and comes last.
-  T57 needs T56. T24/T25 close the phase: the thresholds of T35, T49–T54 are final only
-  after them. The full order and the milestone split:
-  [1.5](#15--order-of-execution-and-milestones).
+- **Phase 1.** T64 and T65, the two severe defects, are done. Then T62, then T49: T62
+  changes `fit`'s signature in the file T49 rewrites; T49 restores the central claim
+  (bridging instead of majority) and changes the golden outputs, the fixtures and `sim/`
+  on purpose, with `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
+  polarization by T49's side gap; T60 changes the score anyway). T61 is independent and
+  small, after the D27 decision. T50 before T51 and T52. T53 before T54. T55 needs its
+  evidence procedure specified first and comes last. T57 needs T56. T24/T25 close the
+  phase: the thresholds of T35, T49–T54 are final only after them. The full order and
+  the milestone split: [1.5](#15--order-of-execution-and-milestones).
 - **Phase 1 → 2.** T52's exploration draw works on today's beacon and becomes grind-free
   with T37.
 - **Phase 2.** T63 and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
@@ -299,6 +296,7 @@ other documents and commit messages refer to these ids and block names.
 | Task | What it means (plain) | Refs | Done when | Size |
 |---|---|---|---|---|
 | T64 | **A deposit is accepted once. Done (2026-09-24):** `TransparencyLog::contains` (a set kept by `append`); `deposit` and `deposit_with_identity` return `DepositRejected::DuplicateCid` **before** `admit` and the quota charge, so a replay appends nothing and costs the author nothing; the `Propose` proof is bound to the draft *and* the epoch (`deposit::deposit_context(cid, epoch)`, as `review::review_context`), so a proof of epoch `e` is refused in `e + 1`. `proto007_deposit_replay.rs`: a byte replay and a fresh re-proof of the same draft → `DuplicateCid`, `log.len() == 1`, one quota unit used, the author's next draft still accepted; a proof presented in the next epoch → `Unproven(BadProof)` with nothing appended or charged. *Was:* `deposit_with_identity` appended and charged every copy, so whoever saw a proposal in transit could drain its author's quota. `lifecycle::deposit` keeps its `fresh_cid` input (the machine takes the check's result, the entry points now compute it) | `docs/08` §9.1 row 1, PROTO-007, ID-008 | a second deposit of the same pair → `DuplicateCid`, `log.len() == 1`, one quota unit used; a `Propose` proof of epoch e is refused in e+1 | S |
+| T65 | **Respondents pass the identity gate; the pilot counts persons, not rows. Done (2026-09-24):** `pilot::submit_response(proof, issuer, batch, epoch, &mut NullifierSet)` admits a `Respond` proof bound to the batch (`pilot::batch_id`, the content id of the sorted item cids) and the epoch (`pilot::response_context`), refusing a second sheet by the same person (`ResponseRejected::Duplicate`); `screen`, `dif_batch` and `revalidate_batch_latent` take the respondent count from that set (`NullifierSet::len`) and refuse rows that are not the admitted respondents one to one (`PilotError::RowCountMismatch`); `end_to_end.rs::run_epoch` issues one credential per fixture row and admits it through the gate (1,500 persons, ≈14 ms each with `identity` optimized in the dev profile, `Cargo.toml`). `proto013_respondent_gate.rs` (AT-PRO-09): the same nullifier twice on one batch → `Duplicate`; 300 rows (3,000 for the latent re-check) from one respondent → `NotEnoughRespondents { have: 1 }`; a proof for batch A on batch B, or in another epoch → `Unproven(BadProof)`; a `Judge` proof → `WrongRole`; one row more than the admitted respondents → `RowCountMismatch`. *Was:* `Role::Respond` appeared nowhere in `protocol/src` and the floors counted `theta.len()` rows, so 300 rows from one person satisfied `N1_MIN` | `docs/08` §9.1 `Pilot1` row, INV-9, `docs/02` §B.6 | `AT-PRO-09`: the same nullifier twice on one batch → `Duplicate`; 300 rows from one respondent → `NotEnoughRespondents`; a proof for batch A is refused on batch B | M |
 
 ### P1.1 · Quick fixes (audit block 1)
 

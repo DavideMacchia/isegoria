@@ -265,7 +265,9 @@ per-class item parameters without observing the group. It is far more data-hungr
 1. **Evidence-filter correctness (the binding one).** Each batch needs ~1500–3000
    *distinct* respondents — not many answers from few people: DIF needs different people
    spread across competence and latent groups. Below ~1500–2000 active answerers in the
-   validation window, Level B cannot run as specified.
+   validation window, Level B cannot run as specified. The floors are enforced on
+   persons: the protocol counts the `Respond` nullifiers admitted to the batch, never the
+   answer rows (T65).
 2. **Level A identifiability.** The matrix factorization recovers the axis `f` only with
    enough overlapping judgments; the spec already sets `n_min = 30` reviews per node to
    enter the `f`-space (§A.4) and `k = 7–11` reviewers per item. This needs at least a

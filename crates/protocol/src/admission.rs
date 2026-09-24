@@ -73,6 +73,16 @@ impl NullifierSet {
     pub fn contains(&self, id: &Nym) -> bool {
         self.seen.contains(id)
     }
+
+    /// How many distinct role-nullifiers have acted in this context: the count the pilot
+    /// floors read (T65) — persons, never rows.
+    pub fn len(&self) -> usize {
+        self.seen.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
 }
 
 /// Over the per-credential proposal quota for the epoch.

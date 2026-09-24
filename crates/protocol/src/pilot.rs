@@ -8,8 +8,18 @@
 //! estimate its statistic (`docs/02` §B.6). The per-item math below stays pure; the
 //! **batch-admission gates** [`screen`] / [`dif_batch`] enforce the floors and are what a
 //! caller uses. `K_MIN` is shared with [`crate::lifecycle`].
+//!
+//! "Distinct respondents" is enforced on persons, not rows (INV-9, T65): a respondent
+//! enters a batch through [`submit_response`], proving a `Respond` nullifier bound to
+//! the batch and the epoch, and the floors count the admitted [`NullifierSet`] — so 300
+//! answer sheets from one person are one respondent, not three hundred.
 
+use crate::admission::{admit, DuplicateNullifier, NullifierSet, Unproven};
 use crate::lifecycle::K_MIN;
+use identity::credential::IssuerPublic;
+use identity::nullifier::NullifierProof;
+use identity::nym::{Nym, Role};
+use network::cid::{cid, Cid};
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
 use scoring::irt::{fit_2pl_item, point_biserial, A_MIN, R_PBIS_MIN};
@@ -27,6 +37,101 @@ pub enum PilotError {
     NotEnoughRespondents { have: usize, need: usize },
     /// A DIF batch below `K_MIN` items — a single item cannot reveal latent bias (INV-8).
     BatchTooSmall { items: usize },
+    /// The answer rows are not the admitted respondents one to one (T65): a row without a
+    /// respondent, or an item column of another length, is refused.
+    RowCountMismatch { rows: usize, respondents: usize },
+}
+
+/// Names a pilot batch by its content: the id of its item cids in canonical (sorted,
+/// deduplicated) order, so the same set of items is the same batch however it is listed.
+pub fn batch_id(items: &[Cid]) -> Cid {
+    let mut sorted: Vec<[u8; 32]> = items.iter().map(|c| c.0).collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut buf = Vec::with_capacity(32 + 32 * sorted.len());
+    buf.extend_from_slice(b"isegoria/pilot-batch/v1");
+    buf.extend_from_slice(&(sorted.len() as u64).to_le_bytes());
+    for c in &sorted {
+        buf.extend_from_slice(c);
+    }
+    cid(&buf)
+}
+
+/// The action context a `Respond` proof is bound to: this batch and epoch (AT-ID-05,
+/// T65), as `review::review_context` and `deposit::deposit_context` do for the other
+/// roles. A proof made for batch A does not verify on batch B, nor in another epoch.
+pub fn response_context(batch: Cid, epoch: u64) -> Vec<u8> {
+    let mut ctx = Vec::with_capacity(40);
+    ctx.extend_from_slice(&batch.0);
+    ctx.extend_from_slice(&epoch.to_le_bytes());
+    ctx
+}
+
+/// Why an answer sheet was refused at the identity-gated respondent entry point.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResponseRejected {
+    /// No valid `Respond` nullifier proof for this batch and epoch.
+    Unproven(Unproven),
+    /// This role-nullifier already answered this batch.
+    Duplicate,
+}
+
+impl From<Unproven> for ResponseRejected {
+    fn from(u: Unproven) -> Self {
+        ResponseRejected::Unproven(u)
+    }
+}
+
+impl From<DuplicateNullifier> for ResponseRejected {
+    fn from(_: DuplicateNullifier) -> Self {
+        ResponseRejected::Duplicate
+    }
+}
+
+/// The identity-gated respondent entry point (`docs/08` §9.1 `Pilot1` row, INV-9, T65):
+/// the respondent presents a `NullifierProof(Respond)` bound to this batch and epoch, and
+/// the proven id is recorded in `respondents`, rejecting a second answer sheet by the same
+/// person on this batch (AT-PRO-09). That set is what the floors of [`screen`],
+/// [`dif_batch`] and [`crate::revalidation::revalidate_batch_latent`] count. Returns the
+/// respondent's proven, non-rotatable id.
+pub fn submit_response(
+    proof: &NullifierProof,
+    issuer: &IssuerPublic,
+    batch: Cid,
+    epoch: u64,
+    respondents: &mut NullifierSet,
+) -> Result<Nym, ResponseRejected> {
+    let id = admit(
+        proof,
+        issuer,
+        Role::Respond,
+        &response_context(batch, epoch),
+    )?;
+    respondents.spend(id)?;
+    Ok(id)
+}
+
+/// The rows of a sample must be the admitted respondents one to one (T65): `theta` and
+/// every column in `columns` hold exactly one entry per respondent.
+pub(crate) fn respondent_rows(
+    respondents: &NullifierSet,
+    theta: &[f64],
+    columns: impl IntoIterator<Item = usize>,
+) -> Result<(), PilotError> {
+    let n = respondents.len();
+    let mismatch = |rows: usize| PilotError::RowCountMismatch {
+        rows,
+        respondents: n,
+    };
+    if theta.len() != n {
+        return Err(mismatch(theta.len()));
+    }
+    for len in columns {
+        if len != n {
+            return Err(mismatch(len));
+        }
+    }
+    Ok(())
 }
 
 /// INV-8 batch admission for a DIF stage: never a single item, and enough respondents.
@@ -61,27 +166,41 @@ pub enum DifVerdict {
     Undetermined,
 }
 
-/// Stage-1 admission gate: runs [`stage1_screen`] only if the sample meets the
-/// distinct-respondent floor `N1_MIN` (`docs/08` §B.6). `theta.len()` is the sample size.
-pub fn screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Result<Vec<bool>, PilotError> {
-    if theta.len() < N1_MIN {
+/// Stage-1 admission gate: runs [`stage1_screen`] only if the batch's admitted
+/// `respondents` meet the distinct-respondent floor `N1_MIN` (`docs/02` §B.6) — persons,
+/// counted from the [`NullifierSet`] that [`submit_response`] filled, never rows (T65) —
+/// and the rows (`theta`, each item column) are those respondents one to one.
+pub fn screen(
+    respondents: &NullifierSet,
+    theta: &[f64],
+    item_responses: &[Vec<f64>],
+) -> Result<Vec<bool>, PilotError> {
+    if respondents.len() < N1_MIN {
         return Err(PilotError::NotEnoughRespondents {
-            have: theta.len(),
+            have: respondents.len(),
             need: N1_MIN,
         });
     }
+    respondent_rows(respondents, theta, item_responses.iter().map(Vec::len))?;
     Ok(stage1_screen(theta, item_responses))
 }
 
 /// Stage-2 admission gate: runs [`stage2_dif`] only on a batch of at least `K_MIN` items
-/// (INV-8) with at least `N2_MIN` respondents. A batch of one is rejected (AT-PRO-02).
+/// (INV-8) with at least `N2_MIN` admitted respondents (persons, T65), whose rows match
+/// them one to one. A batch of one is rejected (AT-PRO-02).
 #[cfg(feature = "calibration")]
 pub fn dif_batch(
+    respondents: &NullifierSet,
     theta: &[f64],
     group: &[f64],
     item_responses: &[Vec<f64>],
 ) -> Result<Vec<DifVerdict>, PilotError> {
-    admit_dif_batch(item_responses.len(), theta.len(), N2_MIN)?;
+    admit_dif_batch(item_responses.len(), respondents.len(), N2_MIN)?;
+    respondent_rows(
+        respondents,
+        theta,
+        std::iter::once(group.len()).chain(item_responses.iter().map(Vec::len)),
+    )?;
     Ok(stage2_dif(theta, group, item_responses))
 }
 

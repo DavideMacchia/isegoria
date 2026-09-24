@@ -29,3 +29,9 @@ debug = false
 # (the golden test checks it).
 [profile.dev.package.scoring]
 opt-level = 3
+
+# The identity proofs (BBS+ over BLS12-381) are pairing arithmetic, and unoptimized a
+# proof costs ~100 ms — an end-to-end epoch that admits every respondent through the
+# identity gate (T65) would take minutes. Optimize `identity` in dev/test builds too.
+[profile.dev.package.identity]
+opt-level = 3
