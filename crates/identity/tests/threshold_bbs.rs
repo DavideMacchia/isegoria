@@ -47,3 +47,32 @@ fn a_credential_does_not_verify_under_a_different_committee() {
     assert!(credential.verify(&issuer.public()));
     assert!(!credential.verify(&other.public()));
 }
+
+mod proptests {
+    //! T42: any credential the committee issues verifies, whatever the secret and label.
+    use super::*;
+    use proptest::prelude::*;
+    use std::sync::OnceLock;
+
+    /// Threshold keygen (dealer + base OT) is the slow part; share one committee.
+    fn committee() -> &'static ThresholdIssuer {
+        static ISSUER: OnceLock<ThresholdIssuer> = OnceLock::new();
+        ISSUER.get_or_init(|| ThresholdIssuer::new([3u8; 32], 3, 2))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(6))]
+
+        #[test]
+        fn any_threshold_issued_credential_verifies(
+            secret in any::<[u8; 32]>(),
+            label in any::<[u8; 32]>(),
+        ) {
+            let issuer = committee();
+            let holder = Credential::from_secret(secret);
+            let (request, pending) = holder.request_issuance(&Label(label), &issuer.public());
+            let credential = pending.finalize(issuer.issue(&request).unwrap());
+            prop_assert!(credential.verify(&issuer.public()));
+        }
+    }
+}

@@ -41,3 +41,5 @@ curve25519-dalek = { version = "4", features = ["digest"] }
 [dev-dependencies]
 voprf = { version = "0.5.0", features = ["ristretto255"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
+# Property tests over arbitrary secrets, labels, quorums and byte flips (T42).
+proptest = "1"

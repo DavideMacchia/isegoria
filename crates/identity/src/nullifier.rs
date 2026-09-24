@@ -241,3 +241,149 @@ mod tests {
         assert_eq!(proof.id(), other.id());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property tests (T42) over arbitrary credentials, roles, contexts and single-byte
+    //! corruptions of a proof. In the crate because the proof's byte encoding is not
+    //! part of the public API.
+    use super::*;
+    use crate::credential::{Credential, Issuer};
+    use crate::enrollment::Label;
+    use ark_serialize::CanonicalDeserialize;
+    use proptest::prelude::*;
+
+    const ROLES: [Role; 3] = [Role::Propose, Role::Judge, Role::Respond];
+
+    fn issued(secret: [u8; 32], label: [u8; 32]) -> (IssuerPublic, AnonymousCredential) {
+        let issuer = Issuer::new([1u8; 32]);
+        let holder = Credential::from_secret(secret);
+        let (req, pending) = holder.request_issuance(&Label(label), &issuer.public());
+        let cred = pending.finalize(issuer.issue(&req).unwrap());
+        (issuer.public(), cred)
+    }
+
+    fn role() -> impl Strategy<Value = Role> {
+        prop::sample::select(ROLES.to_vec())
+    }
+
+    /// Canonical encoding of the proof's group elements and BBS+ proof of knowledge.
+    fn encode(proof: &NullifierProof) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        proof.nullifier.serialize_compressed(&mut bytes).unwrap();
+        proof.commitment.serialize_compressed(&mut bytes).unwrap();
+        proof.sig_proof.serialize_compressed(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// Decode with full validation; `None` when the bytes are not a well-formed proof.
+    fn decode(role: Role, mut bytes: &[u8]) -> Option<NullifierProof> {
+        let nullifier = G1Affine::deserialize_compressed(&mut bytes).ok()?;
+        let commitment = G1Affine::deserialize_compressed(&mut bytes).ok()?;
+        let sig_proof = PoKOfSignatureG1Proof::<E>::deserialize_compressed(&mut bytes).ok()?;
+        bytes.is_empty().then_some(NullifierProof {
+            role,
+            nullifier,
+            commitment,
+            sig_proof,
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(24))]
+
+        /// Any credential proves any role under any context, and the proof verifies.
+        #[test]
+        fn any_valid_proof_verifies(
+            secret in any::<[u8; 32]>(),
+            label in any::<[u8; 32]>(),
+            role in role(),
+            context in prop::collection::vec(any::<u8>(), 0..64),
+        ) {
+            let (issuer, cred) = issued(secret, label);
+            let proof = prove(&cred, &issuer, role, &context);
+            prop_assert!(verify(&proof, &issuer, &context));
+            let decoded = decode(role, &encode(&proof)).expect("canonical encoding decodes");
+            prop_assert!(verify(&decoded, &issuer, &context));
+        }
+
+        /// The three role nullifiers (and ids) of one person are pairwise distinct, and
+        /// each is stable across independent proofs and action contexts.
+        #[test]
+        fn nullifier_is_distinct_per_role_and_stable_within_one(
+            secret in any::<[u8; 32]>(),
+            ctx_a in prop::collection::vec(any::<u8>(), 0..16),
+            ctx_b in prop::collection::vec(any::<u8>(), 0..16),
+        ) {
+            let (issuer, cred) = issued(secret, [7u8; 32]);
+            let proofs: Vec<_> = ROLES.iter().map(|&r| prove(&cred, &issuer, r, &ctx_a)).collect();
+            for i in 0..ROLES.len() {
+                for j in i + 1..ROLES.len() {
+                    prop_assert_ne!(proofs[i].nullifier(), proofs[j].nullifier());
+                    prop_assert_ne!(proofs[i].id(), proofs[j].id());
+                }
+                let again = prove(&cred, &issuer, ROLES[i], &ctx_b);
+                prop_assert_eq!(proofs[i].nullifier(), again.nullifier());
+                prop_assert_eq!(proofs[i].id(), again.id());
+            }
+        }
+
+        /// Two people never share a nullifier in the same role.
+        #[test]
+        fn distinct_secrets_give_distinct_nullifiers(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+            role in role(),
+        ) {
+            prop_assume!(a != b);
+            let (issuer, ca) = issued(a, [7u8; 32]);
+            let (_, cb) = issued(b, [7u8; 32]);
+            let pa = prove(&ca, &issuer, role, b"ctx");
+            let pb = prove(&cb, &issuer, role, b"ctx");
+            prop_assert_ne!(pa.nullifier(), pb.nullifier());
+        }
+
+        /// Altering any single byte of a proof (nullifier, commitment or BBS+ proof)
+        /// either leaves bytes that are no longer a proof or a proof that fails.
+        #[test]
+        fn any_altered_proof_byte_fails(
+            secret in any::<[u8; 32]>(),
+            role in role(),
+            at in any::<prop::sample::Index>(),
+            mask in 1u8..,
+        ) {
+            let (issuer, cred) = issued(secret, [7u8; 32]);
+            let proof = prove(&cred, &issuer, role, b"ctx");
+            let mut bytes = encode(&proof);
+            let i = at.index(bytes.len());
+            bytes[i] ^= mask;
+            if let Some(tampered) = decode(role, &bytes) {
+                prop_assert!(!verify(&tampered, &issuer, b"ctx"), "byte {i} ^ {mask:#04x} accepted");
+            }
+        }
+
+        /// A proof is bound to its role and to its context: relabelling it with another
+        /// role, or altering any byte of the context, makes it fail.
+        #[test]
+        fn a_proof_fails_under_another_role_or_an_altered_context(
+            secret in any::<[u8; 32]>(),
+            role in role(),
+            other in role(),
+            context in prop::collection::vec(any::<u8>(), 1..32),
+            at in any::<prop::sample::Index>(),
+            mask in 1u8..,
+        ) {
+            let (issuer, cred) = issued(secret, [7u8; 32]);
+            let mut proof = prove(&cred, &issuer, role, &context);
+
+            let mut altered = context.clone();
+            altered[at.index(context.len())] ^= mask;
+            prop_assert!(!verify(&proof, &issuer, &altered));
+
+            if other != role {
+                proof.role = other;
+                prop_assert!(!verify(&proof, &issuer, &context));
+            }
+        }
+    }
+}

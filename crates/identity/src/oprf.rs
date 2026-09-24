@@ -354,3 +354,118 @@ mod tests {
         assert_ne!(a.label(&anchor("same")), b.label(&anchor("same")));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property tests (T42) over arbitrary committees, quorums and anchors. In the crate
+    //! because the quorum-level entry point is not part of the public API.
+    use super::*;
+    use proptest::prelude::*;
+
+    /// A committee shape `(n, t)` with `1 <= t <= n <= 7`, and a seed.
+    fn committee() -> impl Strategy<Value = ([u8; 32], usize, usize)> {
+        (1usize..=7).prop_flat_map(|n| (any::<[u8; 32]>(), Just(n), 1..=n))
+    }
+
+    /// A quorum of `size` distinct member indices drawn from `1..=n`, in any order.
+    fn quorum(n: usize, size: usize) -> impl Strategy<Value = Vec<u32>> {
+        Just((1..=n as u32).collect::<Vec<u32>>())
+            .prop_shuffle()
+            .prop_map(move |all| all[..size].to_vec())
+    }
+
+    /// Two independent quorums of at least `t` members for one committee, and an anchor.
+    fn two_quorums() -> impl Strategy<Value = ([u8; 32], usize, usize, Vec<u32>, Vec<u32>)> {
+        committee().prop_flat_map(|(seed, n, t)| {
+            (
+                Just(seed),
+                Just(n),
+                Just(t),
+                (t..=n).prop_flat_map(move |s| quorum(n, s)),
+                (t..=n).prop_flat_map(move |s| quorum(n, s)),
+            )
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// Any quorum of at least `t` distinct members, in any order, reconstructs the
+        /// same label — the one the oracle hands out.
+        #[test]
+        fn any_quorum_reconstructs_the_same_label(
+            (seed, n, t, q1, q2) in two_quorums(),
+            input in prop::collection::vec(any::<u8>(), 0..32),
+        ) {
+            let oracle = ThresholdOprfOracle::new(seed, n, t);
+            let l1 = oracle.label_with_quorum(&input, &q1);
+            let l2 = oracle.label_with_quorum(&input, &q2);
+            prop_assert!(l1.is_some(), "quorum {q1:?} of a {t}-of-{n} committee refused");
+            prop_assert_eq!(l1, l2);
+        }
+
+        /// A quorum repeating any member is refused, whatever its size and order.
+        #[test]
+        fn a_quorum_with_a_duplicate_index_is_refused(
+            (seed, n, t, q, _) in two_quorums(),
+            dup in any::<prop::sample::Index>(),
+            at in any::<prop::sample::Index>(),
+        ) {
+            let oracle = ThresholdOprfOracle::new(seed, n, t);
+            let mut with_dup = q.clone();
+            let repeated = q[dup.index(q.len())];
+            with_dup.insert(at.index(q.len() + 1), repeated);
+            prop_assert!(oracle.label_with_quorum(b"anchor", &with_dup).is_none());
+        }
+
+        /// Fewer than `t` distinct members, or any index outside the committee, is
+        /// refused.
+        #[test]
+        fn a_short_or_foreign_quorum_is_refused(
+            (seed, n, t, q, _) in two_quorums(),
+            outsider in prop_oneof![Just(0u32), 8u32..],
+            at in any::<prop::sample::Index>(),
+        ) {
+            let oracle = ThresholdOprfOracle::new(seed, n, t);
+            prop_assert!(oracle.label_with_quorum(b"anchor", &q[..t - 1]).is_none());
+            let mut foreign = q.clone();
+            let i = at.index(q.len());
+            foreign[i] = outsider;
+            prop_assert!(oracle.label_with_quorum(b"anchor", &foreign).is_none());
+        }
+
+        /// Distinct anchors get distinct labels under one committee.
+        #[test]
+        fn distinct_anchors_get_distinct_labels(
+            (seed, n, t) in committee(),
+            a in prop::collection::vec(any::<u8>(), 0..32),
+            b in prop::collection::vec(any::<u8>(), 0..32),
+        ) {
+            prop_assume!(a != b);
+            let oracle = ThresholdOprfOracle::new(seed, n, t);
+            let quorum: Vec<u32> = (1..=t as u32).collect();
+            prop_assert_ne!(
+                oracle.label_with_quorum(&a, &quorum),
+                oracle.label_with_quorum(&b, &quorum)
+            );
+        }
+
+        /// A partial evaluation whose value is shifted by any non-identity point fails
+        /// its DLEQ proof, so a member cannot bias the combined value.
+        #[test]
+        fn a_shifted_partial_fails_its_proof(
+            seed in any::<[u8; 32]>(),
+            shift in any::<[u8; 64]>(),
+            member in 0usize..5,
+        ) {
+            let delta = RistrettoPoint::from_uniform_bytes(&shift);
+            prop_assume!(delta != RistrettoPoint::identity());
+            let oracle = ThresholdOprfOracle::new(seed, 5, 3);
+            let blinded = random_scalar() * hash_to_group(b"anchor");
+            let mut part = oracle.shares[member].evaluate(&blinded);
+            prop_assert!(verify_partial(&oracle.public_shares[member], &blinded, &part));
+            part.value += delta;
+            prop_assert!(!verify_partial(&oracle.public_shares[member], &blinded, &part));
+        }
+    }
+}

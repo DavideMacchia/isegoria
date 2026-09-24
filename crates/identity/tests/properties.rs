@@ -149,3 +149,52 @@ fn rate_limit_tokens_differ_across_epoch_role_and_person() {
 }
 
 // Blind BBS+ issuance is exercised in `tests/bbs_credential.rs`.
+
+mod proptests {
+    //! T42: the hash role pseudonyms and rate-limit tokens over arbitrary secrets.
+    use super::*;
+    use proptest::prelude::*;
+
+    const ROLES: [Role; 3] = [Role::Propose, Role::Judge, Role::Respond];
+
+    proptest! {
+        /// For any secret the three role nyms are pairwise distinct and deterministic.
+        #[test]
+        fn role_nyms_are_distinct_per_role(secret in any::<[u8; 32]>()) {
+            let cred = Credential::from_secret(secret);
+            for (i, &r) in ROLES.iter().enumerate() {
+                prop_assert_eq!(cred.nym(r), cred.nym(r));
+                for &other in &ROLES[i + 1..] {
+                    prop_assert_ne!(cred.nym(r), cred.nym(other));
+                }
+            }
+        }
+
+        /// Two people never share a nym in the same role.
+        #[test]
+        fn distinct_secrets_give_distinct_nyms(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+            role in prop::sample::select(ROLES.to_vec()),
+        ) {
+            prop_assume!(a != b);
+            prop_assert_ne!(
+                Credential::from_secret(a).nym(role),
+                Credential::from_secret(b).nym(role)
+            );
+        }
+
+        /// A rate-limit token changes with each of (role, epoch, slot).
+        #[test]
+        fn rln_tokens_separate_role_epoch_and_slot(
+            secret in any::<[u8; 32]>(),
+            epoch in any::<u64>(),
+            slot in any::<u32>(),
+        ) {
+            let t = rln_token(&secret, Role::Propose, epoch, slot);
+            prop_assert_ne!(t, rln_token(&secret, Role::Judge, epoch, slot));
+            prop_assert_ne!(t, rln_token(&secret, Role::Propose, epoch.wrapping_add(1), slot));
+            prop_assert_ne!(t, rln_token(&secret, Role::Propose, epoch, slot.wrapping_add(1)));
+        }
+    }
+}

@@ -756,6 +756,7 @@ dependencies = [
  "curve25519-dalek",
  "dock_crypto_utils",
  "oblivious_transfer_protocols",
+ "proptest",
  "rand_core 0.6.4",
  "schnorr_pok",
  "secret_sharing_and_dkg",

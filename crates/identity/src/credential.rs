@@ -681,3 +681,92 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property tests (T42) over arbitrary secrets, labels and single-byte corruptions.
+    //! They live in the crate because the byte-level encoding of a credential
+    //! (signature ‖ secret ‖ label scalar) is not part of the public API.
+    use super::*;
+    use ark_serialize::CanonicalDeserialize;
+    use proptest::prelude::*;
+
+    /// Canonical encoding of everything `verify` consumes.
+    fn encode(cred: &AnonymousCredential) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        cred.signature.serialize_compressed(&mut bytes).unwrap();
+        cred.secret.serialize_compressed(&mut bytes).unwrap();
+        cred.label_scalar.serialize_compressed(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// Decode with full validation; `None` when the bytes are not a well-formed
+    /// credential (off-curve point, non-canonical scalar, trailing bytes).
+    fn decode(mut bytes: &[u8]) -> Option<AnonymousCredential> {
+        let signature = SignatureG1::<E>::deserialize_compressed(&mut bytes).ok()?;
+        let secret = Fr::deserialize_compressed(&mut bytes).ok()?;
+        let label_scalar = Fr::deserialize_compressed(&mut bytes).ok()?;
+        bytes.is_empty().then_some(AnonymousCredential {
+            signature,
+            secret,
+            label_scalar,
+        })
+    }
+
+    fn issued(seed: [u8; 32], secret: [u8; 32], label: [u8; 32]) -> (Issuer, AnonymousCredential) {
+        let issuer = Issuer::new(seed);
+        let holder = Credential::from_secret(secret);
+        let (request, pending) = holder.request_issuance(&Label(label), &issuer.public());
+        let credential = pending.finalize(issuer.issue(&request).unwrap());
+        (issuer, credential)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// Any credential issued on any (secret, label) by any issuer verifies, and the
+        /// encoding round-trips to a credential that still verifies.
+        #[test]
+        fn any_issued_credential_verifies(
+            seed in any::<[u8; 32]>(),
+            secret in any::<[u8; 32]>(),
+            label in any::<[u8; 32]>(),
+        ) {
+            let (issuer, cred) = issued(seed, secret, label);
+            prop_assert!(cred.verify(&issuer.public()));
+            let decoded = decode(&encode(&cred)).expect("canonical encoding decodes");
+            prop_assert!(decoded.verify(&issuer.public()));
+        }
+
+        /// Altering any single byte of the encoding (signature, secret or label) either
+        /// yields bytes that are no longer a credential or a credential that fails to
+        /// verify: nothing in the encoding is malleable.
+        #[test]
+        fn any_altered_byte_fails(
+            secret in any::<[u8; 32]>(),
+            label in any::<[u8; 32]>(),
+            at in any::<prop::sample::Index>(),
+            mask in 1u8..,
+        ) {
+            let (issuer, cred) = issued([1u8; 32], secret, label);
+            let mut bytes = encode(&cred);
+            let i = at.index(bytes.len());
+            bytes[i] ^= mask;
+            if let Some(tampered) = decode(&bytes) {
+                prop_assert!(!tampered.verify(&issuer.public()), "byte {i} ^ {mask:#04x} accepted");
+            }
+        }
+
+        /// A credential verifies only under the issuer that signed it.
+        #[test]
+        fn a_credential_fails_under_any_other_issuer(
+            seed in any::<[u8; 32]>(),
+            other in any::<[u8; 32]>(),
+            secret in any::<[u8; 32]>(),
+        ) {
+            prop_assume!(seed != other);
+            let (_, cred) = issued(seed, secret, [7u8; 32]);
+            prop_assert!(!cred.verify(&Issuer::new(other).public()));
+        }
+    }
+}
