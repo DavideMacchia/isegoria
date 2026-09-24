@@ -350,6 +350,25 @@ mod tests {
 
     use std::cell::Cell;
 
+    // Pinned trajectories: (cost evaluations, gradient evaluations, final x bits).
+    const PINNED_ROSEN: (usize, usize, &[u64]) =
+        (51, 51, &[4607182418800301113, 4607182418800609318]);
+    const PINNED_QUAD: (usize, usize, &[u64]) = (
+        83,
+        83,
+        &[
+            13736512305672097628,
+            13731834493049554682,
+            13728298090719871024,
+            4493789166252270074,
+            13717216977604639406,
+            13711635847696458132,
+            4476207571572229212,
+            13695079438433771476,
+        ],
+    );
+    const PINNED_WALL: (usize, usize, &[u64]) = (8, 8, &[4607182418800017408]);
+
     /// Eigenvalues of `½ Σ λ_i x_i²`, log-spaced over [1, 10⁴]: condition number 10⁴.
     fn ill_conditioned_lambdas(dim: usize) -> Vec<f64> {
         (0..dim)
@@ -481,6 +500,135 @@ mod tests {
         );
         assert_eq!(m.status, Convergence::LineSearchFailed);
         assert_eq!(m.x, vec![0.0]);
+    }
+
+    /// Sufficient decrease is required even where the slope is flat. On
+    /// `f(a) = −a + (2 + 3ε)a² − (1 + 2ε)a³` (ε = 5·10⁻⁵) the first unit step lands on a
+    /// point with `f'(1) = 0` but `f(1) = ε > f(0)`: it satisfies the curvature condition
+    /// and must still be rejected, or the run "converges" at a point worse than its start.
+    #[test]
+    fn a_flat_point_that_raises_the_cost_is_not_accepted() {
+        let e = 5e-5;
+        let (b, c) = (2.0 + 3.0 * e, -(1.0 + 2.0 * e));
+        let cost = |x: &[f64]| -x[0] + b * x[0] * x[0] + c * x[0].powi(3);
+        let grad = |x: &[f64]| vec![-1.0 + 2.0 * b * x[0] + 3.0 * c * x[0] * x[0]];
+        let m = lbfgs(vec![0.0], cost, grad, 5, 100, 1e-10);
+        assert_eq!(m.status, Convergence::Converged);
+        assert!(
+            cost(&m.x) < 0.0,
+            "stopped at x = {} with f = {}",
+            m.x[0],
+            cost(&m.x)
+        );
+    }
+
+    /// A cost that is infinite past a wall (a barrier) makes the cubic unusable, and the
+    /// search bisects the bracket. `(x − 1)²` for `x < 1.5`, `∞` beyond: the first step
+    /// from 0 lands at 2, the midpoint of `[0, 1]` lands exactly on the minimum.
+    #[test]
+    fn an_infinite_cost_past_a_wall_is_bisected_back_into_range() {
+        let cost = |x: &[f64]| {
+            if x[0] < 1.5 {
+                (x[0] - 1.0).powi(2)
+            } else {
+                f64::INFINITY
+            }
+        };
+        let grad = |x: &[f64]| vec![2.0 * (x[0] - 1.0)];
+        let m = lbfgs(vec![0.0], cost, grad, 5, 100, 1e-12);
+        assert_eq!(m.status, Convergence::Converged);
+        assert_eq!(m.x, vec![1.0]);
+    }
+
+    /// The optimizer's trajectory is part of the reproducibility contract (invariant #7):
+    /// on reference problems the exact number of evaluations and the final point, bit for
+    /// bit, are pinned. A change to the line search that still converges — a different
+    /// bracket orientation, interpolation margin or stopping width — moves these. After an
+    /// intended change, re-derive the constants from the failure message.
+    #[test]
+    fn trajectories_on_reference_problems_are_pinned() {
+        fn run(
+            x0: Vec<f64>,
+            cost: impl Fn(&[f64]) -> f64,
+            grad: impl Fn(&[f64]) -> Vec<f64>,
+        ) -> (usize, usize, Vec<u64>) {
+            let (costs, grads) = (Cell::new(0), Cell::new(0));
+            let m = lbfgs(
+                x0,
+                counted(&costs, cost),
+                counted(&grads, grad),
+                10,
+                5000,
+                1e-9,
+            );
+            (
+                costs.get(),
+                grads.get(),
+                m.x.iter().map(|v| v.to_bits()).collect(),
+            )
+        }
+        let rosen = run(
+            vec![-1.2, 1.0],
+            |x: &[f64]| (1.0 - x[0]).powi(2) + 100.0 * (x[1] - x[0] * x[0]).powi(2),
+            |x: &[f64]| {
+                vec![
+                    -2.0 * (1.0 - x[0]) - 400.0 * x[0] * (x[1] - x[0] * x[0]),
+                    200.0 * (x[1] - x[0] * x[0]),
+                ]
+            },
+        );
+        let lam = ill_conditioned_lambdas(8);
+        let quad = run(
+            vec![1.0; 8],
+            |x: &[f64]| 0.5 * x.iter().zip(&lam).map(|(v, l)| l * v * v).sum::<f64>(),
+            |x: &[f64]| x.iter().zip(&lam).map(|(v, l)| l * v).collect(),
+        );
+        let wall = run(
+            vec![-3.0],
+            |x: &[f64]| {
+                if x[0] < 1.5 {
+                    (x[0] - 1.0).powi(4)
+                } else {
+                    f64::INFINITY
+                }
+            },
+            |x: &[f64]| vec![4.0 * (x[0] - 1.0).powi(3)],
+        );
+        // Exercise the bracketing branches: a slope that stays at −1 until a cliff past
+        // the minimum (expansion overshoots with a rising value), and a steep wall where
+        // an interpolated point is lower than the bracket end but far too steep (the
+        // bracket must be re-oriented).
+        let cliff = run(
+            vec![0.0],
+            |x: &[f64]| -x[0] + (x[0] - 6.0).exp(),
+            |x: &[f64]| vec![-1.0 + (x[0] - 6.0).exp()],
+        );
+        let steep = run(
+            vec![0.0],
+            |x: &[f64]| -x[0] + 0.1 * (10.0 * (x[0] - 6.0)).exp(),
+            |x: &[f64]| vec![-1.0 + (10.0 * (x[0] - 6.0)).exp()],
+        );
+        // A failing search: the bracket must collapse and stop, within its budget.
+        let uphill = run(
+            vec![1.0],
+            |x: &[f64]| x[0] * x[0],
+            |x: &[f64]| vec![-2.0 * x[0]],
+        );
+        assert_eq!(
+            (cliff.0, cliff.1, &cliff.2[..]),
+            (14, 14, &[4618441417868437217][..])
+        );
+        assert_eq!(
+            (steep.0, steep.1, &steep.2[..]),
+            (18, 18, &[4618441417868443096][..])
+        );
+        assert_eq!(
+            (uphill.0, uphill.1, &uphill.2[..]),
+            (18, 18, &[4607182418800017408][..])
+        );
+        assert_eq!((rosen.0, rosen.1, &rosen.2[..]), PINNED_ROSEN);
+        assert_eq!((quad.0, quad.1, &quad.2[..]), PINNED_QUAD);
+        assert_eq!((wall.0, wall.1, &wall.2[..]), PINNED_WALL);
     }
 
     /// A gradient that points uphill (here the sign is wrong): no step lowers the cost,

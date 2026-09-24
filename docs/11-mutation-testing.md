@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below. |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer). |
 
 ## Why this was needed
 
@@ -88,18 +88,43 @@ numbers are those of this branch.
 | `dif.rs:111` `ns > 0.0` → `>=` | An empty stratum only exists when there are more strata than respondents; then every stratum holds at most one person, which carries no discordant pair, and α is ∞ either way. |
 | `dif.rs:119`, `dif.rs:121` ETS class boundaries `<` → `<=` | `Δ = −2.35 ln α` with α a ratio of counts never equals 1.0 or 1.5 exactly. |
 | `validation.rs:36`, `revalidation.rs:47` `|β₂| > BETA2_MAX` → `>=`; `glm.rs:76` `max_z > SEPARATION_LOGIT` → `>=` | Equality of a fitted continuous statistic with the threshold has probability zero. |
-| `bridging.rs:272` `rng < keep_frac` → `<=` | A uniform `f64` draw equal to 0.85 exactly has probability ~2⁻⁵³ per draw. |
-| `bridging.rs:286` `bj < b` → `<=` | Replacing a minimum by an equal value changes nothing. |
+| `bridging.rs:314` `rng < keep_frac` → `<=` (was 272) | A uniform `f64` draw equal to 0.85 exactly has probability ~2⁻⁵³ per draw. |
+| `bridging.rs:328` `bj < b` → `<=` (was 286); `bridging.rs:156` `obj < best` → `<=` in the multi-start | Replacing a minimum by an equal value changes nothing. |
+| `optim.rs:110` `sy > 1e-12` → `>=` | Floating equality at a continuous boundary. |
+| `bridging.rs:172`, `bridging.rs:174` (`canonical_sign`) `>` → `>=`, `<` → `<=` | A tie between two `|f_j|` or a leading `f_j` of exactly 0 (then every `f` is 0 and negating gives `−0.0`, equal as a number). |
+| `optim.rs:193` `i > 0` → `>=` (expansion) | At `i = 0` a value not below the start already fails sufficient decrease. |
+| `optim.rs:218`, `optim.rs:219` the bracket-width stop (`hi − lo` → `hi + lo`; `1e-16 ·` → `/`) | The width stop is reached only by a failing search, where `lo` is still the start (`a = 0`): then `hi + lo = hi − lo` and `max(1, 0) = 1`. |
+| `optim.rs:230` `dg · (hi − lo)` → `dg / (hi − lo)` | Product and quotient have the same sign. |
+| `optim.rs:247` `\|\|` → `&&`, `optim.rs:252` `disc < 0` → `<=`, `==` | Any non-finite bracket end or negative discriminant makes the cubic minimizer NaN, which the final `is_finite` check sends to bisection anyway (a zero discriminant is a measure-zero double root). |
 | `collusion.rs:32` `skip(i + 1)` → `skip(i * 1)` | Adds the diagonal pair `(i, i)`; `union(i, i)` is a no-op. |
 | `collusion.rs:64` `s > 0.0` → `>=` | At `s = 0` the product is `0 · min(NaN, 1) = 0 · 1 = 0` (`f64::min` ignores NaN): same result. |
 | `collusion.rs:81` (×2) `(a[i] − ma)` or `(b[i] − mb)` → `+` in the covariance term | Centring one factor is enough: `Σ(a + ma)(b − mb) = Σ(a − ma)(b − mb) + 2ma·Σ(b − mb)` and `Σ(b − mb) = 0` (same for the other factor). The variance terms, which are not equivalent, are pinned by `hand_computed.rs`. |
 | `governance.rs:74` `.max(lo + 1)` → `.max(lo * 1)`; `review.rs:56` same | The guard only matters for an empty stratum, and `strata ≤ seats ≤ n` (resp. `k ≤ n`) rules that out. |
 | `governance.rs:85` `count < seats` → `<=` | At equality the fill loop breaks before changing anything. |
 | `review.rs:44` `n == 0 \|\| k == 0` → `&&` | Either zero makes `k = min(k, n) = 0`, and the loop draws nothing. |
-| `optim.rs:61` `yy > 0` → `>=` | `yy = 0` means `y = 0`, so `sᵀy = 0` and the pair was never stored (`sᵀy > 1e-12`). |
-| `optim.rs:86` `gd >= 0` → `<` (second check, after the steepest-descent fallback) | The fallback direction is `−g`, whose slope `−‖g‖²` is negative unless `g = 0`, which the gradient test has already stopped on. The fallback itself is unreachable while stored pairs keep the Hessian estimate positive definite. |
-| `optim.rs:97` Armijo `>` → `>=`; `optim.rs:135` `sy > 1e-12` → `>=` | Floating equality at a continuous boundary. |
-| `optim.rs:99` (×2) `step < 1e-20` → `==`, `<=`; `optim.rs:105` (×2), `optim.rs:106` (×2) the backtrack counter | The two budgets overlap: 60 halvings (`2⁻⁶⁰ ≈ 8.7e-19`) are reached before `1e-20`, and either cap ends the search a few halvings apart with the same `LineSearchFailed`. |
+| `optim.rs:60` `yy > 0` → `>=` (was line 61) | `yy = 0` means `y = 0`, so `sᵀy = 0` and the pair was never stored (`sᵀy > 1e-12`). |
+| `optim.rs:85` `gd >= 0` → `<` (second check, after the steepest-descent fallback; was line 86) | The fallback direction is `−g`, whose slope `−‖g‖²` is negative unless `g = 0`, which the gradient test has already stopped on. The fallback itself is unreachable while stored pairs keep the Hessian estimate positive definite. |
+
+## Run 4 — the T48 optimizer and multi-start
+
+T48 replaced the Armijo line search with a strong-Wolfe one and made the bridging fit a
+multi-start, so `optim.rs` and `bridging.rs` were re-run: 464 mutants, 28 survivors.
+Three were real and are killed: a fit with every weight 0 produced NaN through a 0/0
+start value; the sufficient-decrease sign (a flat point that *raises* the cost must be
+rejected); and the bisection fallback (a cost that is infinite past a wall). The
+bracketing branches of `zoom` were not exercised at all by the reference problems (with
+`c₂ = 0.9` the first interpolated point is almost always accepted), so
+`optim::tests::trajectories_on_reference_problems_are_pinned` pins the exact number of
+evaluations and the final point, bit for bit, on problems built to reach them — a
+cliff past the minimum, a steep wall, a failing search — together with Rosenbrock and an
+ill-conditioned quadratic. The survivors that remain are in the table above, plus four
+**path-only** mutants:
+
+| Mutant(s) | Why it is accepted |
+|---|---|
+| `optim.rs:193` `i > 0` → `<`, `==` | Drops the "value rose during expansion" test (Nocedal & Wright 3.5). The search then brackets on the slope sign or accepts a Wolfe point further out: a different trajectory to a valid step, and no constructed problem made it differ. |
+| `optim.rs:230` `hi − lo` → `hi + lo` (×2: `+`, `/`) | Differs only once the bracket is reversed (`hi < lo`) *and* an interior point is too steep — not reached by any reference problem. |
+| `optim.rs:258`, `optim.rs:259` (×2) the interpolation margins | Matter only when the cubic minimizer falls outside the bracket, which cannot happen while the slope changes sign inside it. |
 
 ## Keeping it this way
 

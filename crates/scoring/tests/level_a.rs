@@ -252,3 +252,16 @@ fn a_single_start_can_land_in_a_worse_minimum() {
     );
     assert!(multi.b_j[8] < 0.0, "b_j[8] = {:.3}", multi.b_j[8]);
 }
+
+/// Everyone on probation (all weights 0): no rating counts, so the fit is the prior —
+/// finite, with no NaN from a 0/0 start value.
+#[test]
+fn a_fit_with_every_weight_zero_is_finite() {
+    let data = load_ratings();
+    let n = data.n;
+    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default());
+    assert!(f.mu.is_finite());
+    for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
+        assert!(v.is_finite());
+    }
+}
