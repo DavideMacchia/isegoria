@@ -220,7 +220,9 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    A `proptest` suite (`network/tests/properties.rs`, `protocol/tests/properties.rs`)
    fuzzes these over arbitrary inputs: Merkle inclusion + root sensitivity, erasure
    recovery from any survivor set, log append/verify, blueprint apportionment, lottery,
-   sortition.
+   sortition. **Model-based** suites (T43: `protocol/tests/{lifecycle,orchestrator}_model.rs`,
+   `network/tests/checkpoint_model.rs`) drive the three state machines with random event
+   sequences, checking every step against a small reference model and their invariants.
 3. **Reproducibility tests** assert determinism (above).
 4. **End-to-end integration** (`protocol/tests/end_to_end.rs`) walks the ten civic
    items of the oracle fixtures through all four crates in one epoch and asserts each
