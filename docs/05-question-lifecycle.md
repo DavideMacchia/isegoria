@@ -50,9 +50,10 @@ can propose as much as they want; each epoch a drawn subset enters the pipeline.
 
 ## [4] Review: random, blind, commit-reveal assignment
 
-> **Revised by D40 and D41 (T57, T37).** A panel will hold at most one member of each
-> cluster flagged by the coordination detector (D39), and all draws will use a beacon made
-> by commit-reveal among consortium members (a threshold signature after T19).
+> **Revised by D40 (done, T57) and D41 (T37).** A panel holds at most one member of each
+> cluster flagged by the coordination detector (D39, `review::assign_diverse`), the band's
+> extra round included; all draws will use a beacon made by commit-reveal among consortium
+> members (a threshold signature after T19).
 
 - **Random assignment** of the `k` reviewers (odd, 7–11), stratified on the position
   `f_u` → the batch mirrors all positions of the axis. Prevents **brigading**: nobody

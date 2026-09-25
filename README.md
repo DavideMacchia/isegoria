@@ -179,9 +179,12 @@ rewarded structurally.
 
 ### Anti-collusion
 
-A cartel that votes as a block is detected by the correlation of its behaviour, and
-its combined weight is discounted **sub-linearly**: 500 coordinated nodes count
-for about √500 ≈ 22 independent ones.
+A cartel that votes as a block is detected by the correlation of what its ratings leave
+**unexplained by the bridging model** — its residuals — over long histories, so honest
+reviewers who merely share a position are not mistaken for one (`docs/01` D39). A
+detected cluster is never seated twice on a panel (D40). The engine also keeps the
+sub-linear measure of a bloc's influence: 500 coordinated nodes count for about
+√500 ≈ 22 independent ones.
 
 ### Anonymous identity
 
@@ -319,9 +322,10 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    polarized band items (T59), the appeal stake as a pseudo-observation inside the
    author's average (D27, T61), the anchor-reliability gate of the latent re-check
    (D37, T53), the proper evaluator score with the change detector (D33/D34/D36,
-   T50/T51) and the band re-decision with real extra reviewers (D26, T60); next, the
-   rest of the mechanism (D35, D38–D41 and D37's target model), then the
-   characterization of the thresholds.
+   T50/T51), the band re-decision with real extra reviewers (D26, T60) and the
+   coordination detector on model residuals with panel diversification (D39/D40,
+   T56/T57); next, the rest of the mechanism (D35, D38, D41 and D37's target model),
+   then the characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

@@ -709,6 +709,19 @@ facts. Admitting contested facts without scoring them: loses the measurement.
 
 ## D39 — Coordination is detected on model residuals over long histories
 
+> **Implemented (2026-09-25, T56):** `scoring::collusion::{ResidualHistory,
+> coordination_clusters, CoordinationParams}` — residuals `r − r̂` recorded per reviewer
+> and item across epochs; a pair read only from 30 shared items; a pair flagged at a
+> residual correlation of at least `ρ_min = 0.7` with a permutation p-value ≤ 0.001 (999
+> seeded permutations); average-linkage clusters over the flagged pairs. On the paper's
+> dataset ported to Rust (`coordination.rs`): honest same-camp residual correlation
+> +0.015, cross-camp +0.018, the jittered cartel +0.889; all 45 cartel pairs flagged and
+> no honest pair, the cartel one cluster and every honest reviewer a singleton — while the
+> raw rule chains the whole majority camp into one cluster. `ρ_min` is 0.7, not 0.5: at
+> 0.5 four of the 18,000 honest pairs are flagged by chance. Parameters provisional (T25).
+> The clusters constrain panel assignment (D40, T57); the sublinear discount stays in the
+> engine for analysis.
+
 **Choice.** Coordination between two reviewers is measured by the correlation of their
 residuals (rating minus the bridging model's prediction) on the items both rated. The
 histories accumulate across epochs. A pair is considered only once it shares at least 30
@@ -733,6 +746,15 @@ evaded by jitter of σ = 0.05.
 ---
 
 ## D40 — A detected cluster constrains panel assignment, not weights
+
+> **Implemented (2026-09-25, T57):** `protocol::review::assign_diverse` and the beacon
+> entry points `assign_diverse_from_beacon` / `assign_extra_diverse_from_beacon` — the
+> stratified draw excludes every cluster already seated, on the first panel and on the
+> band's extra round; a stratum the constraint empties is filled by the nearest eligible
+> reviewer on the axis. The weights take no cluster input (`bridging_weights`). On the
+> paper's population (1,000 reviewers, a cluster of 50, panels of 9; `panel_diversification.rs`,
+> 2,000 draws): no diversified panel holds two members of the cluster, every panel still
+> spans the axis, while the uniform draw seats two or more on 6.6% of panels (paper 7.0%).
 
 **Choice.** Members of a detected cluster are never assigned together: a panel holds at
 most one member of each cluster. The protocol does not apply the sublinear weight

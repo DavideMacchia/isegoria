@@ -66,7 +66,7 @@ executable specification; the Rust implementation must reproduce their results.
 | `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif::differential` is a diagnostic, D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
 | `reputation` | §C | `author_score`, `loo_scores`, `mean_score`, `odds_weight` (D33), `Cusum` (D34), `weight_cap`, `brier_skill_score` (sim oracle only), `dasgupta_ghosh` |
-| `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
+| `collusion` | §Anti-collusion | `ResidualHistory`, `coordination_clusters`, `permutation_p_value`, `CoordinationParams` (residual-correlation detection, D39/T56); `sublinear_group_weight`, `discount_weights` (analysis only, D40); `correlation_matrix`, `cluster_by_correlation` (the retired raw rule, kept as reference) |
 | `glm` (private) | — | shared maximum-likelihood logistic regression |
 | `optim` (private) | §A.5 | in-house L-BFGS + numerical gradient |
 
@@ -160,7 +160,7 @@ steps are seeded for reproducibility.
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
-| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60) | `admission`, `identity`, `network::cid` |
+| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60); `assign_diverse`, `assign_diverse_from_beacon`, `assign_extra_diverse_from_beacon` (at most one member of a coordination cluster per panel, D40/T57) | `admission`, `identity`, `network::cid` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch`, `admit_anchors` (KR-20 floor, D37/T53) (INV-8, T9) | `scoring::irt`, `scoring::dif` |
@@ -250,7 +250,10 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    (`anti_collusion.rs`) and in the T5 bridging weights.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
-   majority; a long con is caught by the change detector on its per-item scores and
+   majority (the engine's measure; on the protocol path a cluster is kept apart on
+   panels, D40), and a jittered cartel among two honest camps is found on the residuals
+   of the bridging fit with no honest pair flagged (`coordination.rs`, D39); a long con
+   is caught by the change detector on its per-item scores and
    sent back to probation, and any weight is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.

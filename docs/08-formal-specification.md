@@ -116,8 +116,12 @@ paper's snapshot is listed in `paper/README.md`.
 - **COLLUSION-006 — There is almost nothing to correlate within an epoch.** Two reviewers
   share `r²/m` items per epoch on average (0.81 at `r = 9`, `m = 100`); raw correlations
   also cannot separate a cartel (+0.93) from honest same-camp pairs (+0.94), whereas
-  residual correlations can (+0.88 vs +0.02). Status: **OPEN** → D39, D40, T56, T57
-  (`AT-COL-07`, `AT-BR-10`).
+  residual correlations can (+0.88 vs +0.02). Status: **RESOLVED** — the residual
+  detector over long histories is implemented (D39, T56, 2026-09-25:
+  `collusion::{ResidualHistory, coordination_clusters}`; on the paper's dataset every
+  cartel pair and no honest pair is flagged, `AT-COL-07` ✓, `AT-COL-02` ✓), and a
+  detected cluster constrains the assignment (D40, T57: `review::assign_diverse`, at most
+  one member per panel, the extra round included, no weight touched; `AT-BR-10` ✓).
 - **CRYPTO-008 (update).** The beacon is decided: commit-reveal now, a threshold signature
   after T19 (D41, T37).
 
@@ -175,7 +179,8 @@ regression test are on master.
   extra panelist revealed (`PartialEpoch`); `orchestrator::run_item` walks the round
   (`extra_round`) and re-decides on its reveals folded into the epoch's ratings
   (`expanded_ratings` → `gate::supplementary_review`); `review::assign_extra_from_beacon`
-  draws the panel (`K_EXTRA = 4`, provisional, `randomness::EXTRA_REVIEW`).
+  draws the panel (`K_EXTRA = 4`, provisional, `randomness::EXTRA_REVIEW`), and
+  `assign_extra_diverse_from_beacon` keeps it outside the first panel's clusters (T57).
   `supplementary_redecision.rs`: a band item nine reviewers approve just above τ passes
   on the first panel alone and is `Rejected(Borderline)` once four extra reviewers
   disapprove; the model suites carry the round's rules.
@@ -553,11 +558,11 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### COLLUSION-002 — Noisy coordination is detected
 - **Failure condition.** A cartel that adds small independent noise to a shared pattern escapes clustering.
 - **Auditor probe (Python, m = 24 as in `adversarial.rs`, pattern ~ U(0,1)).** Jitter σ = 0.02: 99.8 % of pairs ≥ 0.99. σ = 0.05: **0.2 %** of pairs ≥ 0.99 → no clustering → no discount. σ = 0.10: 0 %.
-- **Evidence status.** **UNSOLVED.** A threshold of 0.99 on Pearson ρ is trivially evaded; the design needs a coordination statistic robust to jitter (e.g. rank agreement over shared items with a permutation null) and a documented FP rate against genuinely like-minded honest reviewers (`docs/01` D7's "accepted cost" is never quantified).
+- **Evidence status.** RESOLVED (D39, T56). The statistic is the correlation of model residuals over the shared items, flagged at `ρ ≥ 0.7` with a permutation p-value ≤ 0.001 (`collusion::coordination_clusters`). `coordination.rs::at_col_07_…` (AT-COL-02/07): the paper's cartel of 10 with jitter σ = 0.05 among 190 honest reviewers in two camps — all 45 cartel pairs flagged (residual correlation +0.89), none of the 18,000 honest pairs (+0.015 same camp, +0.018 cross camp); the false-positive rate against like-minded honest reviewers is zero on this dataset, and the threshold 0.7 rather than 0.5 is what keeps it so (four honest pairs reach 0.5 by chance). The probe's raw-correlation rule chains the whole majority camp into one cluster on the same data.
 
 #### COLLUSION-003 — Sparse judgment matrices
 - **Analysis.** `correlation_matrix` requires dense rows (`Vec<Vec<f64>>`, equal length, no missing marker). In the design each item has `k = 7–11` reviewers drawn at random; a reviewer with `n_min = 30` reviews shares with another reviewer, in expectation, `n₁n₂/M` items — 0.81 for M = 100, 0.08 for M = 1000. Pearson correlation is undefined or meaningless at that overlap. The docs' alternative ("distance in `f_u`") is not implemented.
-- **Evidence status.** NOT IMPLEMENTED for the design's data regime. The current function is applicable only to the dense test fixtures.
+- **Evidence status.** RESOLVED (D39, T56) for the design's regime by construction: `collusion::ResidualHistory` keeps residuals sparsely, per reviewer and item, across epochs; a pair is read only on the items both rated and only from `MIN_SHARED_ITEMS = 30` of them (`coordination.rs::the_history_accumulates_across_epochs`: a coordinated pair becomes readable, and is flagged, once its shared items reach 30 over the epochs; `a_pair_below_the_shared_floor_is_never_flagged`). The dense `correlation_matrix` stays as the retired rule's reference. The design-scale simulation (M = 500, 9 ratings per reviewer, AT-COL-03) is still open.
 
 #### COLLUSION-004 — The discount never increases a weight
 - **Analysis.** `discount_weights` maps a cluster with total `s` to per-node `w_i · s^α / s`. For `s < 1` this is an **increase**: a singleton with `E_u = 0.25` becomes 0.50; 0.5 → 0.707 (auditor-computed). `ARCHITECTURE.md` and the tests only state the `w = 1` case.
@@ -565,7 +570,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### COLLUSION-005 — Connected-component chaining and griefing
 - **Analysis.** Union–find over `|ρ| ≥ thr` is transitive: one honest node correlated ≥ thr with one cartel member joins the cartel cluster and is discounted with it. `|ρ|` also merges *anti*-correlated nodes. Because judgment histories must be public for reproducibility (PRIV-004), an adversary with a few real identities can target an honest reviewer's history to pull it into a cluster. Random assignment slows but does not prevent this over time.
-- **Evidence status.** UNSOLVED / not analysed in the repository.
+- **Evidence status.** RESOLVED (D39/D40, T56). Clusters use average linkage over the flagged pairs (a merge needs the mean residual correlation over *all* cross pairs to reach `ρ_min`), and only positive residual correlation counts, so a single pair chains nobody and opposite camps are never joined (`coordination.rs`: every honest reviewer a singleton). Griefing (AT-COL-05): an attacker who copies an honest reviewer's ratings forms a pair with them and nothing more (`a_mimic_forms_a_pair_with_its_target_and_chains_nobody_else`), and under D40 the pair costs the honest reviewer no weight — only their mimic is never seated with them (T57).
 
 ### 5.5 Identity
 
@@ -909,7 +914,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 |---|---|---|---|---|---|
 | — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid and the epoch (INV-9 ✓ T6/T64); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID (✓ T64, `DepositRejected::DuplicateCid` before the identity check and the quota charge); unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
 | `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
-| `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
+| `Admitted` | `assign_diverse(k, clusters, seed_item)` (T57; `assign_reviewers` when no cluster is flagged) | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; at most one member of each coordination cluster (D40) — an emptied stratum is filled by the nearest eligible reviewer on the axis; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even; two members of one cluster (✓ T57, `panel_diversification.rs`) |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
 | `InReview` | commit deadline | — | `Revealing` | publish commitments | — |
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
@@ -1095,12 +1100,12 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-REP-06 | exploration weights (D35) | synthetic reviewers; outcomes observed with probability 1 (passed) or 0.05 (explored rejections) | the weighted score's expectation equals the full-information score within Monte Carlo error; truthful reporting stays optimal | REPUTATION-008 |
 | AT-REP-07 ✓ | change detection (D34) | seeded honest stream of 10,000 scored items; a reviewer that starts flipping 20% of forecasts | at most one alarm on the honest stream; the flipper caught within 100 scored items — `change_detector.rs` (T51): the paper's `panel_bias` regime; no alarm in 10,000 honest items; the flipper caught within 100 on nine of ten seeds (median 25, one after 356), back on probation | REPUTATION-004 |
 | AT-COL-01 ✓ | identical cartel | 400/500 identical rows | Σw = √k | COLLUSION-001 |
-| AT-COL-02 | jittered cartel | shared pattern + `N(0, σ)`, σ ∈ {0.02, 0.05, 0.1} | discounted to within 10 % of √k | COLLUSION-002 |
+| AT-COL-02 ✓ | jittered cartel | the paper's cartel of 10 with jitter σ = 0.05 on 5 target items, among two honest camps | every cartel pair flagged on residuals and no honest pair — `coordination.rs` (T56); the √k discount is analysis only (D40) | COLLUSION-002 |
 | AT-COL-03 | sparse cartel | design regime: M = 500 items, 9 ratings/node, cartel votes identically *on shared items only* | detected | COLLUSION-003 |
 | AT-COL-04 | sub-unit boost | singleton `w = 0.25` | discounted weight ≤ 0.25 | INV-14 |
-| AT-COL-05 | griefing | attacker mimics honest node H's history to pull H into a cluster | H's weight unchanged or the effect bounded and documented | COLLUSION-005 |
+| AT-COL-05 ✓ | griefing | attacker mimics honest node H's history to pull H into a cluster | H's weight unchanged (D40) and the effect bounded: a pair {H, mimic}, nobody else chained — `coordination.rs` (T56) | COLLUSION-005 |
 | AT-COL-06 | influence, not weight | cartel of 400 vs 120 honest, weights *consumed by bridging* | `b_j` of a targeted item moves less than with 22 independents | BRIDGE-007 |
-| AT-COL-07 | like-minded honest reviewers (D39) | two camps, long histories, a jittered cross-camp cartel | residual-correlation detector flags the cartel and no honest pair; pairs with fewer than 30 shared items are never flagged | COLLUSION-002/006 |
+| AT-COL-07 ✓ | like-minded honest reviewers (D39) | two camps, long histories, a jittered cross-camp cartel | residual-correlation detector flags the cartel and no honest pair; pairs with fewer than 30 shared items are never flagged — `coordination.rs` (T56): 45 of 45 cartel pairs, 0 of 18,000 honest pairs, the cartel one cluster, every honest reviewer a singleton; the raw rule chains the majority camp | COLLUSION-002/006 |
 | AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `S_j < τ` (T49; was `b_j < τ`) | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
 | AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `\|Δb_j\| < 1e-9` without | REPRO-002 |
@@ -1110,7 +1115,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
 | AT-BR-08 ✓ | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 and 80/20, 200–3,200 reviewers; the review's dataset at 50/50–95/5 in both orientations | leak ≤ 0.1 where the intercept leaks 0.5–0.9; neither mirror item passes at any ratio; a residual leak of 0.1–0.2 with 50–100 reviewers (`side_balanced.rs`, T49) | BRIDGE-009 |
 | AT-BR-09 ✓ | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch; the six consensus items alone | no other item's score moves by more than 0.02 and no verdict changes; alone, within 0.02; the intercept moves by more than 0.1 (`side_balanced.rs`, T49) | BRIDGE-008 |
-| AT-BR-10 | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged | COLLUSION-006 |
+| AT-BR-10 ✓ | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged — `panel_diversification.rs` (T57): 2,000 seeds, at most one member per panel and per first-plus-extra round, every panel spans the axis, the uniform draw seats two or more on 6.6% of panels (paper 7.0%); `bridging_weights` takes no cluster input | COLLUSION-006 |
 | AT-DIF-01 | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α | DIF-008 |
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
 | AT-DIF-03 | non-uniform DIF | class-specific `a_j` | detected or documented as out of scope | DIF-004 |
@@ -1346,11 +1351,11 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | REPUTATION-007 | appeal stake coherent | `appeal.rs`, `orchestrator.rs` (`settle_appeal`), `appeal_stake.rs`, `end_to_end.rs` | TESTED — a zero-quality pseudo-observation escrowed at filing, replaced by `q_j` on promotion, left otherwise; the floor is the prior mean; `run_item` derives the checks from the verdicts (D27, T61) | floor and stake weight provisional | T25 |
 | REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py`; `reputation.rs` (`loo_scores`, `odds_weight`), `evaluator_score.rs` (AT-REP-05) | PARTLY RESOLVED (T50) — the leave-one-out difference score, strictly proper; the retired ratio was not (the paper's dissenter example reproduced) | live outcomes with exploration (D35) | T52, AT-REP-06 |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
-| COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
-| COLLUSION-003 | sparse data | — | NOT IMPLEMENTED | — | AT-COL-03 |
+| COLLUSION-002 | jittered cartel detected | `collusion.rs` (`coordination_clusters`), `coordination.rs` (AT-COL-02/07) | RESOLVED (D39, T56) — residual correlation with a permutation null; the σ = 0.05 cartel fully flagged, no honest pair | thresholds provisional | T25 |
+| COLLUSION-003 | sparse data | `collusion.rs` (`ResidualHistory`), `coordination.rs` | RESOLVED for the mechanism (T56) — residuals accumulate per item across epochs; a pair is read from 30 shared items | the design-scale simulation | AT-COL-03 |
 | COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5); `anti_collusion.rs` (AT-COL-04) | RESOLVED @289aae3 (was INV-14 VIOLATED) — see §0-bis | — | — |
-| COLLUSION-005 | chaining/griefing | review probe (§0-quinquies) | UNSOLVED — `\|ρ\|` with connected components joins honest camps on opposite sides | analysis | T56, AT-COL-05/07 |
-| COLLUSION-006 | per-epoch detection possible | paper §6.3 | OPEN — overlap `r²/m` ≈ 0.8 per epoch | residual detector on long histories; panel diversification (D39, D40) | T56, T57, AT-COL-07, AT-BR-10 |
+| COLLUSION-005 | chaining/griefing | `collusion.rs` (average linkage), `coordination.rs` (AT-COL-05/07) | RESOLVED (T56) — one pair chains nobody; opposite camps never joined; a mimic gets a pair with its target and nothing else | — | — |
+| COLLUSION-006 | per-epoch detection possible | paper §6.3; `collusion.rs` (`ResidualHistory`), `coordination.rs`; `review.rs` (`assign_diverse`), `panel_diversification.rs` | RESOLVED (T56, T57) — detection reads long histories, not the epoch; the per-epoch defence is the assignment: a cluster is never seated twice on a panel, weights untouched | thresholds provisional | T25 |
 | ID-001 | dedup same anchor | `identity/tests/*` | TESTED (registry logic) | authenticated anchor | G-02 |
 | ID-002 | obliviousness | `voprf_oracle.rs` (primitive) | primitive TESTED; interface NOT IMPLEMENTED | split API | G-02 |
 | ID-003 | t−1 cannot compute | `oprf.rs` tests (incl. AT-ID-04) | TESTED (functional, in-process); duplicate-index guard RESOLVED @289aae3 | DKG, transport, external review | §7.4 |

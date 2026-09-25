@@ -417,8 +417,12 @@ coordinating pays much less:
 500 coordinated nodes  →  √500 ≈ 22 independent nodes
 ```
 
-The practical difficulty is not the formula, it is **identifying who is coordinated** —
-and that is done by looking at behavior correlation.
+The practical difficulty is not the formula, it is **identifying who is coordinated**.
+Raw behaviour correlation cannot do it: two honest reviewers who share a position agree
+as much as a cartel. The system therefore correlates the *residuals* — what each rating
+leaves unexplained after the bridging model — over long histories (`01` D39), and a
+detected cluster is kept apart on panels rather than discounted (`01` D40): the formula
+above stays in the engine as a measure of a cluster's influence.
 
 ## Spectral clustering
 
