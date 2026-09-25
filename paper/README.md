@@ -7,7 +7,8 @@ Mechanism for Validating Test Items** (working paper, version 0.2, September 202
 - **Describes:** the code at commit `2ee5e79` and the design decisions D32–D41 of
   [`docs/01`](../docs/01-decisions.md) (commit `7507eab`); D32 is implemented since T49
   (2026-09-24), the rest are planned (roadmap `docs/10` Phase 1.1). The paper is a dated
-  snapshot. The living specification is still
+  snapshot: what the repository changed after it is listed below
+  ([Since version 0.2](#since-version-02)). The living specification is still
   [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
   [`docs/08-formal-specification.md`](../docs/08-formal-specification.md). A new version of the
   paper names the commit it describes.
@@ -50,6 +51,24 @@ comes with a proof or a reproducible experiment and a candidate correction:
 | — | contested facts (DIF on knowledge, key backed by a primary source) in a balanced pool | D38 / T55 |
 | 5 | coordination detected on model residuals over long histories (honest pairs flagged 50.6% → 0%); clusters limit panel co-assignment instead of losing weight | D39, D40 / T56, T57 |
 | — | beacon: commit-reveal now, a threshold signature after the DKG | D41 / T37 |
+
+## Since version 0.2
+
+The text and the PDF describe commit `2ee5e79`. The repository has moved; where a
+statement of the paper no longer holds, the specification wins. In order of the roadmap:
+
+| Paper (v0.2) | Repository now | Where |
+|---|---|---|
+| §7.1 (D32): "none of the revisions is implemented yet"; the parameter table (Appendix A) lists `τ ≈ 0.08`, `ε ≈ 0.008` on the intercept scale | D32 is implemented (T49, 2026-09-24): `bridging::{two_means, side_balanced, bridge_scores}`, `gate::bridging_gate` with the provisional probability-scale constants `TAU = 0.80`, `EPS = 0.02`, `APPEAL_GAP = 0.25`; the fixtures, `sim/` and the golden outputs regenerated | `docs/01` D32, `docs/02` §A.3, `docs/10` T49 |
+| §7.1: "eligibility for an appeal still reads `\|f_j\|`" | Amended: appeal eligibility reads the *side gap* `\|A_j − B_j\| ≥ 0.25`; `\|f_j\|` falls as the camps become unequal, the gap does not | `docs/01` D32 (banner), `docs/02` §A.3, `docs/08` BRIDGE-009 |
+| §7.1, Tables 10–11: the leak falls to between −0.08 and 0.00 | Measured on the engine: leak ≤ 0.1 from 200 reviewers; 0.1–0.2 residual with 50–100 reviewers (a handful of minority ratings per item); noisy side means with a minority side of about ten reviewers (at 95/5 one consensus item in eight fell to 0.78) | `docs/02` §A.3, `side_balanced.rs` (AT-BR-08/09) |
+| §2 (setting): a band item "gets more reviewers and is re-decided against `τ`"; below the band a polarization rejection may appeal | The re-decision re-fits the first panel's ratings (the extra reviewers are T60); a band item that fails it keeps the appeal when its side gap is at least the appeal threshold, and is `Rejected(Borderline)` otherwise (D26 amendment, T59, 2026-09-25) | `docs/01` D26, `docs/05` [5b], `docs/08` §9.1 |
+| §5: the failed appeal "is to be recorded as a negative pseudo-observation inside `C_a` … The reference implementation still applies a simpler stake-and-refund rule" | Done as stated (D27, T61, 2026-09-25): `protocol::appeal::AuthorHistory` escrows a zero-quality observation at filing, the verdict replaces it with the item's quality on promotion and leaves it otherwise; the floor is the prior mean `α₀/(α₀+β₀)`; there is no additive gain; the stake-and-refund rule is removed | `docs/01` D27, `docs/02` §C.1, `docs/05` [5b], `docs/08` REPUTATION-007 |
+| §7 (implementation): "reproducibility is tested bit for bit within a platform; cross-platform agreement has not yet been tested" | The transcendental functions come from the pure-Rust `libm` crate (`scoring::fmath`); the golden bits are checked on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC in CI (AT-BR-04, 2026-09-25) | `docs/02` §A.5, `docs/08` REPRO-001 |
+| §2 (assumptions on the protocol layer) | The engine refuses malformed ratings instead of panicking (T62); a deposit is accepted once and its proof is bound to the epoch (T64); pilot respondents pass the identity gate and the floors count persons, not rows (T65) | `docs/08` §0-quinquies, `docs/10` Completed work |
+
+The findings themselves (Sections 3–6) and the other revisions (D33–D41) are unchanged;
+their tasks are `docs/10` T50–T57.
 
 ## Layout
 

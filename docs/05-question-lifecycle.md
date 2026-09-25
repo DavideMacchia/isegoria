@@ -13,12 +13,12 @@ it neutralizes).
       ↓
  [4] Review         k reviewers assigned AT RANDOM, blind, commit-reveal
       ↓
- [5] Bridging       B_j ≥ τ → passes;  B_j in band → supplementary review
+ [5] Bridging       S_j ≥ τ → passes;  S_j in band → supplementary review (re-decision)
       ↓                 │
       │                 └──→ [5b] APPEAL TO EVIDENCE
-      ↓                          if discarded for polarization (high |f_j|),
-      │                          not for a defect
-      ↓
+      ↓                          if discarded for polarization (wide side gap), not for
+      │                          a defect — below the band or failing the re-decision;
+      ↓                          the author stakes reputation (`01` D27)
  [6] Pilot 1        ~300 respondents: kills broken and non-discriminating questions
       ↓
  [7] Pilot 2        ~1500–3000 respondents, IN BATCHES: IRT + multi-axis DIF

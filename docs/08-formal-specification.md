@@ -62,22 +62,27 @@ Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust
 
 ## 0-quater. Findings of the working paper (2026-09-24)
 
-The working paper in `paper/` (v0.1 at `2ee5e79`) analysed the scoring mechanism with
-proofs and reproducible experiments (`paper/scripts/`). Its findings are new claims for
-the matrix of §15; all are decided (`docs/01` D32–D41) and planned (`docs/10` Phase 1.1),
-none is implemented yet.
+The working paper in `paper/` (v0.1 at `2ee5e79`; v0.2 adds the adopted revisions)
+analysed the scoring mechanism with proofs and reproducible experiments
+(`paper/scripts/`). Its findings are new claims for the matrix of §15; all are decided
+(`docs/01` D32–D41) and planned (`docs/10` Phase 1.1). BRIDGE-008 and BRIDGE-009 are
+resolved (D32, T49, 2026-09-24); the rest are open. What the repository changed after the
+paper's snapshot is listed in `paper/README.md`.
 
 - **BRIDGE-008 — The gate is relative to its batch.** With `μ` unpenalized,
   `Σ_j b_j = 0` at every stationary point (paper Lemma 1), so `B_j ≥ τ > 0` cannot hold
   for a whole batch and the score of an item depends on the other items fitted with it:
   six consensus items of the fixture pass (5 of 6) with the divisive items present and
-  all fail alone; ten weak decoys lift them from ≈ +0.09 to ≈ +0.32. Status: **OPEN** →
-  D32, T49 (`AT-BR-09`).
+  all fail alone; ten weak decoys lift them from ≈ +0.09 to ≈ +0.32. Status:
+  **RESOLVED** (D32, T49, 2026-09-24): the gate reads the side-balanced score, which
+  stays within 0.02 alone, in the batch and next to ten decoys (`AT-BR-09`).
 - **BRIDGE-009 — Camp-size neutrality holds only partly.** The origin of the axis is a
   gauge fixed by the penalties alone; in a two-camp model the intercept keeps a fraction
   `1/(1+ρ)`, `ρ ≈ (λ_b/λ_f)√(S/n)`, of the camp-size effect — 0.53–0.87 at the defaults
-  for 50–3,200 reviewers, confirmed on the full model. Status: **OPEN** → D32, T49
-  (`AT-BR-08`).
+  for 50–3,200 reviewers, confirmed on the full model. Status: **RESOLVED** (D32, T49,
+  2026-09-24): the side-balanced score leaks at most 0.1 from 200 reviewers (0.1–0.2
+  residual at 50–100, a fraction of the intercept's), and appeal eligibility reads the
+  side gap, not `|f_j|`, which falls as the camps become unequal (`AT-BR-08`).
 - **DIF-010 — Error in the ability proxy creates latent classes.** Given the anchor total,
   trial items are positively dependent even without DIF (paper Prop 10); on null batches
   at N = 6,000 the production detector flags clean items with 10 or 20 anchors (KR-20
@@ -1144,7 +1149,7 @@ verification/
 │   ├── sample_poisoning.py     (AT-DIF-07)
 │   └── reports/                CSV + CI summaries, versioned with the fixture provenance
 ├── reproducibility/
-│   ├── cross_platform.yml      (AT-BR-04: three runners, compare `to_bits`)
+│   ├── cross_platform.yml      (AT-BR-04: the `golden` job of `ci.yml` — four targets and the release profile)
 │   └── fixture_drift.yml       (AT-PRO-06: pinned Python env, run on every push)
 └── reports/
     └── 09-verification-matrix.md   (§15, regenerated from test metadata)

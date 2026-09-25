@@ -7,12 +7,16 @@ implement first; the simulations in `sim/` are its executable spec.
 Notation: `u,v` nodes/reviewers; `j` questions (items); `i` respondents; `θ_i` the
 respondent's latent competence.
 
-> **Pending revisions (decided 2026-09-24, not yet implemented).** The working paper
-> (`paper/`) found properties of this specification that `docs/01` D32–D41 correct; the
-> tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap. Until they land, the text below describes the
-> implemented behaviour, and the marked sections are superseded by the decisions:
-> §A.3 score and threshold (D32), §B.3 latent-class DIF (D37, D38), §C.2 evaluator score
-> (D33, D35), §C.4 temporal asymmetry and cap (D33, D34, D36), anti-collusion (D39, D40).
+> **Revisions from the working paper (decided 2026-09-24).** The working paper
+> (`paper/`, version 0.2) found properties of this specification that `docs/01` D32–D41
+> correct; the tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap.
+> D32 is implemented (T49, 2026-09-24): §A.3 below describes the side-balanced score as
+> built, with the amendment (appeal eligibility by the side gap) and the measured limits
+> the paper does not have. Until the others land, the text describes the implemented
+> behaviour, and the marked sections are superseded by the decisions: §B.3 latent-class
+> DIF (D37, D38), §C.2 evaluator score (D33, D35), §C.4 temporal asymmetry and cap (D33,
+> D34, D36), anti-collusion (D39, D40). `paper/README.md` lists what changed since the
+> paper's snapshot.
 
 ---
 

@@ -42,9 +42,10 @@ Bridging drastically raises the cost of capture.
 
 ### The biased item that passes review
 
-A question with strong DIF (β₂ = 0.72 in the data) **passes peer review** (bridging
-0.085) and is stopped only by Level B. This is the scenario the evidence filter exists
-for: human review does not see the bias, the data does.
+A question with strong DIF (β₂ = 0.72 in the data: item 04 of the reference fixture)
+**passes peer review** — side-balanced score `S_j = 0.84` against `τ = 0.80`, both
+sides approving it — and is stopped only by Level B. This is the scenario the evidence
+filter exists for: human review does not see the bias, the data does.
 
 ### Latent axis recovery
 
