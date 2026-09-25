@@ -54,13 +54,14 @@ reference implementation / testnet.
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
   (T64), the respondent gate (T65), the engine's input validation (T62), the
-  side-balanced bridge score (T49), cross-platform reproducibility (AT-BR-04) and the
-  appeal channel for polarized band items (T59). Details and evidence:
+  side-balanced bridge score (T49), cross-platform reproducibility (AT-BR-04), the
+  appeal channel for polarized band items (T59) and the appeal stake as a
+  pseudo-observation inside the author's average (D27, T61). Details and evidence:
   [Completed work](#completed-work).
 - **Open:** the design revisions D33–D41 (D32 is done, T49); the defects found by the
-  third review (2026-09-24), all but T64, T65 and T62; the network runtime (persistence,
-  transport, live anchoring); distributed identity; privacy hardening; everything
-  external.
+  third review (2026-09-24), all but T64, T65, T62, T59 and T61; the network runtime
+  (persistence, transport, live anchoring); distributed identity; privacy hardening;
+  everything external.
 
 ---
 
@@ -97,13 +98,13 @@ outputs change with them — on purpose, as in T48.
 ### 1.2 · The decisions built on the score: band and appeal
 
 The gate has four outcomes (`docs/02` §A.3–A.4, `docs/05` [5]/[5b], D26, D27). The third
-review found that the paths after two of them are thinner than specified, and one takes
-the caller's word.
+review found that the paths after two of them are thinner than specified, and one took
+the caller's word (the appeal, T61, done). What is left is the extra reviewers of the
+band re-decision.
 
 | Task | What it means (plain) | Decision / refs | Done when | Size |
 |---|---|---|---|---|
 | T60 | **The supplementary review really adds reviewers.** `gate::supplementary_review` re-fits the *same* ratings and compares `b_j ≥ τ`. Since bootstrap-min ≤ full fit (a tested property), an item in the band because its bootstrap-min fell in `[τ−ε, τ+ε]` is re-decided by the full fit, which is higher by construction: the re-decision relaxes the robust threshold, it is not a second panel. `SupplementaryReview { item, extra_panel, commits, reveals }`: a second commit-reveal round (`orchestrator::review_round`) with `k_extra` beacon-drawn reviewers outside the first panel, whose ratings are *added* to `Ratings` before the re-decision; `Event::Resolve` becomes that round's result. Do it with T49 (the score changes anyway); until then `docs/01` D26 and `docs/08` PROTO-008 say what master does | D26, PROTO-008, BRIDGE-006, G-15 | the re-decision fits ratings from the first panel plus `k_extra` distinct new reviewers; a band item whose extra reviewers disapprove is rejected even though its first-panel full-fit `b_j ≥ τ` | L |
-| T61 | **An appeal checks the stake, and the escrow is settled.** `run_item` sends `Event::Appeal { within_window: true, reputation_covers_stake: true }` hard-wired: nothing computes whether the author's reputation covers the stake, and `gate::settle_appeal` is never called by the orchestrator, so the `appealed` flag of `Pilot1/Pilot2` reaches the terminal and is dropped. `ItemVerdicts` gains `appeal_within_window`, `author_reputation`, `appeal_stake`; `run_item` derives both flags from them and, for an appealed round, calls `settle_appeal(reputation, stake, promoted = reached ActivePool, gain)` and returns the new author reputation (or an event the caller applies). **Decide first (2026-09-24):** D27 says the stake is a *negative pseudo-observation inside the author's average* (`reputation::author_score`), escrowed at filing and replaced by the real result on verdict; `gate::settle_appeal` and the done-when below describe a *ledger* (reputation + gain, − stake). The two are not the same. Recommended: follow D27 — escrow a pseudo-observation in the author's quality list, replace it by the item's real quality when promoted, keep it when not — which also closes the open `gain`: there is no additive gain, promotion replaces the pseudo-observation. `docs/05` [5b] ("refunded, and the author gains") is then read as: the pseudo-observation goes and a real, good observation takes its place | D27, REPUTATION-007 | an appeal with reputation < stake → `Invalid::InsufficientReputation`; promoted → reputation + gain; failed → reputation − stake, never below 0 (the ledger form; rewritten if D27 is followed) | S |
 
 ### 1.3 · Engine robustness and the rest of the specification
 
@@ -137,7 +138,7 @@ order the work is done in. Sizes are the ones in the rows.
    (2026-09-25): the golden bits checked on four platforms and in the release profile
    in CI.
 4. The D26 amendment, then T59 (M) — done (2026-09-25).
-5. The D27 decision, then T61 (S).
+5. The D27 decision, then T61 (S) — done (2026-09-25).
 6. T53 (S) — the anchor-reliability gate.
 7. T50 (M), then T51 (M) — the proper evaluator score, then the change detector.
 8. T60 (L) — the supplementary review with real extra reviewers.
@@ -269,12 +270,11 @@ Not a phase; done alongside every task.
 - **Phase 1.** T64 and T65, the two severe defects, are done, and so are T62 and T49
   (the side-balanced score, which changed the golden outputs, the fixtures and `sim/` on
   purpose), and `AT-BR-04` right after it. T59 followed T49 (it measures polarization
-  by T49's side gap) and is done; T60 follows too (it changes the score anyway). T61 is
-  independent and small, after the D27 decision. T50 before T51 and T52. T53 before
-  T54. T55 needs its evidence procedure specified first and comes last. T57 needs T56.
-  T24/T25 close the phase: the thresholds of T35, T49–T54 are final only after them.
-  The full order and the milestone split:
-  [1.5](#15--order-of-execution-and-milestones).
+  by T49's side gap) and is done; T60 follows too (it changes the score anyway). T61
+  followed the D27 decision and is done. T50 before T51 and T52. T53 before T54. T55
+  needs its evidence procedure specified first and comes last. T57 needs T56. T24/T25
+  close the phase: the thresholds of T35, T49–T54 are final only after them. The full
+  order and the milestone split: [1.5](#15--order-of-execution-and-milestones).
 - **Phase 1 → 2.** T52's exploration draw works on today's beacon and becomes grind-free
   with T37.
 - **Phase 2.** T63 and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
@@ -309,6 +309,7 @@ other documents and commit messages refer to these ids and block names.
 | Task | What it means (plain) | Decision / refs | Done when | Size |
 |---|---|---|---|---|
 | T59 | **A polarized band item keeps the appeal channel. Done (2026-09-25),** after the D26 amendment (the below-band rule, decided the same day): `gate::supplementary_review(ratings, params, item, τ, appeal_gap)` returns `Pass` at or above the plain threshold and, below it, `AppealEligible` when the side gap is at least `appeal_gap` and `Reject` otherwise — never a second band; `Event::Resolve { outcome: GateOutcome }` moves `SupplementaryReview` to `Pilot1`, `AppealEligible` or `Rejected(Borderline)` and refuses `SupplementaryReview`; `ItemVerdicts::band_outcome` replaces `band_advances` and `run_item` walks the appeal from a band-derived `AppealEligible` as from any other. Reference models updated (`lifecycle_model.rs`, `orchestrator_model.rs`, with the fourth outcome generated so the refusal is exercised); `supplementary_redecision.rs` shows the rule on the fixture plus one leaning item (polarized → appeal, lukewarm on both sides → borderline, approved → pass) and that the partisan fixture items, re-decided, keep the appeal; the driver shows the band-derived appeal reaching the pool and, un-appealed, a polarization reject. *Was:* `Resolve { passed: false }` ended every failing band item in a terminal reject | D26 (amendment), `docs/05` [5b], PROTO-004 | a polarized band item that fails the re-decision is `AppealEligible`, a non-polarized one `Rejected(Borderline)`; model tests extended | M |
+| T61 | **An appeal checks the stake, and the escrow is settled. Done (2026-09-25),** after the D27 decision (the pseudo-observation form, confirmed the same day): `protocol::appeal::AuthorHistory` holds the author's quality observations and their ages (what `reputation::author_score` averages); `file_appeal` refuses an author whose `C_a` is below `appeal_floor` — the prior mean `α₀/(α₀+β₀)`, 0.4 with the default prior — and otherwise escrows a zero-quality observation at age 0, so `C_a` falls at once; `orchestrator::settle_appeal(author, escrow, terminal, quality)` replaces the zero with the item's measured quality when the terminal is `ActivePool` and leaves it on any other; `ItemVerdicts` gains `appeal_within_window`, `author_reputation`, `appeal_floor` and `run_item` derives `Event::Appeal`'s two flags from them; `gate::settle_appeal` (the ledger: `+ gain` / `− stake`) is removed — there is no additive gain, promotion replaces the pseudo-observation with a real, good observation. `appeal_stake.rs`: filing moves a fresh author from 0.4 to 1/3; a failed appeal leaves the zero and refuses the next filing until a good item restores the average; promotion replaces the zero; `run_item` returns `AppealWindowClosed` and `InsufficientReputation` from the verdicts (exactly at the floor covers); the terminal state settles the escrow; `orchestrator_model.rs` carries the two checks; `end_to_end.rs::run_epoch` files and settles the appeal of the true-but-divisive item and the author's reputation ends higher than without it. *Was:* `run_item` sent `Appeal { within_window: true, reputation_covers_stake: true }` hard-wired and the escrow was never settled | D27, REPUTATION-007, `docs/05` [5b] | an appeal with `C_a` below the floor → `Invalid::InsufficientReputation` (and nothing escrowed); promoted → the pseudo-observation replaced by the item's quality; failed → the zero stands; the ledger form retired | S |
 
 ### Phase 1.3 · Engine robustness
 
@@ -335,7 +336,7 @@ other documents and commit messages refer to these ids and block names.
 | T7 | A blind review commits to *who* cast it and *which* item, and only that person can reveal it. **Done:** `review::commit`/`reveal` bind the committer nym and item cid (`H(prob, nonce, committer, item)`); the `lifecycle` `Revealing` state carries the item and the reveal recomputes against the revealer + item, so a copied commitment cannot be opened by anyone else. `inv12_commit_binding.rs` (`AT-BR-06`) | CRYPTO-007 / INV-12 | `AT-BR-06` (commitment-copying blocked) passes | S |
 | T8 | The "luck" (lottery, reviewer assignment, honeypot, sortition) comes from the signed checkpoint, so nobody can pick their own reviewers. **Done:** `randomness::Beacon::from_checkpoint` + `seed(purpose, index)` = `H(signed head ‖ height ‖ purpose ‖ index)`, and the `_from_beacon` wrappers in `lottery`/`review`/`honeypot`/`governance` seed each draw from it; reviewer assignment keys on a byte-independent admitted slot, so the panel does not depend on draft bytes. `inv10_checkpoint_seed.rs` (`AT-BR-05`). Reopened by the second review: T37 | D29 / INV-10 / G-05 | `AT-BR-05` (seed grinding blocked) passes | M |
 | T9 | Enforce the batch minimum and the pilot sample-size gates (never validate a single item). **Done:** `pilot::{screen, dif_batch, admit_dif_batch}` and `revalidation::revalidate_batch_latent` reject a DIF batch below `K_MIN` items (INV-8) and a sample below its floor (`N1_MIN`=300, `N2_MIN`=1500, `N_LATENT_MIN`=3000, §B.6); the per-item DIF math stays pure. `run_epoch` runs the pilot through the gates. `inv8_batch_min.rs` (`AT-PRO-02`). *Third review:* the floors count rows, not distinct respondents (T65) | INV-8, PROTO-006, G-15 | `AT-PRO-02` (batch of one rejected) passes | S |
-| T10 | Borderline items get extra reviewers then a clean re-decision; a failed appeal is a pseudo-observation with escrow. **Partial.** Done: `gate::supplementary_review` re-runs bridging and re-decides `b_j` vs the plain threshold; the `lifecycle` `SupplementaryReview` state gains its forward transition (`Event::Resolve` → `Pilot1` or `Rejected(Borderline)`), so a band item reaches a defined terminal (`supplementary_redecision.rs`); `gate::settle_appeal` exists (tested in `lifecycle.rs`). *Third review:* the re-decision re-fits the same panel's ratings, so it relaxes the robust threshold instead of adding reviewers — the expanded panel is **T60**; the escrow is never settled by the orchestrator — **T61** | D26, D27, G-15 | `AT-PRO-03` (defined outcome) passes | M |
+| T10 | Borderline items get extra reviewers then a clean re-decision; a failed appeal is a pseudo-observation with escrow. **Partial.** Done: `gate::supplementary_review` re-runs bridging and re-decides `b_j` vs the plain threshold; the `lifecycle` `SupplementaryReview` state gains its forward transition (`Event::Resolve` → `Pilot1` or `Rejected(Borderline)`), so a band item reaches a defined terminal (`supplementary_redecision.rs`); the appeal's stake is a pseudo-observation inside `C_a`, escrowed at filing and settled on the terminal (`protocol::appeal`, **T61**, done). *Third review:* the re-decision re-fits the same panel's ratings, so it relaxes the robust threshold instead of adding reviewers — the expanded panel is **T60** | D26, D27, G-15 | `AT-PRO-03` (defined outcome) passes | M |
 | T30 | **Retire the band tie-break. Done:** the `aggregate` module (`resolve_band`/`aggregate_pass_probability`) and its tests (`review_aggregation.rs`, `composed_gate.rs`) are deleted; the D26 re-decision (`gate::supplementary_review`) replaces it — re-run bridging, decide `b_j` against the plain threshold. `end_to_end.rs::run_epoch` resolves the band through it, `EXPECTED_POOL={0,6}` preserved; `supplementary_redecision.rs` shows the polarized items 07/08 are *not* passed (bridging, not a vote). The √k anti-collusion stays covered at the scoring layer (`anti_collusion.rs`) and in the T5 weights | PROTO-012, D26, D2 | the `documents_limitation_*` tests are deleted; a polarized panel is *not* resolved by the larger camp | M |
 | T31 | **Crowd baseline in code.** Implement the D23 baseline (`p̄_j` = weight-adjusted mean of the reviewers' own predictions) and use it for `E_u` everywhere the base rate is used today. **Done:** `reputation::crowd_baseline`; `honeypot::reviewer_skills` normalizes BSS against `p̄_j`; `AT-REP-02` passes (`level_c.rs`). *Residual:* the sim's `levelc_bss` reference still uses the base rate | D23, G-09, REPUTATION-003 | `AT-REP-02` (consensus follower ≈ 0) passes | M |
 | T32 | **Gate Variant-1 DIF behind a calibration flag.** `pilot::stage2_dif`, `revalidation::revalidate_pool`, `logistic_dif`/`mantel_haenszel`/`purify_theta` callers in the production path require a `calibration` feature; the e2e epoch uses Variant 2 **Done:** the `calibration` feature (`scoring`, `protocol`) gates every `group`-taking path; the default build has none (`docs/08` DIF-002 RESOLVED). | D20, G-01, DIF-002 | production build has no code path that accepts a per-respondent `group` | S |

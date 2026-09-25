@@ -85,14 +85,3 @@ pub fn supplementary_review(
         GateOutcome::Reject
     })
 }
-
-/// Appeal to the evidence filter (`docs/05` [5b], `docs/02` D8): the author stakes
-/// reputation to skip review and go straight to the pilot; the stake is refunded
-/// (with a gain) if the psychometrics promote the item, and lost otherwise.
-pub fn settle_appeal(reputation: f64, stake: f64, promoted: bool, gain: f64) -> f64 {
-    if promoted {
-        reputation + gain
-    } else {
-        (reputation - stake).max(0.0)
-    }
-}

@@ -103,6 +103,9 @@ fn passing() -> ItemVerdicts {
     ItemVerdicts {
         gate: GateOutcome::Pass,
         appealed: false,
+        appeal_within_window: true,
+        author_reputation: 0.6,
+        appeal_floor: 0.4,
         band_outcome: GateOutcome::Reject,
         enough_respondents: true,
         screen_passed: true,

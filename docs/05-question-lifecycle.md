@@ -80,10 +80,14 @@ two sides' predicted approval (`02` §A.3), not a formal defect — whether it w
 below the band or failed the band's re-decision (`01` D26, amended by T59), can, at the
 author's initiative, **skip review and go straight to the pilot**:
 
-- it costs an amount of the author's reputation (`C_a`)
-- if the Level B psychometrics **promote** it, the reputation is refunded (and the
-  author gains, having been right against the opinion filter)
-- if it **fails**, the reputation is lost
+- filing escrows a zero-quality pseudo-observation in the author's history, so `C_a`
+  falls at once; an author whose `C_a` is below the stake floor — the prior mean of
+  `02` §C.1 — cannot file (`01` D27, T61)
+- if the Level B psychometrics **promote** it, the pseudo-observation is replaced by the
+  item's real quality: the author gains a real, good observation, having been right
+  against the opinion filter — there is no additive bonus
+- if it **fails**, the zero stands — it is the item's real result — and it costs the
+  next appeal until the author's average has recovered
 
 It is the only way to recover "true but inconvenient", moving the decision from peer
 judgment to the data.

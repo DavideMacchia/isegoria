@@ -10,7 +10,7 @@ use protocol::deposit::{deposit, DepositRejected, Draft};
 use protocol::exposure::{
     least_exposed_variant, should_retire, ExposureLedger, ItemHealth, RetirementReason, Template,
 };
-use protocol::gate::{bridging_gate, settle_appeal, GateOutcome, APPEAL_GAP, EPS, TAU};
+use protocol::gate::{bridging_gate, GateOutcome, APPEAL_GAP, EPS, TAU};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skills, HONEYPOT_RATE};
 use protocol::lottery::admit;
@@ -161,14 +161,6 @@ fn bridging_gate_covers_pass_band_reject_and_appeal() {
         bridging_gate(0.30, 0.6, TAU, EPS, APPEAL_GAP),
         GateOutcome::AppealEligible
     );
-}
-
-#[test]
-fn appeal_refunds_when_evidence_promotes_the_item() {
-    // Promoted: stake refunded and the author gains for being right against opinion.
-    assert!((settle_appeal(1.0, 0.3, true, 0.2) - 1.2).abs() < 1e-9);
-    // Rejected: stake lost.
-    assert!((settle_appeal(1.0, 0.3, false, 0.2) - 0.7).abs() < 1e-9);
 }
 
 #[test]

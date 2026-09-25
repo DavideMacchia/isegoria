@@ -388,8 +388,17 @@ evidence-based outcome. Resolves Q-7 / G-15 (supplementary-review part).
 
 ## D27 — Appeal cost is a pseudo-observation inside the author score
 
-> **Not yet wired** (third review, 2026-09-24): the orchestrator does not check that the
-> author's reputation covers the stake and never settles the escrow; roadmap T61.
+> **Implemented as decided (2026-09-25, T61):** `protocol::appeal::AuthorHistory` holds
+> the author's quality observations; `file_appeal` refuses an author whose `C_a` is below
+> the stake floor — the prior mean `α₀ / (α₀ + β₀)`, 0.4 with the default prior — and
+> otherwise escrows a zero-quality observation at age 0, so `C_a` falls at once;
+> `orchestrator::settle_appeal` replaces it with the item's measured quality when the
+> item reaches the pool and leaves it standing on any other terminal. `run_item` derives
+> the appeal's two checks (window, `C_a ≥ floor`) from `ItemVerdicts` instead of taking
+> the caller's word. The ledger form (`gate::settle_appeal`: `+ gain` / `− stake`) is
+> retired: **there is no additive gain** — promotion replaces the pseudo-observation with
+> a real, good observation, and that is the author's reward for being right against the
+> opinion filter (`05` [5b]).
 
 **Choice.** The cost of a (failed) appeal is modelled as a negative pseudo-observation
 inside the author's reputation score, escrowed when the appeal is filed and replaced

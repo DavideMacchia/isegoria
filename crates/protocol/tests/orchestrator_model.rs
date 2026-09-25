@@ -92,6 +92,16 @@ fn model_run_item(reviewed: &State, v: &ItemVerdicts) -> Result<State, Invalid> 
     if let Some(why) = left_at_the_gate {
         return Ok(State::Rejected(why));
     }
+    // An appeal is filed within its window by an author whose reputation covers the
+    // stake (T61): both derived from the verdicts, in that order.
+    if effective == GateOutcome::AppealEligible {
+        if !v.appeal_within_window {
+            return Err(Invalid::AppealWindowClosed);
+        }
+        if v.author_reputation < v.appeal_floor {
+            return Err(Invalid::InsufficientReputation);
+        }
+    }
     if !v.enough_respondents {
         return Err(Invalid::NotEnoughRespondents);
     }
@@ -304,15 +314,27 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
                 GateOutcome::SupplementaryReview,
             ]),
         ),
+        (prop::bool::weighted(0.8), prop::bool::weighted(0.8)),
         prop::bool::weighted(0.85),
         prop::bool::weighted(0.75),
         prop::bool::weighted(0.75),
         prop_oneof![1 => 0..K_MIN, 5 => K_MIN..K_MIN + 10],
     )
         .prop_map(
-            |(gate, (appealed, band_outcome), enough, screen, dif, batch)| ItemVerdicts {
+            |(
+                gate,
+                (appealed, band_outcome),
+                (within_window, covers),
+                enough,
+                screen,
+                dif,
+                batch,
+            )| ItemVerdicts {
                 gate,
                 appealed,
+                appeal_within_window: within_window,
+                author_reputation: if covers { 0.6 } else { 0.3 },
+                appeal_floor: 0.4,
                 band_outcome,
                 enough_respondents: enough,
                 screen_passed: screen,

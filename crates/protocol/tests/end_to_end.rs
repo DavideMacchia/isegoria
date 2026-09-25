@@ -28,6 +28,8 @@ use protocol::admission::NullifierSet;
 #[cfg(feature = "calibration")]
 use protocol::admission::QuotaLedger;
 #[cfg(feature = "calibration")]
+use protocol::appeal::{appeal_floor, AuthorHistory};
+#[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
 use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GAP, EPS, TAU};
@@ -35,7 +37,8 @@ use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GA
 use protocol::lifecycle::{deposit, step, Event, State};
 #[cfg(feature = "calibration")]
 use protocol::orchestrator::{
-    review_round, run_item, weighted_ratings, ItemVerdicts, Judgment, ReviewerStanding,
+    review_round, run_item, settle_appeal, weighted_ratings, ItemVerdicts, Judgment,
+    ReviewerStanding,
 };
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
@@ -46,6 +49,8 @@ use protocol::revalidation::revalidate_pool_latent;
 #[cfg(feature = "calibration")]
 use scoring::bridging::{bridge_scores, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
+#[cfg(feature = "calibration")]
+use scoring::reputation::AuthorPrior;
 #[cfg(feature = "calibration")]
 use std::collections::BTreeSet;
 #[cfg(feature = "calibration")]
@@ -106,8 +111,9 @@ fn load_ratings() -> Ratings {
 /// production build does not compile. In production the pilot has no attribute-DIF
 /// stage; a lone ESM item like this fixture's is caught only by the batched latent
 /// re-validation (`revalidate_pool_latent`, exercised by `pool_revalidation_flags_latent_bias`).
+/// Returns the pool and the author's reputation after the epoch (appeals settled, D27).
 #[cfg(feature = "calibration")]
-fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
+fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     let m = 10;
 
     // --- identity: one real person enrolls once; a duplicate is refused ---
@@ -317,26 +323,55 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         let panel = judgments.iter().map(|jd| jd.nym).collect();
         review_round(admitted, item_cid[j], panel, &judgments).unwrap()
     };
-    (0..m)
-        .filter(|&j| {
-            let verdicts = ItemVerdicts {
-                gate: gate[j],
-                appealed: appeals.contains(&j),
-                band_outcome: band_outcome[j],
-                enough_respondents: respondents.len() >= N1_MIN,
-                screen_passed: *screen_passed.get(&j).unwrap_or(&false),
-                dif_passed: *dif_passed.get(&j).unwrap_or(&false),
-                pilot2_batch_size,
-            };
-            run_item(reviewed(j), &verdicts).unwrap() == State::ActivePool
-        })
-        .collect()
+    // --- the author's standing: two accepted items on record, so an appeal's stake is
+    // covered; each appeal escrows a zero-quality pseudo-observation and the terminal
+    // state settles it (D27, T61) ---
+    let prior = AuthorPrior::default();
+    let mut author = AuthorHistory::new();
+    author.record(0.9, 6.0);
+    author.record(0.8, 12.0);
+
+    let mut pool = BTreeSet::new();
+    for j in 0..m {
+        let reputation = author.reputation(&prior);
+        let escrow = if appeals.contains(&j) && matches!(effective[j], GateOutcome::AppealEligible)
+        {
+            Some(
+                author
+                    .file_appeal(&prior)
+                    .expect("the author's standing covers the stake"),
+            )
+        } else {
+            None
+        };
+        let verdicts = ItemVerdicts {
+            gate: gate[j],
+            appealed: appeals.contains(&j),
+            appeal_within_window: true,
+            author_reputation: reputation,
+            appeal_floor: appeal_floor(&prior),
+            band_outcome: band_outcome[j],
+            enough_respondents: respondents.len() >= N1_MIN,
+            screen_passed: *screen_passed.get(&j).unwrap_or(&false),
+            dif_passed: *dif_passed.get(&j).unwrap_or(&false),
+            pilot2_batch_size,
+        };
+        let terminal = run_item(reviewed(j), &verdicts).unwrap();
+        if let Some(escrow) = escrow {
+            // The item's measured quality is its later pool record; 0.8 stands in for it.
+            settle_appeal(&mut author, escrow, &terminal, 0.8);
+        }
+        if terminal == State::ActivePool {
+            pool.insert(j);
+        }
+    }
+    (pool, author.reputation(&prior))
 }
 
 #[cfg(feature = "calibration")]
 #[test]
 fn full_epoch_filters_each_item_at_the_right_stage() {
-    let pool = run_epoch(&BTreeSet::new());
+    let (pool, _) = run_epoch(&BTreeSet::new());
 
     // The clean, cross-cutting quality items reach the pool.
     for good in EXPECTED_POOL {
@@ -431,13 +466,19 @@ fn appeal_recovers_a_true_but_divisive_item() {
         "a polarized item should be appeal-eligible, not a plain reject"
     );
 
-    let without = run_epoch(&BTreeSet::new());
+    let (without, reputation_without) = run_epoch(&BTreeSet::new());
     assert!(!without.contains(&REAL_HEALTH), "lost without an appeal");
 
-    let with = run_epoch(&BTreeSet::from([REAL_HEALTH]));
+    let (with, reputation_with) = run_epoch(&BTreeSet::from([REAL_HEALTH]));
     assert!(
         with.contains(&REAL_HEALTH),
         "recovered through the appeal channel"
+    );
+    // The stake was escrowed and, the item promoted, replaced by its measured quality: a
+    // good observation the author would not have without the appeal (D27, T61).
+    assert!(
+        reputation_with > reputation_without,
+        "reputation {reputation_with:.4} after a successful appeal vs {reputation_without:.4}"
     );
 }
 

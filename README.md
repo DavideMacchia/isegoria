@@ -306,7 +306,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit across platforms and build profiles (CI), matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
 | Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score is done (T49), the rest is roadmap Phase 1, the first priority |
-| Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64), respondent gate (T65) and band items without appeal (T59) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
+| Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64), respondent gate (T65), band items without appeal (T59) and the appeal stake (T61) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
 | Meta-level governance (stratified sortition) | Future work |
@@ -315,10 +315,10 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 1. **Mathematics** — done so far: the two severe defects (a replayed deposit drained its
    author's quota, T64; one person could fill a Level B sample, T65), the engine's input
-   validation (T62) and the side-balanced bridge score (D32, T49); next, the rest of the
-   mechanism (D33–D41) and the paths after the gate (band re-decision with extra
-   reviewers, appeal for band items, appeal stake), then the characterization of the
-   thresholds.
+   validation (T62), the side-balanced bridge score (D32, T49), the appeal for
+   polarized band items (T59) and the appeal stake as a pseudo-observation inside the
+   author's average (D27, T61); next, the rest of the mechanism (D33–D41) and the band
+   re-decision with extra reviewers (T60), then the characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

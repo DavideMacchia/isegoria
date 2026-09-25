@@ -161,14 +161,15 @@ steps are seeded for reproducibility.
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
-| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30), `settle_appeal` | `scoring::bridging` |
+| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
+| `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
-| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12) | `lifecycle`, `probation`, `scoring::bridging` |
+| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -297,7 +298,11 @@ to make the pipeline testable end-to-end.
   side-balanced score against the plain threshold, and keep the appeal open for a
   polarized item that fails (`gate::supplementary_review`, T10/T30/T59 — **done** on the
   first panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
-  tie-break. The open work is ordered in `docs/10` (mathematics → P2P network → the rest).
+  tie-break. An appeal's stake is a pseudo-observation inside the author's average
+  (`appeal::AuthorHistory`, D27, T61 — **done**): `run_item` derives the appeal's window
+  and reputation checks from the verdicts, and `orchestrator::settle_appeal` replaces the
+  escrowed zero with the item's measured quality on `ActivePool` and leaves it otherwise.
+  The open work is ordered in `docs/10` (mathematics → P2P network → the rest).
   Still open here: persistence (roadmap T13); `governance`
   sortition feeding the honeypot / blueprint committees; `revalidation` → `exposure`
   retirement on a schedule. (Reviewer-vote dedup via the M3 ZK nullifier is done at the

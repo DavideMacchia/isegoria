@@ -359,6 +359,14 @@ author B (180/200) → 182/205 ≈ 89%.
 q_a = q_min + (q_max − q_min) · C_a
 ```
 
+**Appeal stake (`01` D27, `05` [5b]).** An appeal is a pseudo-observation *inside* this
+average, not a deduction from it: filing appends `q = 0` at `Δt = 0` (the escrow); the
+verdict replaces it with the item's real `q_j` if the pilot promotes the item and leaves
+it otherwise. The stake floor is the prior mean `α₀ / (α₀ + β₀)` (0.4 with `Beta(2,3)`):
+an author files only while `C_a` covers it, so a failed appeal costs the next one until
+the evidence has restored the average. There is no additive gain — the reward for being
+right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
+
 ### C.2 Evaluator score `E_u`
 
 > **Superseded by D33 and D35 (T50, T52).** The ratio-form BSS below is not a proper

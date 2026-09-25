@@ -138,7 +138,13 @@ regression test are on master.
 - **REPUTATION-007 (update) — the appeal stake is not checked and the escrow is never
   settled.** `orchestrator::run_item` sends `Appeal { within_window: true,
   reputation_covers_stake: true }` hard-wired; `gate::settle_appeal` is called only by
-  tests. **OPEN** → T61.
+  tests. **RESOLVED** (T61, 2026-09-25, D27 as decided): `protocol::appeal::AuthorHistory`
+  — `file_appeal` refuses an author whose `C_a` is below the floor (the prior mean,
+  `appeal_floor`) and escrows a zero-quality pseudo-observation; `orchestrator::settle_appeal`
+  replaces it with the item's measured quality on `ActivePool` and leaves it on any other
+  terminal; `run_item` derives the `Appeal` flags from `ItemVerdicts::{appeal_within_window,
+  author_reputation, appeal_floor}`; `gate::settle_appeal` (the ledger) is removed.
+  `appeal_stake.rs`, `end_to_end.rs` (the reputation after a successful appeal).
 - **PROTO-008 (update) — the re-decision uses the same panel.** `gate::supplementary_review`
   re-fits the same ratings. Since bootstrap-min ≤ full fit, the re-decision relaxes the
   robust threshold instead of adding evidence: D26's "more reviewers" is not implemented.
@@ -296,7 +302,7 @@ The eight invariants of `docs/CLAUDE.md` are restated here as runtime invariants
 |---|---|---|---|
 | INV-1 | No personal, demographic, or affiliation attribute MUST enter any data structure processed by the engine. | No such field exists. **However** `dif::logistic_dif`, `pilot::stage2_dif`, `revalidation::revalidate_pool` take an arbitrary caller-supplied `group`/`axes` vector per respondent; nothing prevents a caller from passing a declared attribute. The fixtures do exactly that (`levelb_grp.csv` is an observed ±1 label). | Asserted, not enforced |
 | INV-2 | Item acceptance MUST NOT be a majority-vote count. | `gate::bridging_gate` uses `b_j`; no vote count exists. `governance::change_approved` is a 2/3 vote but applies to meta-level changes only. | Enforced for items |
-| INV-3 | No monetary stake MUST exist. | No money type exists. `settle_appeal` operates on a reputation float. | Enforced |
+| INV-3 | No monetary stake MUST exist. | No money type exists. The appeal's stake is a quality observation inside `C_a` (`appeal::AuthorHistory`, D27, T61). | Enforced |
 | INV-4 | `C_a` and `E_u` MUST live on different pseudonyms and MUST NOT be combined. | Separate functions; `Role::Propose` vs `Role::Judge`. No code combines them. No code *binds* a score to a role either (scores are bare `f64`s in tests). | Enforced by absence |
 | INV-5 | One deterministic, non-rotatable pseudonym per role. | `nym::derive_nym` and `nullifier::prove` are both deterministic in `(secret, role)`. Rotation is prevented only if a second credential is impossible (ID-001…ID-005). | Enforced for derivation; depends on identity layer |
 | INV-6 | The authenticator (state) MUST be distinct from the issuer (committee). | Distinct types (`IdentityDocument` vs `Issuer`). No protocol message separates them; see §3.2. | Asserted |
@@ -502,8 +508,10 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Evidence status.** IMPLEMENTED, TESTED, NOT WIRED.
 
 #### REPUTATION-007 — Appeal stake is coherent with the score model
-- **Analysis.** `gate::settle_appeal(reputation, stake, promoted, gain)` adds/subtracts constants from a number that `docs/02` §C.1 defines as a Beta posterior mean of item qualities. There is no escrow (the stake is deducted only on failure), so during the pilot the author's rate limit is unaffected; and a subtracted constant is not expressible as any set of `(q_j, Δt_j)`, so `author_score` and `settle_appeal` cannot both be the definition of `C_a`.
-- **Evidence status.** INCONSISTENT. Recommend defining the appeal cost as a pseudo-observation `q = 0` with weight `s` (escrowed at appeal time, replaced by the real `q_j` on verdict), which keeps `C_a` a posterior mean.
+- **Claim.** The appeal's cost is a pseudo-observation `q = 0` inside `C_a` (`docs/02` §C.1, D27): escrowed at filing (age 0), replaced by the item's real `q_j` on promotion, left standing on failure; an author files only while `C_a ≥ α₀/(α₀+β₀)`.
+- **Evidence.** `appeal::{AuthorHistory, appeal_floor, STAKE_QUALITY}`, `orchestrator::settle_appeal` (T61). `appeal_stake.rs`: filing moves a fresh author from 0.4 to 1/3 at once; a failed appeal leaves the zero and refuses the next filing until a good item restores the average; promotion replaces the zero (2.9/6 > 0.4); `run_item` returns `AppealWindowClosed` / `InsufficientReputation` from the verdicts; the terminal state settles the escrow. `end_to_end.rs`: the author's reputation is higher after the successful appeal of the true-but-divisive item than without it.
+- **Analysis (history).** The retired `gate::settle_appeal(reputation, stake, promoted, gain)` added/subtracted constants from a posterior mean of item qualities: not expressible as any set of `(q_j, Δt_j)`, and no escrow during the pilot. Removed in T61.
+- **Evidence status.** IMPLEMENTED, TESTED, WIRED (D27 as decided, 2026-09-25). The floor and the stake's age weight are provisional (T25).
 
 #### COLLUSION-001 — Identical-vector cartel is discounted to √k
 - **Claim.** 400 or 500 nodes with identical judgment vectors form one cluster at `|ρ| ≥ 0.99` and their summed discounted weight is `√k` (unit weights).
@@ -876,7 +884,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Revealing` | reveal deadline | ≥ `k_min` reveals (unspecified) | `Gated` | non-revealers: `E_u` penalty (unspecified) | — |
 | `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(S_j, gap_j, τ, ε, γ_appeal)` (D32/T49: the robust side-balanced score and the side gap) | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
 | `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide the side-balanced score `S_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `S_j ≥ τ`; else `AppealEligible` if the side gap ≥ γ_appeal (T59), else `Rejected(Borderline)` | — | defined terminal (T10/T30); a polarized item that fails keeps the appeal (✓ T59); ✗ the re-fit uses the first panel's ratings only — the extra round is T60 |
-| `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` (✗ `run_item` passes both as `true`: T61) | `Pilot1{appealed}` | stake escrowed (REPUTATION-007; ✗ never settled: T61) | appeal after window; appeal on `Reject` |
+| `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ α₀/(α₀+β₀)` (✓ T61: `run_item` derives both from `ItemVerdicts`, `appeal::appeal_floor`) | `Pilot1{appealed}` | a zero-quality pseudo-observation escrowed in the author's history (`appeal::AuthorHistory::file_appeal`, D27, REPUTATION-007); settled on the terminal by `orchestrator::settle_appeal` — replaced by `q_j` on `ActivePool`, left otherwise (✓ T61) | appeal after window (`AppealWindowClosed`); `C_a` below the floor (`InsufficientReputation`, and `file_appeal` escrows nothing); appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
 | `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
@@ -1233,6 +1241,7 @@ Only gaps supported by evidence in the repository are listed. Each gives: locati
 *Location.* `gate.rs` (`SupplementaryReview` label only; `settle_appeal`), `end_to_end.rs:129` ("assumed to pass"), `pilot.rs` (no N or K checks).
 *Minimum spec.* §9.1 rows for `SupplementaryReview`, `Revealing` deadline, `Pilot1/2` preconditions.
 *Test.* AT-PRO-02, AT-PRO-03.
+*Status.* PARTLY RESOLVED — supplementary review: D26, `gate::supplementary_review` and `Event::Resolve` (T10/T30, amended by T59; the extra reviewers are T60); appeal escrow: D27, `protocol::appeal` and `orchestrator::settle_appeal` (T61); minimum batch and sample-size gating: `pilot::{screen, dif_batch}` (T9, INV-8). Non-reveal handling remains unspecified (§9.1 `Revealing` deadline row).
 
 **G-16 — Honeypot committee self-dealing and golden-item ground truth.**
 *Location.* `honeypot.rs`, `docs/05` §Golden items.
@@ -1301,7 +1310,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | REPUTATION-004 | asymmetry deters long-con | `scoring/tests/adversarial.rs` | IMPLEMENTED; claim HYPOTHESIS | rates; game analysis | AT-REP-01 |
 | REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
 | REPUTATION-006 | probation | `probation.rs`, `orchestrator.rs` (`bridging_weights`) | WIRED (T5) — probation → `w_u = 0`, so a probationer's ratings do not move `b_j`; `orchestrator_driver.rs` | — | G-03 |
-| REPUTATION-007 | appeal stake coherent | `lifecycle.rs`, `gate.rs` (`settle_appeal`) | INCONSISTENT — `run_item` hard-wires `reputation_covers_stake: true`; `settle_appeal` never called outside tests (§0-quinquies) | — | redefine as pseudo-observation (D27); T61 |
+| REPUTATION-007 | appeal stake coherent | `appeal.rs`, `orchestrator.rs` (`settle_appeal`), `appeal_stake.rs`, `end_to_end.rs` | TESTED — a zero-quality pseudo-observation escrowed at filing, replaced by `q_j` on promotion, left otherwise; the floor is the prior mean; `run_item` derives the checks from the verdicts (D27, T61) | floor and stake weight provisional | T25 |
 | REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py` | OPEN — ratio BSS improper | LOO difference score, exploration (D33, D35) | T50, T52, AT-REP-05/06 |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
@@ -1342,7 +1351,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-001 | deposit needs source | `lifecycle.rs` | TESTED | structured citation | docs/03 |
 | PROTO-002 | lottery | `lifecycle.rs`, proptest | TESTED | seed source | G-05 |
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
-| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs`, `supplementary_redecision.rs`, the model suites | TESTED; a polarized band item keeps the appeal (T59, D26 amendment) | escrow semantics | T61, G-15 |
+| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs`, `supplementary_redecision.rs`, `appeal_stake.rs`, the model suites | TESTED; a polarized band item keeps the appeal (T59, D26 amendment); the appeal checks the stake and settles the escrow (T61) | the re-decision's extra reviewers | T60 (G-15) |
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
 | PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
 | PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A replayed deposit is refused before the identity check and the quota charge, and the `Propose` proof is bound to the epoch (T64, `proto007_deposit_replay.rs`) | cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04 |
