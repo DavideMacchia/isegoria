@@ -175,7 +175,10 @@ They live on **different, unlinkable pseudonyms** and are never merged. The
 evaluator score uses a *proper scoring rule*: you gain reputation only by being
 **right when the crowd is wrong** — simply following the majority scores zero. In a
 system meant to resist capture by the majority, the correct dissenter must be
-rewarded structurally.
+rewarded structurally. Because the gate decides which outcomes are ever observed, a
+random 5% of its rejections is piloted for measurement only and each observed outcome
+is weighted by its inverse probability, so the score stays proper and the gate's
+false-negative rate is measured (`docs/01` D35).
 
 ### Anti-collusion
 
@@ -322,10 +325,11 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    polarized band items (T59), the appeal stake as a pseudo-observation inside the
    author's average (D27, T61), the anchor-reliability gate of the latent re-check
    (D37, T53), the proper evaluator score with the change detector (D33/D34/D36,
-   T50/T51), the band re-decision with real extra reviewers (D26, T60) and the
+   T50/T51), the band re-decision with real extra reviewers (D26, T60), the
    coordination detector on model residuals with panel diversification (D39/D40,
-   T56/T57); next, the rest of the mechanism (D35, D38, D41 and D37's target model),
-   then the characterization of the thresholds.
+   T56/T57), live outcomes with randomized exploration (D35, T52) and the latent DIF
+   target model with θ inside the likelihood (D37, T54); next, the rest of the
+   mechanism (D38, D41), then the characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

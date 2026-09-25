@@ -7,7 +7,9 @@
 //!   consumes. [`bridging_weights`] is that piece (probation = 0, founder = 1,
 //!   established = `min(w_max, exp(γ·S_u·k_u/(k_u+k₀)))`, D33), and
 //!   [`weighted_ratings`] hands it to the fit; [`epoch_weight_cap`] is the epoch's
-//!   `3 × median` over the weights that count.
+//!   `3 × median` over the weights that count. [`axis_mask`] is the review floor of
+//!   `docs/02` §A.4 (T39): a reviewer with fewer than [`N_MIN_REVIEWS`] reviews on
+//!   record — a founder excepted — fills the `f` space without defining it.
 //!
 //! - **T12 / §9.1 — one lifecycle, one decision path.** The stage-to-stage decisions of
 //!   an epoch (a gate outcome becomes a pilot entry, a pilot verdict becomes pool or
@@ -36,6 +38,9 @@ pub struct ReviewerStanding {
     pub is_founder: bool,
     pub judgments_with_outcome: usize,
     pub skill: f64,
+    /// Reviews on record, outcome observed or not (`probation::SkillTrack::reviewed`):
+    /// the count the review floor of the axis reads (`docs/02` §A.4, T39).
+    pub reviews: usize,
 }
 
 impl ReviewerStanding {
@@ -46,6 +51,7 @@ impl ReviewerStanding {
             is_founder: true,
             judgments_with_outcome: 0,
             skill: 0.0,
+            reviews: 0,
         }
     }
 
@@ -55,8 +61,24 @@ impl ReviewerStanding {
             is_founder: false,
             judgments_with_outcome: crate::probation::N_PROBATION,
             skill,
+            reviews: crate::probation::N_PROBATION,
         }
     }
+}
+
+/// `n_min` of `docs/02` §A.4 (T39): reviews on record before a reviewer defines the
+/// latent axis; below it the reviewer's `f_u` is fixed at 0 in the fit — it fills the
+/// space, it does not define it. A founder defines the axis from the start: the founder
+/// set is declared heterogeneous so that the first epochs have an axis at all
+/// (`docs/05` §Cold start). Provisional (T25).
+pub const N_MIN_REVIEWS: usize = 30;
+
+/// Which reviewers define the axis this epoch (`Ratings::axis`, T39): the founders and
+/// everyone with at least [`N_MIN_REVIEWS`] reviews on record, in the order of `prev`.
+pub fn axis_mask(prev: &[ReviewerStanding]) -> Vec<bool> {
+    prev.iter()
+        .map(|r| r.is_founder || r.reviews >= N_MIN_REVIEWS)
+        .collect()
 }
 
 /// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
@@ -95,15 +117,18 @@ pub fn epoch_weight_cap(prev: &[ReviewerStanding]) -> f64 {
 }
 
 /// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the
-/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`: a standing count
-/// that differs from the rows, or a malformed matrix, is refused (`RatingsError`, T62).
+/// previous epoch (T5) and the review floor of the axis ([`axis_mask`], T39). `prev` is
+/// indexed like the rows of `r`/`mask`: a standing count that differs from the rows, or
+/// a malformed matrix, is refused (`RatingsError`, T62).
 pub fn weighted_ratings(
     r: &[Vec<f64>],
     mask: &[Vec<bool>],
     prev: &[ReviewerStanding],
     w_max: f64,
 ) -> Result<Ratings, RatingsError> {
-    let ratings = Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max));
+    let ratings = Ratings::from_dense(r, mask)
+        .with_weights(bridging_weights(prev, w_max))
+        .with_axis(axis_mask(prev));
     ratings.validate()?;
     Ok(ratings)
 }
@@ -131,6 +156,12 @@ pub struct ItemVerdicts {
     pub dif_passed: bool,
     /// Number of items in the stage-2 DIF batch (never validate below `K_MIN`, INV-8).
     pub pilot2_batch_size: usize,
+    /// The beacon's exploration draw for this item (D35, T52:
+    /// `exploration::explore_from_beacon` at `EXPLORATION_RATE`, keyed on the admitted
+    /// slot). A gate rejection so drawn is piloted for measurement only, on the pilot
+    /// verdicts above, and ends `Measured`, never in the pool. Ignored for an item that
+    /// passes the gate or is appealed.
+    pub explored: bool,
 }
 
 /// One panelist's blind judgment: the probability it commits to, and the nonce it later
@@ -268,6 +299,11 @@ pub fn expanded_ratings(
 /// fit re-deciding the side-balanced score against the plain threshold (T10/T30, amended
 /// by T59, T60) — so a passing band item advances to the pilot, a polarized failing one
 /// keeps the appeal channel, and a defect is a `Borderline` reject, never a dead end.
+///
+/// A gate rejection the beacon drew for exploration (`explored`, D35, T52) is piloted for
+/// measurement only: the same batches as a passing item, a `Measured` terminal, never the
+/// pool. Its outcome is what its reviewers are scored on, at weight `1/ε`
+/// (`exploration::record_outcome`).
 pub fn run_item(
     reviewed: State,
     v: &ItemVerdicts,
@@ -313,7 +349,25 @@ pub fn run_item(
         };
     }
 
-    if matches!(s, State::Pilot1 { .. }) {
+    // The exploration draw (D35, T52): only a gate rejection can be here — a pilot
+    // rejection is reached below, after the batches.
+    if v.explored && matches!(s, State::Rejected(_)) {
+        s = step(
+            s,
+            Event::Explore {
+                seed_from_checkpoint: true,
+            },
+        )?;
+    }
+
+    if matches!(
+        s,
+        State::Pilot1 { .. }
+            | State::Explored {
+                screened: false,
+                ..
+            }
+    ) {
         s = step(
             s,
             Event::Pilot1Batch {
@@ -323,7 +377,10 @@ pub fn run_item(
         )?;
     }
 
-    if matches!(s, State::Pilot2 { .. }) {
+    if matches!(
+        s,
+        State::Pilot2 { .. } | State::Explored { screened: true, .. }
+    ) {
         s = step(
             s,
             Event::Pilot2Batch {

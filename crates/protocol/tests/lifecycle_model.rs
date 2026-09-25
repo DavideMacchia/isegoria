@@ -150,10 +150,24 @@ enum Phase {
     Revealing(Round),
     Band(BandRound),
     Appealable,
-    Pilot1 { appealed: bool },
-    Pilot2 { appealed: bool },
+    Pilot1 {
+        appealed: bool,
+    },
+    Pilot2 {
+        appealed: bool,
+    },
     Pool,
     Rejected(RejectReason),
+    /// A gate rejection the exploration draw picked (T52), before and after the screen.
+    Explored {
+        reason: RejectReason,
+        screened: bool,
+    },
+    /// The pilot's measurement of an explored rejection: terminal, never the pool.
+    Measured {
+        reason: RejectReason,
+        passed: bool,
+    },
     Retired(RetirementReason),
 }
 
@@ -386,6 +400,60 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             })
         }
 
+        // The exploration draw (D35, T52): a gate rejection, on the checkpoint's seed,
+        // then the two pilot batches to a measurement — never the pool.
+        (
+            Rejected(reason),
+            Event::Explore {
+                seed_from_checkpoint,
+            },
+        ) => {
+            guard(&[
+                (!reason.at_the_gate(), UnexpectedEvent),
+                (!seed_from_checkpoint, SeedNotFromCheckpoint),
+            ])?;
+            Ok(Explored {
+                reason: *reason,
+                screened: false,
+            })
+        }
+        (
+            Explored {
+                reason,
+                screened: false,
+            },
+            Event::Pilot1Batch {
+                enough_respondents,
+                passed,
+            },
+        ) => {
+            guard(&[(!enough_respondents, NotEnoughRespondents)])?;
+            Ok(if *passed {
+                Explored {
+                    reason: *reason,
+                    screened: true,
+                }
+            } else {
+                Measured {
+                    reason: *reason,
+                    passed: false,
+                }
+            })
+        }
+        (
+            Explored {
+                reason,
+                screened: true,
+            },
+            Event::Pilot2Batch { batch_size, passed },
+        ) => {
+            guard(&[(*batch_size < K_MIN, BatchTooSmall)])?;
+            Ok(Measured {
+                reason: *reason,
+                passed: *passed,
+            })
+        }
+
         (Pool, Event::Administer) => Ok(Pool),
         (
             Pool,
@@ -439,6 +507,14 @@ fn concrete(phase: &Phase) -> State {
         },
         Phase::Pool => State::ActivePool,
         Phase::Rejected(why) => State::Rejected(*why),
+        Phase::Explored { reason, screened } => State::Explored {
+            reason: *reason,
+            screened: *screened,
+        },
+        Phase::Measured { reason, passed } => State::Measured {
+            reason: *reason,
+            passed: *passed,
+        },
         Phase::Retired(why) => State::Retired(*why),
     }
 }
@@ -529,6 +605,8 @@ enum Op {
         batch: usize,
         passed: bool,
     },
+    /// The exploration draw of a gate rejection (T52), on the checkpoint's seed or not.
+    Explore(bool),
     Administer,
     Revalidate(bool),
     ExposureLimit,
@@ -602,11 +680,14 @@ fn next_op(
             within_window: true,
             covers_stake: true,
         },
-        Phase::Pilot1 { .. } => Op::Pilot1Batch {
+        Phase::Pilot1 { .. }
+        | Phase::Explored {
+            screened: false, ..
+        } => Op::Pilot1Batch {
             enough: !stray,
             passed: pick % 4 != 0,
         },
-        Phase::Pilot2 { .. } => Op::Pilot2Batch {
+        Phase::Pilot2 { .. } | Phase::Explored { screened: true, .. } => Op::Pilot2Batch {
             batch: if stray {
                 pick as usize % K_MIN
             } else {
@@ -620,12 +701,15 @@ fn next_op(
             6 => Op::Revalidate(true),
             _ => Op::ExposureLimit,
         },
-        Phase::Rejected(_) | Phase::Retired(_) => match pick % 6 {
+        // A gate rejection: the exploration draw (T52), half of the time, else a detour.
+        Phase::Rejected(why) if why.at_the_gate() && bit(7) => Op::Explore(!stray),
+        Phase::Rejected(_) | Phase::Measured { .. } | Phase::Retired(_) => match pick % 7 {
             0 => Op::Administer,
             1 => Op::Admit(true),
             2 => Op::Score(outcome),
             3 => Op::Resolve(GateOutcome::Pass),
             4 => Op::AppealExpires,
+            5 => Op::Explore(true),
             _ => Op::Pilot1Batch {
                 enough: true,
                 passed: true,
@@ -862,6 +946,9 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
             batch_size: batch,
             passed,
         }),
+        Op::Explore(seed_from_checkpoint) => plain(Event::Explore {
+            seed_from_checkpoint,
+        }),
         Op::Administer => plain(Event::Administer),
         Op::Revalidate(emerging_dif) => plain(Event::Revalidate { emerging_dif }),
         Op::ExposureLimit => plain(Event::ExposureLimit),
@@ -928,6 +1015,7 @@ fn arbitrary_op() -> impl Strategy<Value = Op> {
         Just(Op::AppealExpires),
         any::<(bool, bool)>().prop_map(|(enough, passed)| Op::Pilot1Batch { enough, passed }),
         (0usize..=4, any::<bool>()).prop_map(|(batch, passed)| Op::Pilot2Batch { batch, passed }),
+        any::<bool>().prop_map(Op::Explore),
         Just(Op::Administer),
         any::<bool>().prop_map(Op::Revalidate),
         Just(Op::ExposureLimit),
@@ -1029,11 +1117,33 @@ fn legal_transition(
     got: &Result<State, Invalid>,
     pilot1_seen: bool,
 ) -> Result<(), TestCaseError> {
-    if matches!(before, State::Rejected(_) | State::Retired(_)) {
+    // Terminal states are never left: a pilot rejection, a measurement, a retirement.
+    if matches!(
+        before,
+        State::Rejected(RejectReason::Screen | RejectReason::Dif)
+            | State::Measured { .. }
+            | State::Retired(_)
+    ) {
         prop_assert_eq!(
             got,
             &Err(Invalid::UnexpectedEvent),
             "a terminal state was left"
+        );
+    }
+    // A gate rejection is left only by the exploration draw, only to `Explored` (T52).
+    if let (State::Rejected(_), Ok(next)) = (before, got) {
+        prop_assert!(
+            matches!(event, Event::Explore { .. })
+                && matches!(
+                    next,
+                    State::Explored {
+                        screened: false,
+                        ..
+                    }
+                ),
+            "a gate rejection left by {:?} to {:?}",
+            event,
+            next
         );
     }
     if let (Event::Score { .. }, Ok(_)) = (event, got) {
@@ -1077,6 +1187,37 @@ fn legal_transition(
             let from_pilot1 = matches!(before, State::Pilot1 { .. });
             prop_assert!(from_pilot1, "Pilot2 entered from {:?}", before);
         }
+        // The explored item's path (T52): the draw, the screen, the measurement — and
+        // never the pool.
+        Ok(State::Explored {
+            screened: false, ..
+        }) => {
+            prop_assert!(
+                matches!(before, State::Rejected(why) if why.at_the_gate()),
+                "Explored entered from {:?}",
+                before
+            );
+        }
+        Ok(State::Explored { screened: true, .. }) => {
+            prop_assert!(
+                matches!(
+                    before,
+                    State::Explored {
+                        screened: false,
+                        ..
+                    }
+                ),
+                "the explored item screened from {:?}",
+                before
+            );
+        }
+        Ok(State::Measured { .. }) => {
+            prop_assert!(
+                matches!(before, State::Explored { .. }),
+                "Measured entered from {:?}",
+                before
+            );
+        }
         _ => {}
     }
     Ok(())
@@ -1088,6 +1229,8 @@ fn label(s: &State) -> String {
         State::InReview { .. } => "InReview".into(),
         State::Revealing { .. } => "Revealing".into(),
         State::SupplementaryReview { .. } => "SupplementaryReview".into(),
+        State::Explored { screened, .. } => format!("Explored(screened: {screened})"),
+        State::Measured { passed, .. } => format!("Measured(passed: {passed})"),
         other => format!("{other:?}"),
     }
 }
@@ -1160,8 +1303,8 @@ proptest! {
 }
 
 /// The walks are not vacuous: over a fixed sample, they reach every state the machine can
-/// be in (both `Pilot` flavours, every reject and retirement reason) and meet every
-/// `Invalid`.
+/// be in (both `Pilot` flavours, every reject and retirement reason, the explored item's
+/// two stages and both measurements) and meet every `Invalid`.
 #[test]
 fn the_walks_cover_every_state_and_every_rejection() {
     let mut runner = TestRunner::deterministic();
@@ -1188,6 +1331,10 @@ fn the_walks_cover_every_state_and_every_rejection() {
         "Rejected(Screen)",
         "Rejected(Dif)",
         "Rejected(Borderline)",
+        "Explored(screened: false)",
+        "Explored(screened: true)",
+        "Measured(passed: false)",
+        "Measured(passed: true)",
         "Retired(EmergingDif)",
         "Retired(Exposure)",
     ];

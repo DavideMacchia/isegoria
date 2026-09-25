@@ -32,6 +32,8 @@ use protocol::appeal::{appeal_floor, AuthorHistory};
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
+use protocol::exploration::FalseNegatives;
+#[cfg(feature = "calibration")]
 use protocol::gate::{bridging_gate, GateOutcome, APPEAL_GAP, EPS, TAU};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::{deposit, step, Event, State};
@@ -113,7 +115,10 @@ fn load_ratings() -> Ratings {
 /// re-validation (`revalidate_pool_latent`, exercised by `pool_revalidation_flags_latent_bias`).
 /// Returns the pool and the author's reputation after the epoch (appeals settled, D27).
 #[cfg(feature = "calibration")]
-fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
+fn run_epoch(
+    appeals: &BTreeSet<usize>,
+    explored: &BTreeSet<usize>,
+) -> (BTreeSet<usize>, f64, FalseNegatives) {
     let m = 10;
 
     // --- identity: one real person enrolls once; a duplicate is refused ---
@@ -228,6 +233,20 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
                 || (matches!(effective[j], GateOutcome::AppealEligible) && appeals.contains(&j))
         })
         .collect();
+    // The gate's rejections the exploration draw picked (D35, T52) — `explored` stands
+    // for the beacon's draw, as `seed_from_checkpoint` does for the lottery's — are
+    // piloted with the advancing items, for measurement only.
+    let piloted: Vec<usize> = (0..m)
+        .filter(|&j| {
+            advancing.contains(&j)
+                || (explored.contains(&j)
+                    && matches!(
+                        effective[j],
+                        GateOutcome::Reject | GateOutcome::AppealEligible
+                    )
+                    && !appeals.contains(&j))
+        })
+        .collect();
 
     // --- scoring Level B: two-stage pilot on the advancing items, batch/sample-gated ---
     // The pilot runs through `pilot::{screen, dif_batch}` (INV-8, §B.6, T9): the fixtures
@@ -240,7 +259,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     // Each fixture row is a respondent who proves a `Respond` nullifier bound to this
     // pilot batch and epoch (`submit_response`); the floors count the admitted set, not
     // the rows, so one person cannot fill a sample (PROTO-013, AT-PRO-09).
-    let batch = batch_id(&advancing.iter().map(|&j| item_cid[j]).collect::<Vec<_>>());
+    let batch = batch_id(&piloted.iter().map(|&j| item_cid[j]).collect::<Vec<_>>());
     let mut respondents = NullifierSet::new();
     for i in 0..theta.len() as u32 {
         let mut secret = [0u8; 32];
@@ -263,15 +282,12 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     }
     assert_eq!(respondents.len(), theta.len());
 
-    let cols: Vec<Vec<f64>> = advancing.iter().map(|&j| column(&x, j)).collect();
+    let cols: Vec<Vec<f64>> = piloted.iter().map(|&j| column(&x, j)).collect();
     let keep1 =
         screen(&respondents, &theta, &cols).expect("stage-1 respondent floor met on the fixtures");
-    let screen_passed: HashMap<usize, bool> = advancing
-        .iter()
-        .copied()
-        .zip(keep1.iter().copied())
-        .collect();
-    let after1: Vec<usize> = advancing
+    let screen_passed: HashMap<usize, bool> =
+        piloted.iter().copied().zip(keep1.iter().copied()).collect();
+    let after1: Vec<usize> = piloted
         .iter()
         .zip(keep1.iter())
         .filter_map(|(&j, &k)| k.then_some(j))
@@ -323,6 +339,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     author.record(0.8, 12.0);
 
     let mut pool = BTreeSet::new();
+    let mut false_negatives = FalseNegatives::default();
     for j in 0..m {
         let reputation = author.reputation(&prior);
         let escrow = if appeals.contains(&j) && matches!(effective[j], GateOutcome::AppealEligible)
@@ -345,11 +362,13 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
             screen_passed: *screen_passed.get(&j).unwrap_or(&false),
             dif_passed: *dif_passed.get(&j).unwrap_or(&false),
             pilot2_batch_size,
+            explored: explored.contains(&j),
         };
         let terminal = run_item(reviewed(j), &verdicts, None, |_| {
             unreachable!("no fixture item is in the band")
         })
         .unwrap();
+        false_negatives.record(&terminal);
         if let Some(escrow) = escrow {
             // The item's measured quality is its later pool record; 0.8 stands in for it.
             settle_appeal(&mut author, escrow, &terminal, 0.8);
@@ -358,13 +377,13 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
             pool.insert(j);
         }
     }
-    (pool, author.reputation(&prior))
+    (pool, author.reputation(&prior), false_negatives)
 }
 
 #[cfg(feature = "calibration")]
 #[test]
 fn full_epoch_filters_each_item_at_the_right_stage() {
-    let (pool, _) = run_epoch(&BTreeSet::new());
+    let (pool, _, _) = run_epoch(&BTreeSet::new(), &BTreeSet::new());
 
     // The clean, cross-cutting quality items reach the pool.
     for good in EXPECTED_POOL {
@@ -459,10 +478,10 @@ fn appeal_recovers_a_true_but_divisive_item() {
         "a polarized item should be appeal-eligible, not a plain reject"
     );
 
-    let (without, reputation_without) = run_epoch(&BTreeSet::new());
+    let (without, reputation_without, _) = run_epoch(&BTreeSet::new(), &BTreeSet::new());
     assert!(!without.contains(&REAL_HEALTH), "lost without an appeal");
 
-    let (with, reputation_with) = run_epoch(&BTreeSet::from([REAL_HEALTH]));
+    let (with, reputation_with, _) = run_epoch(&BTreeSet::from([REAL_HEALTH]), &BTreeSet::new());
     assert!(
         with.contains(&REAL_HEALTH),
         "recovered through the appeal channel"
@@ -472,6 +491,38 @@ fn appeal_recovers_a_true_but_divisive_item() {
     assert!(
         reputation_with > reputation_without,
         "reputation {reputation_with:.4} after a successful appeal vs {reputation_without:.4}"
+    );
+}
+
+/// D35 on the fixtures (T52): the real-health item, polarized and unappealed, is a gate
+/// rejection; drawn for exploration it is piloted for measurement only — the Level B data
+/// that vindicate it on appeal measure it as a pass — so the epoch records a gate false
+/// negative, the pool is exactly what it was (an explored item never enters it), and the
+/// author's standing is untouched.
+#[cfg(feature = "calibration")]
+#[test]
+fn an_explored_rejection_is_measured_and_never_pooled() {
+    let (pool, reputation, none) = run_epoch(&BTreeSet::new(), &BTreeSet::new());
+    assert_eq!(none, FalseNegatives::default());
+    assert_eq!(none.rate(), None);
+    let (explored_pool, explored_reputation, measured) =
+        run_epoch(&BTreeSet::new(), &BTreeSet::from([REAL_HEALTH]));
+    assert_eq!(
+        explored_pool, pool,
+        "an explored item never enters the pool"
+    );
+    assert!(!explored_pool.contains(&REAL_HEALTH));
+    assert_eq!(
+        measured,
+        FalseNegatives {
+            explored: 1,
+            passed: 1
+        }
+    );
+    assert_eq!(measured.rate(), Some(1.0));
+    assert_eq!(
+        explored_reputation, reputation,
+        "measurement costs the author nothing"
     );
 }
 

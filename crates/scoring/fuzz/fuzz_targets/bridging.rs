@@ -31,6 +31,7 @@ fuzz_target!(|input: Input| {
             })
             .collect(),
         weights: input.weights.iter().copied().take(16).collect(),
+        axis: vec![true; (input.n % 8) as usize],
     };
     let p = BridgingParams {
         n_starts: 1,

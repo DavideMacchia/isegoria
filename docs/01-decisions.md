@@ -464,6 +464,10 @@ label and re-opens double enrollment for everyone. Resolves Q-12 / ID-006 (INV-1
 
 ## D31 — One ideological dimension (d=1) for now
 
+> **Recorded (2026-09-25, T39):** `d = 2` is descoped in `docs/02` §A.4; the reviewer
+> floor `n_min = 30` of the same section is implemented (`Ratings::axis`,
+> `orchestrator::axis_mask`: absent from the core fit, placed on the axis by projection).
+
 **Choice.** The bridging model uses a single latent axis (`d = 1`). A second dimension
 (`d = 2`) is deferred; the reference use case and the simulations do not require it.
 
@@ -593,6 +597,23 @@ reacts slowly to a long con.
 
 ## D35 — Scored outcomes: live items with randomized exploration; golden items at 5%
 
+> **Implemented (2026-09-25, T52):** `protocol::exploration` — the beacon's draw
+> (`explore_from_beacon`, `EXPLORATION_RATE = 0.05`, keyed on the admitted slot) sends a
+> gate rejection through `lifecycle::Event::Explore` to `Explored`, the two pilot batches
+> and `Measured`, never `ActivePool`; `outcome_of`/`record_outcome` feed every reviewed
+> item's terminal into `probation::SkillTrack` — an observed outcome at weight `1/π_j`
+> (`record_observed`), an unexplored rejection into the denominator only
+> (`record_unobserved`) — and `FalseNegatives` counts the gate's false negatives. The
+> change detector reads the unweighted scores. Evidence: `AT-REP-06` exact (the weighted
+> score's expectation is `(b − q)² − (p − q)²` under a report-dependent gate; the bare
+> observed score pays the paper's dissenter 0.08 to report 0.50 against 0.0045 for the
+> truth) and by Monte Carlo (nine reviewers, 100,000 items: the weighted mean within 2.1
+> standard errors of the full-information mean, the passed-only mean up to 11.6 off);
+> `AT-PRO-07` (the draw reproduces from the beacon, two beacons share 0.24% of their
+> draws, a participant's seed is refused). On the fixtures the explored real-health item
+> is measured as a pass — a gate false negative — and the pool is unchanged. Grind-free
+> with T37; `ε` provisional (T25).
+
 **Choice.** Evaluators are scored on three kinds of item:
 1. golden items, still 5% of the review queue;
 2. every live item they reviewed that reaches Level B, once its outcome is known;
@@ -654,7 +675,19 @@ non-rotatable pseudonyms (invariant #5), not by the length of probation.
 > itself, so a caller cannot vouch for a proxy the gate has not measured. The differential
 > gap is reported as `MixtureDif::differential`, a diagnostic the verdict never reads.
 > AT-DIF-11 passes on null batches drawn as the paper's (20 anchors refused, 60 accepted
-> with no flag). The target model, θ inside the likelihood, is T54.
+> with no flag).
+>
+> **Target model implemented (2026-09-25, T54):** `scoring::latent::latent_dif` — the
+> anchors inside the likelihood with class-invariant parameters, a class ability mean
+> `η_g` per class (`η_0 = 0`), θ integrated on a fixed grid of 41 nodes, the number of
+> classes and uniform vs non-uniform DIF by BIC from seeded starts, an analytic gradient
+> from the EM artificial data (one `exp` per class and node per respondent, so a null
+> batch of 6,000 fits in 15–25 s). `revalidate_batch_latent` runs it on the anchors it admits; the
+> proxy-θ model (`dif::mixture_dif`) is retired from the production path and kept for the
+> fixtures. On the paper's null batches: 1 class at 10, 20, 30 and 60 anchors (KR-20 0.68–0.94), no item flagged, where the proxy model selects two classes at 10, 20 and 30 anchors and flags 8, 2 and 0 clean items. Campaigns (AT-DIF-12): 2, 4 and 6 of 8 items shifted by 0.9 at N = 6,000 with 30 anchors: exactly the shifted items flagged, their gaps 1.7–1.9 (the true 2δ = 1.8; 3.6 and 1.1 in the two-item case) and the clean items' at most 0.13.
+> AT-DIF-01 on the target model: 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000. Runtime: on one core (dev profile, `scoring` at opt-level 3) 8–32 s per 8-item null batch at N = 3,000, 90–110 s at N = 12,000, 15–25 s at N = 6,000, and 75–90 s for a campaign batch at N = 6,000 whose BIC search reaches three classes. The verdict
+> threshold stays 1.0 on the difficulty gap, provisional: the null gaps sit far below it
+> and the campaign gaps far above; its final value is T24/T25.
 
 **Choice.** The latent-class re-check runs only if the anchors' KR-20, computed on the
 batch's respondents, is at least 0.90 (about 40 anchors). Below that the batch is

@@ -152,6 +152,7 @@ fn arbitrary_ratings() -> impl Strategy<Value = Ratings> {
                 m,
                 obs: obs.into_iter().map(|(u, j, r)| Obs { u, j, r }).collect(),
                 weights,
+                axis: vec![true; n],
             })
     })
 }

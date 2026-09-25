@@ -135,6 +135,20 @@ pub fn mean_score(scores: &[f64]) -> f64 {
     }
 }
 
+/// The inverse-probability-weighted mean score (D35, T52; paper, "Exploration restores
+/// properness"): each observed score at `1/π_j`, its inverse inclusion probability, over
+/// the `reviewed` items whose outcome could have been observed — the observed ones and
+/// those the exploration draw left unobserved. Its expectation is the mean with every
+/// outcome observed, whatever the gate decided, so the score stays strictly proper.
+/// `observed` pairs `(score, π)`; 0 with nothing reviewed.
+pub fn inverse_probability_mean(observed: &[(f64, f64)], reviewed: usize) -> f64 {
+    if reviewed == 0 {
+        0.0
+    } else {
+        observed.iter().map(|&(d, pi)| d / pi).sum::<f64>() / reviewed as f64
+    }
+}
+
 /// The evaluator's review weight on the odds scale, shrunk toward 1 by the number of
 /// scored items: `exp(γ · S_u · k_u / (k_u + k₀))` (D33). 1 for a crowd-level reviewer
 /// and for one with nothing scored; unbounded above, so the cap `3 × median` can bind.

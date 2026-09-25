@@ -57,7 +57,11 @@ can propose as much as they want; each epoch a drawn subset enters the pipeline.
 
 - **Random assignment** of the `k` reviewers (odd, 7–11), stratified on the position
   `f_u` → the batch mirrors all positions of the axis. Prevents **brigading**: nobody
-  chooses what to review, and the item is not searchable before the verdict.
+  chooses what to review, and the item is not searchable before the verdict. A newcomer
+  — fewer than `n_min = 30` reviews on record (`02` §A.4, T39) — has the position the
+  fit projects for it on the axis it does not define (the origin, with no ratings yet)
+  and is a candidate like any other, at weight 0 until it is established (`01` D36): it
+  fills the panel and builds its record without defining the axis.
 - **Blind**: the reviewer does not see the author → prevents voting on the person.
 - **Commit-reveal**: first you publish the hash of your judgment (commitment), then
   once the phase is closed you reveal it → prevents copying others and information
@@ -148,11 +152,12 @@ An item used a lot gets memorized and circulates: it loses value. Countermeasure
 
 ## Golden items (honeypot)
 
-> **Extended by D35 (T52).** Golden items stay at 5%, but alone they are too few to learn
-> an evaluator's skill (about one every two epochs per reviewer). Evaluators will also be
-> scored on every reviewed item that reaches Level B and on a random 5% of gate
-> rejections sent to the pilot for measurement only (weighted 1/0.05, never entering the
-> pool).
+> **Extended by D35 (T52, done).** Golden items stay at 5%, but alone they are too few to
+> learn an evaluator's skill (about one every two epochs per reviewer). Evaluators are
+> also scored on every reviewed item that reaches Level B and on a random 5% of gate
+> rejections the beacon draws for the pilot, for measurement only (`protocol::exploration`:
+> `Rejected → Explored → Measured`, never the pool; the outcome weighted `1/0.05` in the
+> score, `02` §C.2). The explored items also measure the gate's false-negative rate.
 
 A simple and powerful mechanism, **always active**, not only at startup. A fraction `η
 ≈ 5%` of the items in the review queue are of known quality (excellent or deliberately

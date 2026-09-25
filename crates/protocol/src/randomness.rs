@@ -15,8 +15,9 @@
 //! the seed they prefer. The beacon is not yet separated from the state commitment.
 //!
 //! Seeds are domain-separated per purpose and per index, so the draws never share a
-//! stream. The `_from_beacon` wrappers in `lottery`, `review`, `honeypot` and `governance`
-//! are the sanctioned entry points; the raw draws take a `u64` seed for unit testing.
+//! stream. The `_from_beacon` wrappers in `lottery`, `review`, `honeypot`, `exploration`
+//! and `governance` are the sanctioned entry points; the raw draws take a `u64` seed for
+//! unit testing.
 
 use network::consortium::Checkpoint;
 use sha2::{Digest, Sha256};
@@ -61,5 +62,9 @@ pub const REVIEW_ASSIGNMENT: &[u8] = b"review-assignment";
 /// The band's extra panel (D26, T60): a stream of its own, so the extra reviewers of an
 /// item are not a function of its first panel's draw.
 pub const EXTRA_REVIEW: &[u8] = b"extra-review";
+/// The exploration draw (D35, T52): which gate rejections are piloted for measurement
+/// only, keyed on the admitted slot — a stream of its own, so it is not a function of the
+/// item's panel or of the lottery.
+pub const EXPLORATION: &[u8] = b"exploration";
 pub const HONEYPOT: &[u8] = b"honeypot";
 pub const SORTITION: &[u8] = b"sortition";

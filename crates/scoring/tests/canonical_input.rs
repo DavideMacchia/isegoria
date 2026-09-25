@@ -34,6 +34,7 @@ fn permuted(base: &Ratings, shift: usize) -> Ratings {
         m: base.m,
         obs,
         weights: base.weights.clone(),
+        axis: base.axis.clone(),
     }
 }
 
