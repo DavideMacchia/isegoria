@@ -747,6 +747,15 @@ evaded by jitter of σ = 0.05.
 
 ## D40 — A detected cluster constrains panel assignment, not weights
 
+> **Implemented (2026-09-25, T57):** `protocol::review::assign_diverse` and the beacon
+> entry points `assign_diverse_from_beacon` / `assign_extra_diverse_from_beacon` — the
+> stratified draw excludes every cluster already seated, on the first panel and on the
+> band's extra round; a stratum the constraint empties is filled by the nearest eligible
+> reviewer on the axis. The weights take no cluster input (`bridging_weights`). On the
+> paper's population (1,000 reviewers, a cluster of 50, panels of 9; `panel_diversification.rs`,
+> 2,000 draws): no diversified panel holds two members of the cluster, every panel still
+> spans the axis, while the uniform draw seats two or more on 6.6% of panels (paper 7.0%).
+
 **Choice.** Members of a detected cluster are never assigned together: a panel holds at
 most one member of each cluster. The protocol does not apply the sublinear weight
 discount. This supersedes D7 for the protocol; the engine keeps the discount function for

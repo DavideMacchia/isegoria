@@ -496,7 +496,7 @@ stationary level sat far below the true mean, and a cautious reviewer who beat t
 
 ## Anti-collusion (coordination detection)
 
-> **Revised by D39 and D40 (T56 done; T57 next).** Within an epoch two reviewers share
+> **Revised by D39 and D40 (T56 and T57, done).** Within an epoch two reviewers share
 > under one item (paper §6.3), and raw correlations cannot separate a cartel from
 > like-minded honest reviewers. Detection reads the correlation of model residuals over
 > long histories; a detected cluster limits panel assignment (at most one member per

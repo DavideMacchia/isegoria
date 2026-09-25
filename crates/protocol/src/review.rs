@@ -2,6 +2,11 @@
 //! latent position f_u, so the panel mirrors every position of the axis and no one
 //! picks what to review (anti-brigading). Judgments are committed then revealed, so
 //! no one can copy others or ride an information cascade.
+//!
+//! A detected coordination cluster (`scoring::collusion::coordination_clusters`, D39)
+//! constrains the assignment, not the weights (`docs/01` D40, T57): a panel holds at
+//! most one member of each cluster ([`assign_diverse`]), the band's extra round included,
+//! and nobody's weight changes — the protocol never applies the sublinear discount.
 
 use crate::admission::{admit, DuplicateNullifier, NullifierSet, Unproven};
 use identity::credential::IssuerPublic;
@@ -63,6 +68,111 @@ pub fn assign_extra_from_beacon(
 /// The provisional size of the band's extra panel (D26, T60): four more reviewers — a
 /// panel of nine grows by almost half — to be calibrated with the band width (T25).
 pub const K_EXTRA: usize = 4;
+
+/// Panel assignment under D40 (T57): stratified on `f_u` as [`assign_reviewers`], with at
+/// most one member of each coordination cluster on the panel. `clusters[i]` is the
+/// cluster id of `reviewers[i]` (`scoring::collusion::CoordinationReport::clusters`; a
+/// singleton's id is its own). `taken` are the nyms already on the panel — for the band's
+/// extra round (T60) the first panel — excluded with their clusters. A stratum whose
+/// every member is excluded is filled by the eligible reviewer nearest to it on the
+/// axis; with nobody eligible left the panel is shorter, and the lifecycle refuses it.
+/// Deterministic per `seed`.
+pub fn assign_diverse(
+    reviewers: &[Reviewer],
+    clusters: &[usize],
+    taken: &[Nym],
+    k: usize,
+    seed: u64,
+) -> Vec<Reviewer> {
+    let n = reviewers.len();
+    if n == 0 || k == 0 || clusters.len() != n {
+        return Vec::new();
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    // `total_cmp`: a NaN position sorts last instead of panicking (docs/08 IQ-2).
+    order.sort_by(|&a, &b| reviewers[a].f_u.total_cmp(&reviewers[b].f_u));
+
+    let mut used_clusters: Vec<usize> = reviewers
+        .iter()
+        .zip(clusters)
+        .filter(|(r, _)| taken.contains(&r.nym))
+        .map(|(_, &c)| c)
+        .collect();
+    let mut chosen_idx: Vec<usize> = Vec::with_capacity(k);
+    let eligible = |i: usize, used: &[usize], chosen: &[usize]| {
+        !taken.contains(&reviewers[i].nym) && !used.contains(&clusters[i]) && !chosen.contains(&i)
+    };
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let k = k.min(n);
+    for s in 0..k {
+        let lo = s * n / k;
+        let hi = ((s + 1) * n / k).max(lo + 1).min(n);
+        let stratum: Vec<usize> = order[lo..hi]
+            .iter()
+            .copied()
+            .filter(|&i| eligible(i, &used_clusters, &chosen_idx))
+            .collect();
+        let pick = match stratum.choose(&mut rng) {
+            Some(&i) => Some(i),
+            None => {
+                // The nearest eligible reviewer to the stratum's centre on the axis.
+                let centre = reviewers[order[(lo + hi - 1) / 2]].f_u;
+                order
+                    .iter()
+                    .copied()
+                    .filter(|&i| eligible(i, &used_clusters, &chosen_idx))
+                    .min_by(|&a, &b| {
+                        (reviewers[a].f_u - centre)
+                            .abs()
+                            .total_cmp(&(reviewers[b].f_u - centre).abs())
+                    })
+            }
+        };
+        if let Some(i) = pick {
+            used_clusters.push(clusters[i]);
+            chosen_idx.push(i);
+        }
+    }
+    chosen_idx.into_iter().map(|i| reviewers[i]).collect()
+}
+
+/// [`assign_diverse`] seeded from the beacon (INV-10) for an item's first panel: the
+/// sanctioned entry point under D40.
+pub fn assign_diverse_from_beacon(
+    reviewers: &[Reviewer],
+    clusters: &[usize],
+    k: usize,
+    beacon: &crate::randomness::Beacon,
+    slot: u64,
+) -> Vec<Reviewer> {
+    assign_diverse(
+        reviewers,
+        clusters,
+        &[],
+        k,
+        beacon.seed(crate::randomness::REVIEW_ASSIGNMENT, slot),
+    )
+}
+
+/// The band's extra panel under D40 (T57, T60): outside the first panel *and* outside
+/// its members' clusters, on the extra round's beacon domain.
+pub fn assign_extra_diverse_from_beacon(
+    reviewers: &[Reviewer],
+    clusters: &[usize],
+    first_panel: &[Nym],
+    k_extra: usize,
+    beacon: &crate::randomness::Beacon,
+    slot: u64,
+) -> Vec<Reviewer> {
+    assign_diverse(
+        reviewers,
+        clusters,
+        first_panel,
+        k_extra,
+        beacon.seed(crate::randomness::EXTRA_REVIEW, slot),
+    )
+}
 
 /// Picks `k` reviewers stratified across f_u: sort by position, split into `k`
 /// strata, draw one per stratum. Deterministic per `(item_seed)`.

@@ -116,11 +116,12 @@ paper's snapshot is listed in `paper/README.md`.
 - **COLLUSION-006 — There is almost nothing to correlate within an epoch.** Two reviewers
   share `r²/m` items per epoch on average (0.81 at `r = 9`, `m = 100`); raw correlations
   also cannot separate a cartel (+0.93) from honest same-camp pairs (+0.94), whereas
-  residual correlations can (+0.88 vs +0.02). Status: **PARTLY RESOLVED** — the residual
+  residual correlations can (+0.88 vs +0.02). Status: **RESOLVED** — the residual
   detector over long histories is implemented (D39, T56, 2026-09-25:
   `collusion::{ResidualHistory, coordination_clusters}`; on the paper's dataset every
-  cartel pair and no honest pair is flagged, `AT-COL-07` ✓, `AT-COL-02` ✓); panel
-  diversification (D40) is T57 (`AT-BR-10`).
+  cartel pair and no honest pair is flagged, `AT-COL-07` ✓, `AT-COL-02` ✓), and a
+  detected cluster constrains the assignment (D40, T57: `review::assign_diverse`, at most
+  one member per panel, the extra round included, no weight touched; `AT-BR-10` ✓).
 - **CRYPTO-008 (update).** The beacon is decided: commit-reveal now, a threshold signature
   after T19 (D41, T37).
 
@@ -178,7 +179,8 @@ regression test are on master.
   extra panelist revealed (`PartialEpoch`); `orchestrator::run_item` walks the round
   (`extra_round`) and re-decides on its reveals folded into the epoch's ratings
   (`expanded_ratings` → `gate::supplementary_review`); `review::assign_extra_from_beacon`
-  draws the panel (`K_EXTRA = 4`, provisional, `randomness::EXTRA_REVIEW`).
+  draws the panel (`K_EXTRA = 4`, provisional, `randomness::EXTRA_REVIEW`), and
+  `assign_extra_diverse_from_beacon` keeps it outside the first panel's clusters (T57).
   `supplementary_redecision.rs`: a band item nine reviewers approve just above τ passes
   on the first panel alone and is `Rejected(Borderline)` once four extra reviewers
   disapprove; the model suites carry the round's rules.
@@ -912,7 +914,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 |---|---|---|---|---|---|
 | — | `deposit_with_identity(draft, proof)` | `primary_source ≠ ∅`; author presents `NullifierProof(Propose)` bound to the draft cid and the epoch (INV-9 ✓ T6/T64); valid RLN proof for `(epoch, slot < quota(C_a))` (ID-008) | `Deposited` | `log.append(cid(draft))`; slot consumed | missing source (`NoPrimarySource` ✓); duplicate CID (✓ T64, `DepositRejected::DuplicateCid` before the identity check and the quota charge); unproven nym (✓ T6, `DepositRejected::Unproven`); over-quota (✓ T11, `DepositRejected::OverQuota` via `QuotaLedger`) |
 | `Deposited` | epoch close → `admit_from_beacon()` | lottery seed = `Beacon::seed("lottery", epoch)` = `H(signed head ‖ height ‖ …)` (INV-10 ✓ T8); capacity fixed by blueprint | `Admitted` or stays `Deposited` (carry-over policy unspecified) | — | seed chosen by a participant (✓ T8: only `_from_beacon` derives it) |
-| `Admitted` | `assign_reviewers(k, seed_item)` | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even |
+| `Admitted` | `assign_diverse(k, clusters, seed_item)` (T57; `assign_reviewers` when no cluster is flagged) | `k` odd ∈ [7,11]; candidates = established + founder nyms with `f_u`; at most one member of each coordination cluster (D40) — an emptied stratum is filled by the nearest eligible reviewer on the axis; probation nyms MAY be assigned at weight 0 | `InReview{commits: ∅}` | private assignment list | author in its own panel (✗ not checked — the author's judge nym is unlinkable, so this cannot be checked; MUST be accepted as residual risk or handled by the honeypot); `k` even; two members of one cluster (✓ T57, `panel_diversification.rs`) |
 | `InReview` | `commit(N_judge, cid, prob, nonce)` | `N_judge` in panel; no prior commit by `N_judge` for `cid`; before commit deadline | `InReview` | store `Commit` | commit from non-panel nym; second commit; commitment copied (✗ INV-12 not implemented) |
 | `InReview` | commit deadline | — | `Revealing` | publish commitments | — |
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
@@ -1113,7 +1115,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
 | AT-BR-08 ✓ | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 and 80/20, 200–3,200 reviewers; the review's dataset at 50/50–95/5 in both orientations | leak ≤ 0.1 where the intercept leaks 0.5–0.9; neither mirror item passes at any ratio; a residual leak of 0.1–0.2 with 50–100 reviewers (`side_balanced.rs`, T49) | BRIDGE-009 |
 | AT-BR-09 ✓ | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch; the six consensus items alone | no other item's score moves by more than 0.02 and no verdict changes; alone, within 0.02; the intercept moves by more than 0.1 (`side_balanced.rs`, T49) | BRIDGE-008 |
-| AT-BR-10 | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged | COLLUSION-006 |
+| AT-BR-10 ✓ | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged — `panel_diversification.rs` (T57): 2,000 seeds, at most one member per panel and per first-plus-extra round, every panel spans the axis, the uniform draw seats two or more on 6.6% of panels (paper 7.0%); `bridging_weights` takes no cluster input | COLLUSION-006 |
 | AT-DIF-01 | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α | DIF-008 |
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
 | AT-DIF-03 | non-uniform DIF | class-specific `a_j` | detected or documented as out of scope | DIF-004 |
@@ -1353,7 +1355,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | COLLUSION-003 | sparse data | `collusion.rs` (`ResidualHistory`), `coordination.rs` | RESOLVED for the mechanism (T56) — residuals accumulate per item across epochs; a pair is read from 30 shared items | the design-scale simulation | AT-COL-03 |
 | COLLUSION-004 | discount never boosts | auditor probe (0.25→0.5); `anti_collusion.rs` (AT-COL-04) | RESOLVED @289aae3 (was INV-14 VIOLATED) — see §0-bis | — | — |
 | COLLUSION-005 | chaining/griefing | `collusion.rs` (average linkage), `coordination.rs` (AT-COL-05/07) | RESOLVED (T56) — one pair chains nobody; opposite camps never joined; a mimic gets a pair with its target and nothing else | — | — |
-| COLLUSION-006 | per-epoch detection possible | paper §6.3; `collusion.rs` (`ResidualHistory`), `coordination.rs` | PARTLY RESOLVED (T56) — detection reads long histories, not the epoch; the raw-rule reference is kept | panel diversification (D40) | T57, AT-BR-10 |
+| COLLUSION-006 | per-epoch detection possible | paper §6.3; `collusion.rs` (`ResidualHistory`), `coordination.rs`; `review.rs` (`assign_diverse`), `panel_diversification.rs` | RESOLVED (T56, T57) — detection reads long histories, not the epoch; the per-epoch defence is the assignment: a cluster is never seated twice on a panel, weights untouched | thresholds provisional | T25 |
 | ID-001 | dedup same anchor | `identity/tests/*` | TESTED (registry logic) | authenticated anchor | G-02 |
 | ID-002 | obliviousness | `voprf_oracle.rs` (primitive) | primitive TESTED; interface NOT IMPLEMENTED | split API | G-02 |
 | ID-003 | t−1 cannot compute | `oprf.rs` tests (incl. AT-ID-04) | TESTED (functional, in-process); duplicate-index guard RESOLVED @289aae3 | DKG, transport, external review | §7.4 |

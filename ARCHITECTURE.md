@@ -160,7 +160,7 @@ steps are seeded for reproducibility.
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
-| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60) | `admission`, `identity`, `network::cid` |
+| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60); `assign_diverse`, `assign_diverse_from_beacon`, `assign_extra_diverse_from_beacon` (at most one member of a coordination cluster per panel, D40/T57) | `admission`, `identity`, `network::cid` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch`, `admit_anchors` (KR-20 floor, D37/T53) (INV-8, T9) | `scoring::irt`, `scoring::dif` |
