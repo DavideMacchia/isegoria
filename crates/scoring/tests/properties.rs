@@ -12,7 +12,7 @@ use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, 
 use scoring::collusion::{correlation_matrix, discount_weights, sublinear_group_weight};
 use scoring::irt::{point_biserial, theta_from_anchors};
 use scoring::reputation::{
-    asymmetric_ema, author_score, brier_skill_score, crowd_baseline, evaluator_score, AuthorPrior,
+    asymmetric_ema, author_score, difference_scores, loo_baseline, odds_weight, AuthorPrior,
 };
 
 // ------------------------------ generators ------------------------------
@@ -155,39 +155,55 @@ proptest! {
         }
     }
 
-    /// The crowd baseline is a weighted mean: it stays within the panel's predictions.
+    /// The leave-one-out crowd is a weighted mean of the *other* panelists' forecasts: it
+    /// stays within their range and does not move with the reviewer's own forecast.
     #[test]
-    fn crowd_baseline_stays_within_the_predictions(
-        rows in (1usize..8, 1usize..5).prop_flat_map(|(n, m)| (
+    fn loo_baseline_stays_within_the_others_predictions(
+        rows in (2usize..8, 1usize..5).prop_flat_map(|(n, m)| (
             prop::collection::vec(prop::collection::vec(0.0f64..=1.0, m), n),
             prop::collection::vec(0.0f64..3.0, n),
         )),
     ) {
         let (preds, w) = rows;
-        prop_assume!(w.iter().sum::<f64>() > 0.0);
-        for (j, b) in crowd_baseline(&preds, &w).iter().enumerate() {
-            let lo = preds.iter().map(|p| p[j]).fold(f64::INFINITY, f64::min);
-            let hi = preds.iter().map(|p| p[j]).fold(f64::NEG_INFINITY, f64::max);
-            prop_assert!(*b >= lo - 1e-12 && *b <= hi + 1e-12, "item {j}: {b} not in [{lo}, {hi}]");
+        for u in 0..preds.len() {
+            let crowd = loo_baseline(&preds, &w, u);
+            for (j, b) in crowd.iter().enumerate() {
+                let others = preds.iter().enumerate().filter(|(v, _)| *v != u).map(|(_, p)| p[j]);
+                let lo = others.clone().fold(f64::INFINITY, f64::min);
+                let hi = others.fold(f64::NEG_INFINITY, f64::max);
+                prop_assert!(*b >= lo - 1e-12 && *b <= hi + 1e-12, "item {j}: {b} not in [{lo}, {hi}]");
+            }
+            let mut moved = preds.clone();
+            for x in moved[u].iter_mut() {
+                *x = 1.0 - *x;
+            }
+            prop_assert_eq!(loo_baseline(&moved, &w, u), crowd);
         }
     }
 
-    /// Skill is capped at 1 (a perfect predictor) and a predictor equal to the baseline
-    /// scores exactly 0; the evaluator score maps any skill into [0, 1]. BSS is unbounded
-    /// below — a poor prediction against a near-perfect baseline scores in the thousands
-    /// below zero — so `σ(γ·BSS)` can underflow to exactly 0: weight zero, as intended.
+    /// The difference score is bounded in [−1, 1], a panelist who copies the others'
+    /// weighted mean scores exactly 0, and the odds weight is positive and finite.
     #[test]
-    fn brier_skill_is_at_most_one_and_zero_for_the_baseline(
-        cases in prop::collection::vec((0.0f64..=1.0, 0.0f64..=1.0, prop::bool::ANY), 1..20),
+    fn difference_score_is_bounded_and_zero_for_the_crowd(
+        rows in (2usize..7, 1usize..6).prop_flat_map(|(n, m)| (
+            prop::collection::vec(prop::collection::vec(0.0f64..=1.0, m), n),
+            prop::collection::vec(0.0f64..3.0, n),
+            prop::collection::vec(prop::bool::ANY, m),
+        )),
     ) {
-        let p: Vec<f64> = cases.iter().map(|c| c.0).collect();
-        let base: Vec<f64> = cases.iter().map(|c| c.1).collect();
-        let o: Vec<f64> = cases.iter().map(|c| c.2 as i32 as f64).collect();
-        let bss = brier_skill_score(&p, &o, &base);
-        prop_assert!(bss <= 1.0 + 1e-12, "BSS = {bss}");
-        prop_assert_eq!(brier_skill_score(&base, &o, &base), 0.0);
-        let e = evaluator_score(bss, 3.0);
-        prop_assert!((0.0..=1.0).contains(&e), "E = {e}");
+        let (mut preds, mut w, o) = rows;
+        let o: Vec<f64> = o.iter().map(|&b| b as i32 as f64).collect();
+        let n = preds.len();
+        preds.push(loo_baseline(&preds, &w, n));
+        w.push(1.0);
+        let scores = difference_scores(&preds, &w, &o);
+        for s in scores.iter().flatten() {
+            prop_assert!((-1.0 - 1e-12..=1.0 + 1e-12).contains(s), "S = {s}");
+        }
+        prop_assert!(scores[n].iter().all(|&s| s == 0.0), "copier: {:?}", scores[n]);
+        let mean = scores[0].iter().sum::<f64>() / scores[0].len() as f64;
+        let weight = odds_weight(mean, o.len(), 35.0, 100.0);
+        prop_assert!(weight.is_finite() && weight > 0.0, "w = {weight}");
     }
 
     /// The asymmetric update moves toward the new value without overshooting it.

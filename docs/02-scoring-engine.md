@@ -401,40 +401,61 @@ an author files only while `C_a` covers it, so a failed appeal costs the next on
 the evidence has restored the average. There is no additive gain — the reward for being
 right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
 
-### C.2 Evaluator score `E_u`
+### C.2 Evaluator score `S_u` and review weight `w_u`
 
-> **Superseded by D33 and D35 (T50, T52).** The ratio-form BSS below is not a proper
-> scoring rule (paper Prop. 12). It will be replaced by the leave-one-out difference
-> score `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, with weights
-> `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, scored on golden items, on live items that
-> reach Level B, and on a random 5% of gate rejections sent to the pilot (weighted 1/0.05).
+> **Revised by D33 (implemented, T50, 2026-09-25) and D35 (T52).** The ratio-form Brier
+> skill score this section used to specify is not a proper scoring rule (paper Prop. 12):
+> with the crowd at 0.65, a reviewer who believes 0.30 was best off reporting 0.60. The
+> text below is the built rule. Still to come is D35: today the scored outcomes are the
+> golden items; live items that reach Level B and a random 5% of gate rejections
+> (weighted 1/0.05) are T52.
 
 The reviewer does not give a binary judgment: they **declare a probability** `p_uj`
-that the item passes Level B empirical validation. It is scored with a **proper
-scoring rule**, which makes honesty the optimal strategy.
+that the item passes Level B empirical validation. It is scored with a **strictly proper
+scoring rule**, which makes honesty the optimal strategy — a mathematical property, not
+a hope.
 
-Logarithmic score (very harsh punishment for confident wrongness):
-
-```
-S_uj = o_j · ln(p_uj) + (1 − o_j) · ln(1 − p_uj)      o_j ∈ {0,1} real outcome
-```
-
-Normalization against the crowd baseline `p̄_j` (Brier Skill Score):
+**The leave-one-out difference score.** On every scored item `j` with outcome
+`o_j ∈ {0,1}`:
 
 ```
-              Σ_j (p_uj − o_j)²
-BSS_u = 1 − ──────────────────────
-              Σ_j (p̄_j − o_j)²
+S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²       p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v
+S_u  = mean_j S_uj
 ```
 
-**Fundamental property.** Someone who replicates the consensus gets `BSS ≈ 0`. You
-gain reputation only by being right **when the crowd is wrong**. This is the incentive
-needed against majority capture. In testing: "follows the peer average" → BSS −1.33
-(worse than the baseline); "psychometric expert" → BSS +0.95.
+`p̄_{−u,j}` is the crowd's forecast — the weight-adjusted mean of the *other* panelists,
+D23's crowd baseline minus the reviewer being scored (`reputation::loo_baseline`) — and
+`S_uj` is by how much the reviewer's Brier score beats it. Properties (paper Prop. 14;
+`AT-REP-05`, `AT-REP-02`):
 
-Final normalization: `E_u = σ(γ · BSS_u)`, logistic, `E_u ∈ (0,1)`.
+- **strictly proper**: the expected score is `c_u − Σ_j (p_uj − q_j)² / m`, so the true
+  belief `q` is the unique best report;
+- someone who copies the crowd (`p_uj = p̄_{−u,j}`) scores **exactly 0** on every item,
+  for every outcome — not only in expectation;
+- `S_u > 0` if and only if the reviewer's Brier score beats the crowd's: you gain
+  reputation only by being right **when the crowd is wrong**, the incentive needed
+  against majority capture;
+- additive over items, so it accumulates across epochs without reweighting.
 
-**Use.** `E_u` weights the review vote: `w_u = min(w_max, E_u)`.
+In testing (the five profiles of `sim/bridging_irt_dif.py`, each scored against the mean
+of the other four, `levelc_scores.csv`): "psychometric expert" → `S = +0.21`; "follows
+the peer average" → `−0.36`; "partisan" → `−0.26`. When no other panelist carries weight
+(a panel of newcomers), the crowd is the plain mean of the others; a panel of one has no
+crowd, and nothing is scored.
+
+**Use.** The evaluator score sets the review vote weight on the **odds scale, with
+shrinkage** toward the crowd's level while the number `k_u` of scored outcomes is small
+(`reputation::odds_weight`):
+
+```
+w_u = exp( γ · S_u · k_u / (k_u + k_0) )        γ = 35,  k_0 = 100   (provisional, T24/T25)
+```
+
+At `γ = 35` a reviewer reliably 0.02 better than the crowd weighs double. Shrinkage stops
+luck from buying weight: with 16 scored items one standard error of the score (≈ 0.025)
+is worth ×2.4 without it and ×1.13 with it. The weight is unbounded above, which is what
+lets the cap of §C.4 bind. The retired `E_u = σ(γ · BSS)` and `w_u = min(w_max, E_u)`
+are gone.
 
 ### C.3 Judgments without verifiable truth
 
@@ -456,17 +477,25 @@ own judgment, (b) the expected distribution of the others. The **surprisingly co
 answer is rewarded — more frequent than the group predicted. It extracts information
 from the informed minority.
 
-### C.4 Temporal asymmetry and cap
+### C.4 Temporal asymmetry, cap and probation
 
-> **Superseded by D33, D34 and D36 (T50, T51).** The asymmetric update rewards copying the
-> crowd (paper §5.5), and the cap never binds on `E_u ∈ (0,1)`. The weight will follow a
-> symmetric long-window mean with a CUSUM change detector (alarm → probation), the cap
-> will apply on the odds scale, and probation will last 30 scored outcomes instead of 200.
+> **Revised by D33, D34 and D36 (T50 done, T51 next).** The cap now applies on the odds
+> scale, where it binds, and probation lasts 30 scored outcomes (T50, 2026-09-25). The
+> asymmetric update below rewards copying the crowd (paper §5.5): it will be replaced by
+> a symmetric long-window mean of the per-item scores with a CUSUM change detector — an
+> alarm returns the reviewer to probation (T51).
 
-- `E_u` rises slowly (average over a long window), falls quickly (immediate reaction
-  to failures). This makes the long-con attack unprofitable.
-- `w_max = 3 × median(w)`, a hard cap recomputed each epoch. Limits the damage of a
-  single event.
+- *Until T51:* the score rises slowly (average over a long window), falls quickly
+  (immediate reaction to failures), meant to make the long-con attack unprofitable
+  (`reputation::asymmetric_ema`, not wired to the weights).
+- `w_max = 3 × median(w)`, a hard cap recomputed each epoch over the weights that count
+  — the positive ones; a probationer's 0 is an exclusion, not a weight
+  (`reputation::cap_weights`). Limits the damage of a single event: a reviewer reliably
+  0.05 better than the crowd over 400 outcomes would weigh 4.1 and is held at 3
+  (`AT-REP-04`).
+- **Probation** (`03` P2, D36): a new pseudonym has weight 0 until it has 30 scored
+  outcomes (`protocol::probation::N_PROBATION`); afterwards the shrinkage of §C.2 moves
+  its weight away from 1 only as evidence accumulates. Founders seed at weight 1.
 
 ---
 
@@ -513,7 +542,10 @@ conservatively.
 | KR-20 min (anchors, latent re-check) | 0.90 (provisional, D37) | on the batch's own respondents, ≈ 40 anchors; below it the batch is refused before fitting (T53, §B.4) |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
 | `α` (cluster discount) | 0.5 | square root |
-| `w_max` | 3× median | individual cap |
+| `γ` (evaluator weight gain) | 35 (provisional, D33) | `w_u = exp(γ · S_u · k_u/(k_u + k_0))`; 0.02 better than the crowd → ×2 (§C.2) |
+| `k_0` (shrinkage) | 100 scored outcomes (provisional, D33) | the score counts `k_u/(k_u + k_0)` |
+| `w_max` | 3× median of the counted weights | individual cap, on the odds scale (binds, T50) |
+| `N_probation` | 30 scored outcomes (D36) | weight 0 before (`03` P2) |
 | `T` (reputation half-life) | 18 months | |
 | `η` (honeypot rate) | 5% | see `05` |
 

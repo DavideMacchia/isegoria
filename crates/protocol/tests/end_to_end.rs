@@ -199,7 +199,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
         .map(|row| row.iter().map(|&v| v != 0.0).collect())
         .collect();
     let standings = vec![ReviewerStanding::founder(); r_dense.len()];
-    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0).unwrap();
+    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings).unwrap();
 
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();

@@ -5,7 +5,8 @@
 //!   minimizes the weighted objective `Σ w_u (r − r̂)²`; what was missing is the piece
 //!   that turns a reviewer's *previous-epoch* standing into the `w_u` the current fit
 //!   consumes. [`bridging_weights`] is that piece (probation = 0, founder = 1,
-//!   established = `min(w_max, E_u)`), and [`weighted_ratings`] hands it to the fit.
+//!   established = the odds weight of the evaluator score, D33, then the epoch's
+//!   `3 × median` cap), and [`weighted_ratings`] hands it to the fit.
 //!
 //! - **T12 / §9.1 — one lifecycle, one decision path.** The stage-to-stage decisions of
 //!   an epoch (a gate outcome becomes a pilot entry, a pilot verdict becomes pool or
@@ -23,16 +24,17 @@ use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
 use scoring::bridging::{Ratings, RatingsError};
+use scoring::reputation::cap_weights;
 
-/// A reviewer's standing carried from the previous epoch, in the same order as the
-/// ratings rows the fit will see. `e_u` is the evaluator score from that epoch
-/// (`reputation::evaluator_score` of the Brier skill score against the crowd baseline,
-/// `docs/01` D23 / T31); it is ignored on probation and for founders.
+/// A reviewer's standing carried from the previous epochs, in the same order as the
+/// ratings rows the fit will see. `score` is the evaluator score `S_u` — the mean
+/// leave-one-out difference score over its `scored` outcomes (`honeypot::reviewer_skills`,
+/// `docs/01` D33); both are ignored on probation and for founders.
 #[derive(Clone, Copy, Debug)]
 pub struct ReviewerStanding {
     pub is_founder: bool,
-    pub judgments_with_outcome: usize,
-    pub e_u: f64,
+    pub scored: usize,
+    pub score: f64,
 }
 
 impl ReviewerStanding {
@@ -41,41 +43,46 @@ impl ReviewerStanding {
     pub fn founder() -> Self {
         ReviewerStanding {
             is_founder: true,
-            judgments_with_outcome: 0,
-            e_u: 0.0,
+            scored: 0,
+            score: 0.0,
         }
     }
 
-    /// An established reviewer with evaluator score `e_u`.
-    pub fn established(e_u: f64) -> Self {
+    /// An established reviewer with evaluator score `score` over `scored` outcomes (at
+    /// least `N_PROBATION`, or it is on probation).
+    pub fn established(score: f64, scored: usize) -> Self {
         ReviewerStanding {
             is_founder: false,
-            judgments_with_outcome: crate::probation::N_PROBATION,
-            e_u,
+            scored,
+            score,
         }
     }
 }
 
-/// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
-/// BRIDGE-007). This is exactly the review vote weight — 0 on probation, 1 for a
-/// bootstrap founder, `min(w_max, E_u)` once established — so the same reputation that
-/// weights the aggregation also weights the fit that produces the bridge score.
-pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
-    prev.iter()
-        .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.e_u, w_max))
-        .collect()
+/// Per-reviewer bridging weight `w_u` from the previous epochs' standing (T5,
+/// BRIDGE-007; D33, T50). This is exactly the review vote weight — 0 on probation, 1
+/// for a bootstrap founder, the odds weight `exp(γ · S_u · k_u / (k_u + k_0))` once
+/// established, then the epoch's cap at `3 × median` of the counted weights
+/// (`reputation::cap_weights`) — so the same reputation that weights the aggregation
+/// also weights the fit that produces the bridge score, and no reviewer outweighs three
+/// median ones.
+pub fn bridging_weights(prev: &[ReviewerStanding]) -> Vec<f64> {
+    let raw: Vec<f64> = prev
+        .iter()
+        .map(|r| effective_review_weight(r.is_founder, r.scored, r.score))
+        .collect();
+    cap_weights(&raw)
 }
 
 /// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the
-/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`: a standing count
+/// previous epochs (T5). `prev` is indexed like the rows of `r`/`mask`: a standing count
 /// that differs from the rows, or a malformed matrix, is refused (`RatingsError`, T62).
 pub fn weighted_ratings(
     r: &[Vec<f64>],
     mask: &[Vec<bool>],
     prev: &[ReviewerStanding],
-    w_max: f64,
 ) -> Result<Ratings, RatingsError> {
-    let ratings = Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max));
+    let ratings = Ratings::from_dense(r, mask).with_weights(bridging_weights(prev));
     ratings.validate()?;
     Ok(ratings)
 }

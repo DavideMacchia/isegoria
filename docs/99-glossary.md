@@ -351,24 +351,35 @@ Log:    ln(p) if it happens,  ln(1−p) if not      very harsh punishment for co
 With the log score, declaring 99% and being wrong costs enormously. It is why it is used
 when overconfidence is the vice to discourage.
 
-## Brier Skill Score
+## Beating the crowd: the difference score (and the retired skill score)
 
 **Residual problem.** The raw Brier rewards predicting the obvious. If 90% of questions
 get rejected, someone who always says "it will be rejected" gets an excellent score
 without knowing anything.
 
-**Solution.** You normalize against a reference — here, the crowd's average prediction:
+**Solution.** You measure your error against a reference — here, the crowd's forecast,
+the average prediction of the *other* reviewers on the panel — by **difference**
+(`01` D33, `02` §C.2):
 
 ```
-BSS = 1 − (your error / baseline error)
+S = (crowd error) − (your error)          errors are squared, item by item
 ```
 
-- `BSS = 0` → you add nothing over following the majority
-- `BSS > 0` → you are right **when the crowd is wrong**
+- `S = 0` → you add nothing over following the majority (copying the crowd scores
+  exactly zero, whatever happens)
+- `S > 0` → you are right **when the crowd is wrong**
 
 This is the property we need: in a system that must resist majority capture, the correct
 dissenter must be rewarded structurally, not out of the designer's goodwill. The concept
-comes from meteorology, where forecasters have been evaluated methodically for decades.
+comes from meteorology, where forecasters have been evaluated methodically for decades
+against a reference forecast.
+
+*Why a difference and not a ratio.* The classic **Brier Skill Score**, `1 − your error /
+baseline error`, has the same reading (0 = the baseline, positive = better) but is not a
+proper scoring rule: because the reference sits in a denominator, the report that
+maximizes it leans toward the crowd's side (`paper/`, Prop. 12 — believing 30% against a
+crowd at 65%, you were best off saying 60%). The difference keeps the meaning and
+restores properness.
 
 ## Peer prediction
 

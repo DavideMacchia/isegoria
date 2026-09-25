@@ -24,14 +24,15 @@ ruined reputation and get a new one, negative reputation does not exist (the Fri
 & Resnick result on cheap pseudonyms). A necessary operational consequence anyway:
 
 ```
-probation period:  w_u = 0  for the first n_probation ≈ 200 judgments with known
-                   outcome (they contribute to measuring E_u, not to determining
-                   outcomes)
+probation period:  w_u = 0  for the first n_probation = 30 scored outcomes (they
+                   contribute to measuring the evaluator score S_u, not to
+                   determining outcomes)
 ```
 
-> **Revised by D36 (T50):** probation lasts 30 scored outcomes; afterwards the evaluator
-> score is shrunk toward zero until evidence accumulates. Whitewashing is prevented by
-> non-rotatability (this requirement), not by the length of probation.
+> **D36, implemented (T50, 2026-09-25):** probation lasts 30 scored outcomes (was 200);
+> afterwards the weight moves away from 1 only as evidence accumulates (D33's shrinkage,
+> `02` §C.2). Whitewashing is prevented by non-rotatability (this requirement), not by
+> the length of probation.
 
 **(P3) Unlinkability.** The issuer must not be able to link the credential to the
 derived IDs, nor the two role IDs of the same person to each other.

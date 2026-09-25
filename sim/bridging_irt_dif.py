@@ -140,10 +140,16 @@ prof = {"always predicts the base rate": lambda j: base,
         "follows the bridging":          lambda j: .9 if bridge[j]>=TAU else .1,
         "psychometric expert":           lambda j: .9 if out[j] else .1,
         "partisan":                      lambda j: .9 if lean[j]>.3 else .1}
-print("\n"+"="*78); print("EVALUATORS - Brier Skill Score"); print("="*78)
-for nmv,f in prof.items():
-    p = np.clip([f(j) for j in range(M)], .02, .98)
-    print(f"{nmv:<32}BSS = {1-((p-out)**2).sum()/(((base-out)**2).sum()):>6.2f}")
+# docs/02 C.2, docs/01 D33: each profile is scored against the mean forecast of the
+# other profiles (its crowd) with the leave-one-out difference score, and weighted on
+# the odds scale with shrinkage over its k = M scored items.
+P = np.clip(np.array([[f(j) for j in range(M)] for f in prof.values()]), .02, .98)
+others = np.array([np.delete(P, k, 0).mean(0) for k in range(len(P))])
+S = ((others - out)**2 - (P - out)**2).mean(1)
+W = np.exp(35 * S * M / (M + 100))
+print("\n"+"="*78); print("EVALUATORS - leave-one-out difference score (D33)"); print("="*78)
+for nmv, sc, w in zip(prof, S, W):
+    print(f"{nmv:<32}S = {sc:+.3f}   odds weight = {w:.2f}")
 
 # ---- corner case: elite consensus ----
 edu = rng.choice([0,1], NT, p=[.6,.4])

@@ -24,8 +24,9 @@ network), 1500 respondents with 30 anchor items. Covers:
 - **Level B** — IRT, point-biserial, DIF via logistic regression, purified via
   anchors
 - **Combined verdict** of the two filters
-- **Evaluators** — Brier Skill Score for various profiles (follows-the-crowd, expert,
-  partisan…)
+- **Evaluators** — the leave-one-out difference score and odds weight (`docs/02` C.2,
+  D33) for various profiles (follows-the-crowd, expert, partisan…), each scored against
+  the mean forecast of the others
 - **Corner case 1** — elite consensus (an item neutral on the political axis,
   distorted on education)
 - **Corner case 2** — cost of bipartisan corruption
@@ -40,7 +41,9 @@ Expected results (indicative, seed-dependent):
   (0.53–0.56) and the mildly partisan one (0.70) drop; the intercept `b_j` is printed
   alongside for comparison
 - the MES item passes bridging but is stopped by DIF (β₂ ≈ 0.7)
-- "follows the peer average" → negative BSS; "psychometric expert" → BSS ~0.95
+- "psychometric expert" → the largest difference score (+0.21, odds weight 1.9 over its
+  10 scored items); "follows the peer average" (−0.36) and "partisan" (−0.26) → weights
+  below 1
 - elite consensus: political DIF ≈ 0, education DIF ≈ 0.66
 - bipartisan corruption: ~55/80 nodes of the opposing camp are needed to pass the item
   (`S_j` 0.76 with 40, 0.83 with 55)

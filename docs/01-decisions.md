@@ -322,7 +322,8 @@ Resolves Q-3 / G-02.
 ## D23 — Evaluator score baseline: the crowd's prediction, not the outcome base rate
 
 > **Refined by D33** (2026-09-24): the crowd baseline excludes the reviewer being scored, and
-> the score is a difference of Brier scores instead of the ratio-form BSS.
+> the score is a difference of Brier scores instead of the ratio-form BSS. Implemented
+> (T50, 2026-09-25): `reputation::loo_baseline`.
 
 **Choice.** The evaluator skill score (BSS) is measured against the crowd's average
 predicted probability (a weight-adjusted average of the reviewers' own predictions),
@@ -508,6 +509,20 @@ decoys; on the same test the intercept moves from +0.09 to +0.32.
 
 ## D33 — Evaluator score: leave-one-out difference score, odds-scale weights with shrinkage
 
+> **Implemented (T50, 2026-09-25):** `scoring::reputation::{loo_baseline,
+> difference_scores, mean_score, odds_weight, cap_weights}` with `GAMMA = 35` and
+> `K_SHRINK = 100`; `honeypot::reviewer_skills` returns each panelist's mean leave-one-out
+> difference score on the golden items; `orchestrator::bridging_weights` maps a
+> `ReviewerStanding { is_founder, scored, score }` to `exp(γ · S_u · k_u/(k_u + k_0))` and
+> caps the epoch's weights at `3 × median` of the counted (positive) ones — on the odds
+> scale the cap binds (`AT-REP-04`). Properness is checked by exact enumeration
+> (`AT-REP-05`, `proper_score.rs`), the copier's exact zero for every outcome
+> (`AT-REP-02`). The ratio-form BSS, `E_u = σ(γ · BSS)` and the base-rate baseline are
+> removed; the sim's evaluators block and `levelc_scores.csv` compute the new score. When
+> no other panelist carries weight, the crowd is the plain mean of the others; a panel of
+> one scores nothing. Still to come: the scored outcomes are the golden items only (D35,
+> T52), and the long-window mean with the CUSUM (D34, T51).
+
 **Choice.** On every scored item the evaluator score is
 `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, where `p̄_{−u,j}` is the weight-adjusted
 mean forecast of the *other* panelists. `S_u` is its mean over the reviewer's scored
@@ -601,6 +616,9 @@ of pilot capacity.
 ---
 
 ## D36 — Probation: 30 scored outcomes, then shrinkage
+
+> **Implemented (T50, 2026-09-25):** `protocol::probation::N_PROBATION = 30`; the
+> shrinkage is D33's `k_u/(k_u + k_0)` in `reputation::odds_weight`.
 
 **Choice.** A new evaluator pseudonym has weight 0 until it has 30 scored outcomes (was
 200). After that, the shrinkage of D33 moves its weight away from 1 only as evidence

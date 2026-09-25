@@ -4,7 +4,7 @@
 //! even-length median or a wrong mean in Pearson. These pin the formulas themselves.
 
 use scoring::collusion::{correlation_matrix, discount_weights};
-use scoring::reputation::{author_score, crowd_baseline, weight_cap, AuthorPrior};
+use scoring::reputation::{author_score, difference_scores, loo_baseline, weight_cap, AuthorPrior};
 
 const EPS: f64 = 1e-12;
 
@@ -23,20 +23,39 @@ fn author_score_decays_old_items_by_exp_minus_age_over_t() {
     assert!((author_score(&[], &[], &p) - 2.0 / 5.0).abs() < EPS);
 }
 
-/// `p̄_j = Σ w_u p_uj / Σ w_u`: a weight-2 reviewer counts twice.
+/// `p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v`: the reviewer's own forecast is left out
+/// and a weight-2 peer counts twice (D33).
 #[test]
-fn crowd_baseline_is_the_weighted_mean() {
-    let preds = vec![vec![0.9, 0.2], vec![0.3, 0.8]];
-    let got = crowd_baseline(&preds, &[2.0, 1.0]);
-    assert!((got[0] - (2.0 * 0.9 + 0.3) / 3.0).abs() < EPS);
-    assert!((got[1] - (2.0 * 0.2 + 0.8) / 3.0).abs() < EPS);
+fn loo_baseline_is_the_weighted_mean_of_the_others() {
+    let preds = vec![vec![0.9, 0.2], vec![0.3, 0.8], vec![0.5, 0.5]];
+    let w = [2.0, 1.0, 1.0];
+    let for_first = loo_baseline(&preds, &w, 0);
+    assert!((for_first[0] - (0.3 + 0.5) / 2.0).abs() < EPS);
+    assert!((for_first[1] - (0.8 + 0.5) / 2.0).abs() < EPS);
+    let for_second = loo_baseline(&preds, &w, 1);
+    assert!((for_second[0] - (2.0 * 0.9 + 0.5) / 3.0).abs() < EPS);
+    assert!((for_second[1] - (2.0 * 0.2 + 0.5) / 3.0).abs() < EPS);
 }
 
-/// No weight at all (everyone on probation): the baseline is 0, never 0/0.
+/// No weight among the others (all on probation): their plain mean is the crowd, never
+/// 0/0; with no other panelist there is no crowd and nothing is scored.
 #[test]
-fn crowd_baseline_without_weight_is_zero() {
-    let got = crowd_baseline(&[vec![0.9, 0.2], vec![0.3, 0.8]], &[0.0, 0.0]);
-    assert_eq!(got, vec![0.0, 0.0]);
+fn loo_baseline_without_weight_among_the_others_is_their_plain_mean() {
+    let preds = vec![vec![0.9, 0.2], vec![0.3, 0.8], vec![0.5, 0.5]];
+    let got = loo_baseline(&preds, &[1.0, 0.0, 0.0], 0);
+    assert!((got[0] - 0.4).abs() < EPS && (got[1] - 0.65).abs() < EPS);
+    assert!(loo_baseline(&preds[..1], &[1.0], 0).is_empty());
+    assert!(difference_scores(&preds[..1], &[1.0], &[1.0, 0.0])[0].is_empty());
+}
+
+/// `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`: forecasting 0.9 against a crowd at 0.4
+/// on an item that passes scores 0.36 − 0.01 = 0.35; on one that fails, 0.16 − 0.81.
+#[test]
+fn difference_score_by_hand() {
+    let preds = vec![vec![0.9, 0.9], vec![0.3, 0.3], vec![0.5, 0.5]];
+    let s = difference_scores(&preds, &[1.0, 1.0, 1.0], &[1.0, 0.0]);
+    assert!((s[0][0] - 0.35).abs() < EPS, "{}", s[0][0]);
+    assert!((s[0][1] - (0.16 - 0.81)).abs() < EPS, "{}", s[0][1]);
 }
 
 /// `w_max = 3 × median`: the median of an even count is the mean of the middle two.

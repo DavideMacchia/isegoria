@@ -1,14 +1,14 @@
 //! Golden items (`docs/05`, §Golden items). A fraction η≈5% of the review queue are
 //! items of known quality, indistinguishable from the rest, giving a continuous
-//! direct measure of E_u and catching nodes that vote at random or in blocks.
-//! They must be produced by a sortition committee (defended in `governance`).
+//! direct measure of the evaluator score and catching nodes that vote at random or in
+//! blocks. They must be produced by a sortition committee (defended in `governance`).
 
 use crate::randomness::{Beacon, HONEYPOT};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use scoring::reputation::{brier_skill_score, crowd_baseline};
+use scoring::reputation::{difference_scores, mean_score};
 
 pub const HONEYPOT_RATE: f64 = 0.05;
 
@@ -40,18 +40,21 @@ pub fn inject<T: Clone>(queue: &[T], golden: &[T], rate: f64, seed: u64) -> Vec<
     out
 }
 
-/// Skill of each panel reviewer on the golden items: BSS of their predictions against
-/// the known outcomes, over the crowd baseline (`docs/01` D23 — the weight-adjusted mean
-/// of the panel's own predictions). A consensus follower scores ≈ 0; random or block
-/// voting scores at or below zero. `predictions[u][j]`.
+/// Skill of each panel reviewer on the golden items (`docs/01` D33, T50): the mean
+/// leave-one-out difference score `S_u` of its forecasts against the known outcomes — by
+/// how much its Brier score beats the other panelists' weight-adjusted mean forecast
+/// (`reputation::difference_scores`; D23's crowd baseline minus the reviewer). A strictly
+/// proper rule: a reviewer who copies the crowd scores exactly 0, random or block voting
+/// scores at or below zero. `predictions[u][j]`; `weights[u]` the review weights. Each
+/// value is one epoch's contribution to the reviewer's long-run mean over its
+/// `known_outcomes.len()` scored items.
 pub fn reviewer_skills(
     predictions: &[Vec<f64>],
     weights: &[f64],
     known_outcomes: &[f64],
 ) -> Vec<f64> {
-    let baseline = crowd_baseline(predictions, weights);
-    predictions
+    difference_scores(predictions, weights, known_outcomes)
         .iter()
-        .map(|p| brier_skill_score(p, known_outcomes, &baseline))
+        .map(|per_item| mean_score(per_item))
         .collect()
 }

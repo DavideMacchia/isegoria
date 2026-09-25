@@ -20,28 +20,39 @@ use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
 // ------------------------------- T5: weights from standing -------------------------------
 
 /// The bridging weight is the review vote weight: 0 on probation, 1 for a bootstrap
-/// founder, `min(w_max, E_u)` once established.
+/// founder, the odds weight of the evaluator score once established (D33), and the
+/// epoch's `3 × median` cap over the weights that count (AT-REP-04: it binds).
 #[test]
 fn bridging_weights_map_probation_founder_established() {
     let prev = [
         ReviewerStanding::founder(),
-        ReviewerStanding::established(0.3),
-        ReviewerStanding::established(2.0), // above the cap
-        // a fresh node with no track record: on probation, weight 0
+        // at the crowd's level: exactly 1
+        ReviewerStanding::established(0.0, 100),
+        // reliably 0.05 better over 400 outcomes: exp(35 · 0.05 · 0.8) ≈ 4.06, capped
+        ReviewerStanding::established(0.05, 400),
+        // a fresh node with no track record: on probation, weight 0, however good
         ReviewerStanding {
             is_founder: false,
-            judgments_with_outcome: 0,
-            e_u: 0.9,
+            scored: 0,
+            score: 0.9,
         },
-        // a founder that has crossed the probation threshold is established, not seeded
+        // a founder that has crossed the probation threshold is established, not seeded:
+        // slightly worse than the crowd over 30 outcomes, exp(35 · −0.01 · 30/130)
         ReviewerStanding {
             is_founder: true,
-            judgments_with_outcome: N_PROBATION,
-            e_u: 0.4,
+            scored: N_PROBATION,
+            score: -0.01,
         },
     ];
-    let w = bridging_weights(&prev, 1.0);
-    assert_eq!(w, vec![1.0, 0.3, 1.0, 0.0, 0.4]);
+    let w = bridging_weights(&prev);
+    // The counted weights are [1, 1, 4.06, 0.92]: median 1, cap 3. The probationer's 0
+    // is not a weight and does not pull the cap down.
+    assert_eq!(w[0], 1.0);
+    assert_eq!(w[1], 1.0);
+    assert_eq!(w[2], 3.0, "the cap binds on the outlier");
+    assert_eq!(w[3], 0.0);
+    let expected = (-35.0 * 0.01 * 30.0 / 130.0f64).exp();
+    assert!((w[4] - expected).abs() < 1e-12, "{} vs {expected}", w[4]);
 }
 
 /// The load-bearing T5 claim at the protocol boundary: a coordinated bloc pushing an
@@ -70,11 +81,7 @@ fn lower_reputation_moves_the_bridge_score_less() {
     let params = BridgingParams::default();
 
     let b_t = |standings: &[ReviewerStanding]| {
-        let f = fit(
-            &weighted_ratings(&rows, &mask, standings, 1.0).unwrap(),
-            &params,
-        )
-        .unwrap();
+        let f = fit(&weighted_ratings(&rows, &mask, standings).unwrap(), &params).unwrap();
         side_balanced(&f).score[t]
     };
 
@@ -83,8 +90,9 @@ fn lower_reputation_moves_the_bridge_score_less() {
     trusted.extend(std::iter::repeat_n(ReviewerStanding::founder(), bloc));
     // Case B: the bloc are established with a tiny evaluator score (weight ≈ 0.02).
     let mut discounted = vec![ReviewerStanding::founder(); honest];
+    // Reliably worse than the crowd over 400 outcomes: exp(35 · −0.1 · 0.8) ≈ 0.06.
     discounted.extend(std::iter::repeat_n(
-        ReviewerStanding::established(0.02),
+        ReviewerStanding::established(-0.1, 400),
         bloc,
     ));
 
@@ -316,12 +324,12 @@ fn a_standing_short_of_the_rows_is_refused_before_the_fit() {
     let mask = vec![vec![true; 3]; 4];
     let short = vec![ReviewerStanding::founder(); 3];
     assert_eq!(
-        weighted_ratings(&rows, &mask, &short, 1.0).map(|_| ()),
+        weighted_ratings(&rows, &mask, &short).map(|_| ()),
         Err(RatingsError::WeightCount {
             expected: 4,
             found: 3
         })
     );
     let full = vec![ReviewerStanding::founder(); 4];
-    assert!(weighted_ratings(&rows, &mask, &full, 1.0).is_ok());
+    assert!(weighted_ratings(&rows, &mask, &full).is_ok());
 }

@@ -168,7 +168,7 @@ flowchart TD
 
 - **Author score `C_a`** — how good your proposed questions turn out to be;
   it only controls your **rate limit** on new proposals.
-- **Evaluator score `E_u`** — how good your reviews are; it **weights your review
+- **Evaluator score `S_u`** — how good your reviews are; it **weights your review
   vote**.
 
 They live on **different, unlinkable pseudonyms** and are never merged. The
@@ -305,7 +305,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit across platforms and build profiles (CI), matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
-| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score (T49) and the anchor precondition (T53) are done, the rest is roadmap Phase 1, the first priority |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score (T49), the proper evaluator score with odds weights (T50) and the anchor precondition (T53) are done, the rest is roadmap Phase 1, the first priority |
 | Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64), respondent gate (T65), band items without appeal (T59) and the appeal stake (T61) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |

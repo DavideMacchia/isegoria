@@ -151,8 +151,10 @@ with open(f"{OUT}/levelb_expected.csv", "w") as fo:
         ok_emp[j] = 1.0 if (rp >= .20 and abs(b2) <= .40) else 0.0
         fo.write(f"{j},{X[:, j].mean():.6f},{rp:.6f},{b2:.6f}\n")
 
-# ===================== Level C — evaluator score (BSS) =====================
-# Mirrors the VALUTATORI block of bridging_irt_dif.py.
+# ============ Level C — evaluator score (leave-one-out difference, D33) ============
+# Mirrors the evaluators block of bridging_irt_dif.py: each profile is scored against
+# the mean forecast of the other profiles (its crowd, uniform weights) and weighted on
+# the odds scale with shrinkage over its k = M scored items (docs/02 C.2, T50).
 out = np.array([1. if (bridge[j] >= TAU and ok_emp[j]) else 0. for j in range(M)])
 base = out.mean()
 profiles = [
@@ -165,11 +167,13 @@ profiles = [
 P = np.array([[min(max(f(j), .02), .98) for j in range(M)] for _, f in profiles])
 np.savetxt(f"{OUT}/levelc_o.csv", out, delimiter=",", fmt="%.1f")
 np.savetxt(f"{OUT}/levelc_p.csv", P, delimiter=",", fmt="%.4f")
-with open(f"{OUT}/levelc_bss.csv", "w") as fo:
-    fo.write("profile,bss\n")
+others = np.array([np.delete(P, k, 0).mean(0) for k in range(len(P))])
+S = ((others - out) ** 2 - (P - out) ** 2).mean(1)
+W = np.exp(35 * S * M / (M + 100))
+with open(f"{OUT}/levelc_scores.csv", "w") as fo:
+    fo.write("profile,loo_score,weight\n")
     for k, (nm, _) in enumerate(profiles):
-        bss = 1 - ((P[k] - out) ** 2).sum() / (((base - out) ** 2).sum())
-        fo.write(f"{nm},{bss:.6f}\n")
+        fo.write(f"{nm},{S[k]:.6f},{W[k]:.6f}\n")
 
 # ===================== Mixture IRT — latent-class DIF ======================
 # One instance of latent_dif_and_capacity.py run(n_biased, seed), dumped whole.

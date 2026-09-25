@@ -1,12 +1,11 @@
 //! Level C — node reputation. See `docs/02`, §C.
 //!
 //! Two scores that must never be combined (CLAUDE.md #4, `docs/01` D5): the author
-//! score `C_a` gates the proposal rate limit; the evaluator score `E_u` weights the
-//! review vote. They live on separate, unlinkable pseudonyms.
+//! score `C_a` gates the proposal rate limit; the evaluator score `S_u` — the
+//! leave-one-out difference score of D33, a strictly proper rule — sets the review vote
+//! weight on the odds scale. They live on separate, unlinkable pseudonyms.
 
 use crate::fmath::exp;
-
-use crate::glm::sigmoid;
 
 // -------------------------- C.1 author score --------------------------
 
@@ -48,64 +47,96 @@ pub fn proposal_rate(c_a: f64, q_min: f64, q_max: f64) -> f64 {
 
 // ------------------------ C.2 evaluator score ------------------------
 
-/// Brier Skill Score of predictions `p` against outcomes `o`, normalized by a
-/// `baseline` predictor. Zero means "no better than the baseline"; positive means
-/// right when the baseline is wrong.
-pub fn brier_skill_score(p: &[f64], o: &[f64], baseline: &[f64]) -> f64 {
-    let mut num = 0.0;
-    let mut den = 0.0;
-    for i in 0..o.len() {
-        num += (p[i] - o[i]).powi(2);
-        den += (baseline[i] - o[i]).powi(2);
-    }
-    // A zero-variance baseline (e.g. every outcome identical, so the base rate equals
-    // every outcome) has no error to improve on: skill is undefined. Report it as a
-    // finite, neutral 0.0 rather than dividing by zero into NaN/−∞.
-    if den == 0.0 {
-        return 0.0;
-    }
-    1.0 - num / den
-}
+/// Odds-scale gain of the evaluator weight (`docs/01` D33): at `γ = 35` a reviewer
+/// reliably 0.02 better than the crowd weighs double. Provisional until T24/T25.
+pub const GAMMA: f64 = 35.0;
+/// Shrinkage constant `k_0` of the evaluator weight (D33): with `k_u` scored outcomes the
+/// score counts `k_u / (k_u + k_0)`. The per-item noise (≈ 0.1) against skill
+/// differences of 0.01–0.02 puts it near 100 (paper §7.2). Provisional until T24/T25.
+pub const K_SHRINK: f64 = 100.0;
 
-/// Constant base-rate baseline (mean outcome), as used in `sim/bridging_irt_dif.py`.
-/// Kept for the sim-reproduction test; the evaluator score uses [`crowd_baseline`].
-pub fn base_rate_baseline(o: &[f64]) -> Vec<f64> {
-    let mean = o.iter().sum::<f64>() / o.len() as f64;
-    vec![mean; o.len()]
-}
-
-/// Crowd baseline (`docs/01` D23, docs/08 G-09): per-item weight-adjusted mean of the
-/// panel's declared predictions, `p̄_j = Σ_u w_u p_uj / Σ_u w_u`. This is the reference
-/// the evaluator score is normalized against, so a reviewer who just predicts the crowd
-/// scores `BSS ≈ 0` — not the hindsight outcome base rate. `predictions[u][j]`.
-pub fn crowd_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
-    let m = predictions.first().map_or(0, |row| row.len());
-    let total: f64 = weights.iter().sum();
+/// Leave-one-out crowd forecast of panelist `u` on every item: the weight-adjusted mean
+/// of the *other* panelists' forecasts, `p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v` — D23's
+/// crowd baseline minus the reviewer being scored (D33). The weights are the review
+/// weights, so a probationer's 0 keeps it out of the crowd others are scored against,
+/// not out of the scoring. When no other panelist carries weight, the crowd is the plain
+/// mean of the others; with no other panelist there is no crowd, and the result is empty.
+/// `predictions[u][j]`.
+pub fn loo_baseline(predictions: &[Vec<f64>], weights: &[f64], u: usize) -> Vec<f64> {
+    let m = predictions.first().map_or(0, Vec::len);
+    let others: Vec<usize> = (0..predictions.len()).filter(|&v| v != u).collect();
+    if others.is_empty() {
+        return Vec::new();
+    }
+    let total: f64 = others.iter().map(|&v| weights[v]).sum();
     (0..m)
         .map(|j| {
             if total > 0.0 {
-                predictions
+                others
                     .iter()
-                    .zip(weights)
-                    .map(|(p, &w)| w * p[j])
+                    .map(|&v| weights[v] * predictions[v][j])
                     .sum::<f64>()
                     / total
             } else {
-                0.0
+                others.iter().map(|&v| predictions[v][j]).sum::<f64>() / others.len() as f64
             }
         })
         .collect()
 }
 
-/// Squashes a Brier Skill Score into `E_u ∈ (0,1)` via `σ(γ·BSS)`.
-pub fn evaluator_score(bss: f64, gamma: f64) -> f64 {
-    sigmoid(gamma * bss)
+/// Per-item leave-one-out difference scores (D33; paper Prop. 14):
+/// `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²` for every panelist `u` and scored item `j`,
+/// with `p̄_{−u,j}` from [`loo_baseline`]. `predictions[u][j]`, `outcomes[j] ∈ {0, 1}`,
+/// `weights[u]` the review weights. Strictly proper: the expected score is
+/// `c_u − Σ_j (p_uj − q_j)² / m`, maximized by the true belief `q`; exactly 0 for every
+/// outcome when the forecast equals the crowd's; positive exactly when the reviewer's
+/// Brier score beats the crowd's; additive over items, so it accumulates across epochs.
+/// Empty rows for a panel of one — no crowd to beat.
+pub fn difference_scores(
+    predictions: &[Vec<f64>],
+    weights: &[f64],
+    outcomes: &[f64],
+) -> Vec<Vec<f64>> {
+    (0..predictions.len())
+        .map(|u| {
+            let crowd = loo_baseline(predictions, weights, u);
+            crowd
+                .iter()
+                .zip(&predictions[u])
+                .zip(outcomes)
+                .map(|((b, p), o)| (b - o).powi(2) - (p - o).powi(2))
+                .collect()
+        })
+        .collect()
+}
+
+/// A reviewer's evaluator score `S_u`: the mean of its per-item scores (D33); 0 with none.
+pub fn mean_score(per_item: &[f64]) -> f64 {
+    if per_item.is_empty() {
+        0.0
+    } else {
+        per_item.iter().sum::<f64>() / per_item.len() as f64
+    }
+}
+
+/// Odds-scale review weight with shrinkage (D33): `w_u = exp(γ · S_u · k_u / (k_u + k_0))`,
+/// `k_u` the number of scored outcomes. Unbounded above, so the `3 × median` cap can bind
+/// (paper Prop. 15); exactly 1 at the crowd's level or with no scored outcome.
+pub fn odds_weight(score: f64, scored: usize, gamma: f64, k_shrink: f64) -> f64 {
+    let k = scored as f64;
+    let shrink = if k + k_shrink > 0.0 {
+        k / (k + k_shrink)
+    } else {
+        0.0
+    };
+    exp(gamma * score * shrink)
 }
 
 // -------------------- C.4 temporal asymmetry & cap --------------------
 
 /// Asymmetric update: rises slowly, falls fast, so a long-con of hoarded reputation
-/// does not pay (`docs/02`, §C.4). `up` ≪ `down`.
+/// does not pay (`docs/02`, §C.4). `up` ≪ `down`. Superseded by the CUSUM change
+/// detector of D34 (T51).
 pub fn asymmetric_ema(prev: f64, new: f64, up: f64, down: f64) -> f64 {
     let rate = if new >= prev { up } else { down };
     prev + rate * (new - prev)
@@ -116,9 +147,23 @@ pub fn weight_cap(weights: &[f64]) -> f64 {
     3.0 * median(weights)
 }
 
-/// Applies the vote weight `w_u = min(w_max, E_u)`.
-pub fn capped_weight(e_u: f64, w_max: f64) -> f64 {
-    e_u.min(w_max)
+/// Applies the vote weight cap: `min(w_max, w_u)`.
+pub fn capped_weight(w_u: f64, w_max: f64) -> f64 {
+    w_u.min(w_max)
+}
+
+/// The cap across an epoch's review weights (D33): `w_max = 3 × median` of the weights
+/// that count — the positive ones; a probationer's 0 is an exclusion, not a weight, and
+/// would pull the cap to 0 in a young network — and every weight becomes
+/// `min(w_max, w_u)`. On the odds scale the cap can bind (paper Prop. 15). With no
+/// positive weight nothing changes.
+pub fn cap_weights(weights: &[f64]) -> Vec<f64> {
+    let counted: Vec<f64> = weights.iter().copied().filter(|&w| w > 0.0).collect();
+    if counted.is_empty() {
+        return weights.to_vec();
+    }
+    let w_max = weight_cap(&counted);
+    weights.iter().map(|&w| capped_weight(w, w_max)).collect()
 }
 
 fn median(values: &[f64]) -> f64 {
