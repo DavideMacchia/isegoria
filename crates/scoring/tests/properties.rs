@@ -12,7 +12,8 @@ use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, 
 use scoring::collusion::{correlation_matrix, discount_weights, sublinear_group_weight};
 use scoring::irt::{point_biserial, theta_from_anchors};
 use scoring::reputation::{
-    asymmetric_ema, author_score, brier_skill_score, crowd_baseline, evaluator_score, AuthorPrior,
+    asymmetric_ema, author_score, brier_skill_score, crowd_baseline, loo_scores, odds_weight,
+    AuthorPrior, EvaluatorParams,
 };
 
 // ------------------------------ generators ------------------------------
@@ -172,10 +173,8 @@ proptest! {
         }
     }
 
-    /// Skill is capped at 1 (a perfect predictor) and a predictor equal to the baseline
-    /// scores exactly 0; the evaluator score maps any skill into [0, 1]. BSS is unbounded
-    /// below — a poor prediction against a near-perfect baseline scores in the thousands
-    /// below zero — so `σ(γ·BSS)` can underflow to exactly 0: weight zero, as intended.
+    /// The retired skill score is capped at 1 (a perfect predictor) and a predictor equal
+    /// to the baseline scores exactly 0 (its sim-reproduction role, REPUTATION-002).
     #[test]
     fn brier_skill_is_at_most_one_and_zero_for_the_baseline(
         cases in prop::collection::vec((0.0f64..=1.0, 0.0f64..=1.0, prop::bool::ANY), 1..20),
@@ -186,8 +185,41 @@ proptest! {
         let bss = brier_skill_score(&p, &o, &base);
         prop_assert!(bss <= 1.0 + 1e-12, "BSS = {bss}");
         prop_assert_eq!(brier_skill_score(&base, &o, &base), 0.0);
-        let e = evaluator_score(bss, 3.0);
-        prop_assert!((0.0..=1.0).contains(&e), "E = {e}");
+    }
+
+    /// The leave-one-out difference score is bounded by 1 in absolute value per item, a
+    /// reviewer who forecasts the others' mean scores exactly 0, and the odds weight is
+    /// finite and positive, exactly 1 with nothing scored (D33).
+    #[test]
+    fn loo_scores_are_bounded_and_the_odds_weight_is_positive(
+        rows in (2usize..8, 1usize..5).prop_flat_map(|(n, m)| (
+            prop::collection::vec(prop::collection::vec(0.0f64..=1.0, m), n),
+            prop::collection::vec(0.0f64..3.0, n),
+            prop::collection::vec(prop::bool::ANY, m),
+        )),
+        k in 0usize..10_000,
+    ) {
+        let (mut preds, w, o) = rows;
+        let o: Vec<f64> = o.iter().map(|&b| b as i32 as f64).collect();
+        prop_assume!(w[1..].iter().sum::<f64>() > 0.0);
+        let m = o.len();
+        let others: f64 = w[1..].iter().sum();
+        preds[0] = (0..m)
+            .map(|j| preds[1..].iter().zip(&w[1..]).map(|(p, &wv)| wv * p[j]).sum::<f64>() / others)
+            .collect();
+        let scores = loo_scores(&preds, &w, &o);
+        for row in &scores {
+            for d in row {
+                prop_assert!(d.abs() <= 1.0 + 1e-12, "score {d}");
+            }
+        }
+        for d in &scores[0] {
+            prop_assert!(d.abs() < 1e-9, "the copier scores {d}");
+        }
+        let s = scores[1].iter().sum::<f64>() / m as f64;
+        let wgt = odds_weight(s, k, &EvaluatorParams::default());
+        prop_assert!(wgt.is_finite() && wgt > 0.0, "weight {wgt}");
+        prop_assert_eq!(odds_weight(s, 0, &EvaluatorParams::default()), 1.0);
     }
 
     /// The asymmetric update moves toward the new value without overshooting it.

@@ -177,10 +177,16 @@ fn honeypot_injects_about_the_target_rate_and_catches_random_voters() {
         .map(|&o| if o > 0.5 { 0.95 } else { 0.05 })
         .collect();
     let random: Vec<f64> = vec![0.5; 10];
-    // Score both against the crowd baseline (the panel is expert + random).
+    // Each is scored against the other's forecast (the leave-one-out baseline, D33):
+    // the expert gains what the random voter loses.
     let skills = reviewer_skills(&[expert, random], &[1.0, 1.0], &outcomes);
-    assert!(skills[0] > 0.5, "expert should score well");
-    assert!(skills[1] <= 0.0, "random voting should not pay");
+    assert!(skills[0] > 0.2, "expert should score well: {}", skills[0]);
+    assert!(
+        skills[1] < 0.0,
+        "random voting should not pay: {}",
+        skills[1]
+    );
+    assert!((skills[0] + skills[1]).abs() < 1e-12);
 }
 
 // Synthetic respondents spread along the ability axis, with a small deterministic
@@ -311,20 +317,29 @@ fn sortition_handles_more_seats_than_candidates() {
 
 #[test]
 fn probation_gates_weight_until_a_track_record_exists() {
-    // A new node is on probation: measured, but weight 0 (docs/03 P2).
+    // A new node is on probation: measured, but weight 0 (docs/03 P2), for the first
+    // 30 scored outcomes (D36).
+    assert_eq!(N_PROBATION, 30);
     assert_eq!(status(false, 0), Status::Probation);
     assert_eq!(status(false, N_PROBATION - 1), Status::Probation);
-    assert_eq!(effective_review_weight(false, 50, 0.9, 1.5), 0.0);
+    assert_eq!(
+        effective_review_weight(false, N_PROBATION - 1, 0.9, 1.5),
+        0.0
+    );
 
     // A founder seeds the bootstrap at uniform weight 1 (docs/05 cold start).
     assert_eq!(status(true, 0), Status::Founder);
     assert_eq!(effective_review_weight(true, 0, 0.9, 1.5), 1.0);
 
-    // Past the threshold, anyone becomes E_u-weighted and capped.
+    // Past the threshold, anyone is weighted by the odds weight of their skill, capped
+    // (D33): a crowd-level reviewer weighs 1, a better one more, a much better one w_max.
     assert_eq!(status(false, N_PROBATION), Status::Established);
     assert_eq!(status(true, N_PROBATION), Status::Established);
-    assert_eq!(effective_review_weight(false, N_PROBATION, 0.7, 1.5), 0.7);
-    assert_eq!(effective_review_weight(true, N_PROBATION, 2.0, 1.5), 1.5); // capped
+    assert_eq!(effective_review_weight(false, N_PROBATION, 0.0, 1.5), 1.0);
+    let better = effective_review_weight(false, N_PROBATION, 0.02, 1.5);
+    let expected = (35.0 * 0.02 * 30.0 / 130.0f64).exp();
+    assert!((better - expected).abs() < 1e-12, "{better} vs {expected}");
+    assert_eq!(effective_review_weight(true, N_PROBATION, 0.5, 1.5), 1.5); // capped
 }
 
 #[test]

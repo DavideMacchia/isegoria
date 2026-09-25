@@ -98,12 +98,17 @@ paper's snapshot is listed in `paper/README.md`.
 - **REPUTATION-008 — The evaluator score is not proper.** The ratio-form BSS rewards
   moving toward the crowd: with one scored item `logit p* = logit q + 2 logit b` (paper
   Prop 12). Scoring only items that pass the gate would also be improper. Status:
-  **OPEN** → D33, D35, T50, T52 (`AT-REP-05`, `AT-REP-06`).
+  **PARTLY RESOLVED** — the score is the leave-one-out difference score, strictly proper
+  (D33, T50, 2026-09-25: `reputation::loo_scores`, `AT-REP-05` ✓, and the paper's
+  dissenter example reproduced on the retired function, `evaluator_score.rs`); the
+  scored items are still the golden ones — live outcomes with exploration are D35, T52
+  (`AT-REP-06`).
 - **REPUTATION-004 (update).** The asymmetric update penalizes variance: an honest
   reviewer better than the crowd (true +0.009) is held at −0.061, while a crowd copier
   stays at 0. Status: **OPEN** → D34, T51 (`AT-REP-07`).
 - **REPUTATION-005 (update).** Rescaling to `E_u / median(E)` does not give the cap force;
-  only an unbounded scale does. → D33, T50.
+  only an unbounded scale does. **RESOLVED** (D33, T50): the weight is
+  `exp(γ·S_u·k_u/(k_u+k₀))`, unbounded, and `3 × median` binds on an outlier (`AT-REP-04` ✓).
 - **COLLUSION-006 — There is almost nothing to correlate within an epoch.** Two reviewers
   share `r²/m` items per epoch on average (0.81 at `r = 9`, `m = 100`); raw correlations
   also cannot separate a cartel (+0.93) from honest same-camp pairs (+0.94), whereas
@@ -257,7 +262,7 @@ Observations that matter for every later section:
 | DIF Variant 1 | logistic on continuous `f_i` from Level A; MH on tertiles | logistic on caller-supplied `group`; MH on `group > 0` dichotomy with `n_strata` | `β₂` within 0.02; MH class A/C on two items | logistic on an *observed* ±1 group | Source of `f_i` for respondents (see DIF-002) | — | Numerics only |
 | DIF Variant 2 | latent-class mixture, `G` by BIC, `max\|b_g − b_h\| > 0.5` | 2-class, fixed-`θ`, numerical-gradient L-BFGS; `\|δ\| > 0.5` | 3/8 biased detected (BIC>0, axis corr>0.4); 1/8 invisible | 1,2,3,5,8 of 8 × 3 seeds at NT=3000 | `G > 2`; scalable gradient; FP rate at 0 biased items | — | Detection regime at NT=3000, K=8 (auditor re-ran: matches) |
 | Purification (B.4) | iterate on anchors until flagged set stable | anchors + currently-clean batch items; fixed point on flagged set; `max_rounds` cap, non-convergence not signalled | ESM flagged, others not, fixed point re-verified | anchors only (single pass) | Convergence signalling | — | One dataset |
-| Reputation (C) | Beta-shrinkage `C_a`; log score; BSS vs crowd `p̄_j`; `E_u = σ(γ·BSS)`; asymmetric EMA; `w_max = 3·median` | `C_a` exact; BSS vs **base rate `mean(o)`**; `E_u`; EMA; cap | Matches sim BSS to 1e-6; docs examples | BSS vs base rate | Log score; consumption of `E_u` by bridging | — | Formula-level |
+| Reputation (C) | Beta-shrinkage `C_a`; log score; BSS vs crowd `p̄_j`; `E_u = σ(γ·BSS)`; asymmetric EMA; `w_max = 3·median` (the audit snapshot; since D33/T50: leave-one-out difference score, odds weights, a cap that binds) | `C_a` exact; BSS vs **base rate `mean(o)`**; `E_u`; EMA; cap (snapshot) | Matches sim BSS to 1e-6; docs examples | BSS vs base rate | Log score; consumption of `E_u` by bridging (done, T5) | — | Formula-level |
 | Anti-collusion | ρ-matrix, spectral clustering or `f_u` distance, `(Σw)^α` | dense Pearson; connected components at `\|ρ\| ≥ thr`; `(Σw)^α` split pro-rata | identical-vector cartels of 400/500 at thr 0.99, unit weights | none | spectral clustering; sparse handling; consumption by bridging | — | Identical-vector case only |
 | Identity M1 | threshold OPRF on anchor; no issuer learns anchor or label | `VoprfOracle` (RFC 9497) and `ThresholdOprfOracle` (2HashDH + Shamir + DLEQ), both run client+server **in one process with the cleartext anchor as argument**; `EnrollmentRegistry` stores labels | dedup across CIE/SPID; blind-independence; DLEQ soundness; t−1 refusal | none | DKG, transport, input binding to an authenticated anchor, label-authenticity check, key rotation | 2HashDH OPRF security; DDH on Ristretto255 | Functional tests |
 | Identity M2 | blind BBS+ issuance by threshold committee | `Issuer` and `ThresholdIssuer` (`bbs_plus::threshold` DKLS MPC, trusted-dealer keygen, in-process) | round trip; wrong-issuer rejection; PoK soundness on tampered request | none | DKG, transport, presentation, revocation, link to registry (issuer never checks label freshness) | BBS+ unforgeability (q-SDH), blindness | Functional tests |
@@ -499,20 +504,20 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### REPUTATION-002 — Evaluator BSS reproduces the oracle
 - **Evidence.** `level_c.rs::evaluator_bss_reproduces_the_oracle` to 1e-6 (5 profiles).
-- **Evidence status.** TESTED.
+- **Evidence status.** TESTED — of a function the evaluator score no longer uses: since T50 (D33) the score is the leave-one-out difference score; `brier_skill_score` is kept as the sim oracle.
 
 #### REPUTATION-003 — "Following the consensus scores ≈ 0"
 - **Claim (docs/02 §C.2, docs/01 D6).** BSS is normalized against the crowd baseline `p̄_j`; someone who replicates the consensus gets `BSS ≈ 0`.
 - **Analysis.** The sim and `reputation::base_rate_baseline` normalize against the **outcome base rate `mean(o)`** — a constant known only after outcomes, not the crowd's declared probabilities. Under this baseline the "follows the peer average" profile scores **−1.33**, not ≈ 0, and the "always predicts the base rate" profile scores exactly 0. The documented property refers to a baseline that is not implemented; the implemented property ("guessing the base rate scores 0") is different and depends on hindsight.
-- **Evidence status.** RESOLVED (T31). Chose (a) the crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (D23), matching D6's incentive argument: `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`) normalizes BSS against it. `level_c.rs::at_rep_02_a_consensus_follower_scores_zero` (AT-REP-02) pins `BSS = 0` for a follower. The zero-denominator guard is separately RESOLVED (AT-REP-03, §0-ter). Residual: the sim's `levelc_bss` reference still uses the base rate — it reproduces the BSS *function*, not the E_u policy.
+- **Evidence status.** RESOLVED (T31). Chose (a) the crowd-prediction baseline `p̄_j = Σ_u w_u p_uj / Σ w_u` (D23), matching D6's incentive argument: `reputation::crowd_baseline`, and the protocol's E_u (`honeypot::reviewer_skills`) normalizes BSS against it. `level_c.rs::at_rep_02_a_consensus_follower_scores_zero` (AT-REP-02) pins `BSS = 0` for a follower. The zero-denominator guard is separately RESOLVED (AT-REP-03, §0-ter). Residual: the sim's `levelc_bss` reference still uses the base rate — it reproduces the BSS *function*, not the E_u policy. **Superseded by D33 (T50):** the baseline is the leave-one-out mean of the *other* panelists (`reputation::loo_baseline`) and the score its difference form; a reviewer who reports the others' mean scores exactly 0 on every item and weighs exactly 1 (AT-REP-02 re-pinned on `loo_scores`).
 
 #### REPUTATION-004 — Temporal asymmetry
 - **Evidence.** `asymmetric_ema` with caller-supplied `(up, down)`; tests use (0.1, 0.8) and (0.05, 0.5). No rates are specified in `docs/02` §C.4 ("rises slowly, falls quickly"). The "long-con is unprofitable" test (`scoring/tests/adversarial.rs::a_long_con_is_unprofitable`) checks arithmetic consequences of chosen rates, not a game-theoretic property.
 - **Evidence status.** IMPLEMENTED; parameters NOT ESTABLISHED; the incentive claim is a HYPOTHESIS.
 
 #### REPUTATION-005 — Weight cap `w_max = 3·median(w)`
-- **Analysis.** With `E_u ∈ (0,1)` and `w_u = min(w_max, E_u)`: if `median(E) ≥ 1/3` then `w_max ≥ 1 > E_u` and the cap never binds. The tests bind it only with synthetic weights of 2.0 and 5.0, which `evaluator_score` cannot produce.
-- **Evidence status.** IMPLEMENTED; the cap is vacuous in the operating range of the score it caps unless the median falls below 1/3. Specification gap G-12.
+- **Analysis (history).** With `E_u ∈ (0,1)` and `w_u = min(w_max, E_u)`: if `median(E) ≥ 1/3` then `w_max ≥ 1 > E_u` and the cap never binds. The tests bound it only with synthetic weights of 2.0 and 5.0, which `evaluator_score` could not produce.
+- **Evidence status.** RESOLVED (D33, T50). The weight is `exp(γ·S_u·k_u/(k_u+k₀))` — unbounded above — and the cap is `3 × median` over the reviewers who carry weight (`orchestrator::epoch_weight_cap`): a reviewer reliably 0.1 better than a crowd of nine weighs 16 uncapped and 3 capped (`evaluator_score.rs`, `orchestrator_driver.rs`, AT-REP-04). G-12 closed.
 
 #### REPUTATION-006 — Probation
 - **Evidence.** `probation::{status, review_weight}`; tests. Weight is not consumed (BRIDGE-007).
@@ -783,7 +788,7 @@ Init: `a = 1, b = 0, δ ~ 0.3·N(0,1)` (seeded), `logit π = 0`. Optimizer: `lbf
 
 ### 6.7 Reputation
 
-`C_a` as in REPUTATION-001. BSS: `1 − Σ(p−o)²/Σ(p̄−o)²` with `p̄ = mean(o)` (REPUTATION-003). `E_u = σ(γ·BSS)`, `γ` unspecified in docs (tests use 2.0). EMA: `E ← E + r·(new − E)`, `r = up` if `new ≥ E` else `down`; `(up, down)` unspecified. Cap `3·median(w)` (REPUTATION-005). Dasgupta–Ghosh: binary agreement minus baseline, per pair; no aggregation over pairs/items specified. Bayesian Truth Serum: not implemented.
+`C_a` as in REPUTATION-001. *Since T50 (D33):* `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²` with `p̄_{−u,j}` the weighted mean of the other panelists' forecasts; `S_u` its mean over `k_u` scored items; `w_u = min(3·median, exp(γ·S_u·k_u/(k_u+k₀)))`, `γ = 35`, `k₀ = 100` (provisional). *Audit snapshot:* BSS `1 − Σ(p−o)²/Σ(p̄−o)²` with `p̄ = mean(o)` (REPUTATION-003), `E_u = σ(γ·BSS)`, `γ` unspecified (tests used 2.0). EMA: `E ← E + r·(new − E)`, `r = up` if `new ≥ E` else `down`; `(up, down)` unspecified, retired by T51. Cap `3·median(w)` (REPUTATION-005). Dasgupta–Ghosh: binary agreement minus baseline, per pair; no aggregation over pairs/items specified. Bayesian Truth Serum: not implemented.
 **Required.** Specify `γ`, `(up, down)`, the crowd baseline, the definition of `q_j`, and an incentive analysis (at least: is honest reporting a best response under the base-rate baseline when the reviewer knows the batch's approximate base rate?).
 
 ### 6.8 Anti-collusion
@@ -907,9 +912,9 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 
 | State | Event | Precondition | Next | Effect |
 |---|---|---|---|---|
-| `Probation{n<200}` | outcome `o_j` known for a reviewed item | — | `Probation{n+1}` or `Established` at 200 | BSS accumulates; weight 0 |
-| `Founder` | same | declared at bootstrap | `Established` at 200 | weight 1 until then |
-| `Established` | epoch close | — | `Established` | `E ← ema(E, σ(γ·BSS_epoch))`; `w = min(3·median, E)` (vacuous cap, REPUTATION-005); honeypot BSS folded in (rule unspecified) |
+| `Probation{n<30}` | outcome `o_j` known for a reviewed item | — | `Probation{n+1}` or `Established` at 30 (D36, T50) | the per-item scores `S_uj` accumulate; weight 0 |
+| `Founder` | same | declared at bootstrap | `Established` at 30 | weight 1 until then |
+| `Established` | epoch close | — | `Established` | `S_u ← mean of the per-item leave-one-out difference scores` (D33, T50); `w = min(3·median, exp(γ·S_u·k_u/(k_u+k₀)))`, the cap over the reviewers who carry weight (binds, REPUTATION-005); the asymmetric EMA of the first design stays until the CUSUM of D34 (T51) |
 | any | detected block voting (cluster) | COLLUSION-002/003 fixed | same | `w ← w·s^{α−1}` (INV-14) |
 
 ### 9.3 Enrollment and issuance (target protocol; current code is a single in-process call)
@@ -993,9 +998,9 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Long-con (accumulate then spend) | PARTIALLY MITIGATED by asymmetric EMA + cap; rates unspecified; incentive analysis absent (REPUTATION-004); cap vacuous (REPUTATION-005); and **no weight is consumed** (BRIDGE-007), so at this commit reputation has no effect to spend | `adversarial.rs` arithmetic only |
 | Strategic abstention (review only "easy" items) | random assignment; non-reveal penalty | UNSOLVED — no non-reveal rule; abstention after seeing the item is free |
 | Score farming via honeypots | sortition-produced golden items | UNSOLVED — committee members know the golden set (PROTO-009) |
-| Majority following | BSS vs crowd baseline | PARTIALLY MITIGATED: under the implemented base-rate baseline "follows peers" scores −1.33 on the fixture, but the documented property (≈ 0) is not what is implemented (REPUTATION-003); depends on outcome base rate |
-| Deliberate contrarianism | proper scoring rule | CONTAINED: BSS is proper; a contrarian who is wrong loses; a contrarian who is right *should* gain (by design) |
-| Cartel scoring (agree on predictions to farm BSS) | anti-collusion | UNSOLVED — BSS is per reviewer against outcomes; coordination does not change BSS but does change bridging (below) |
+| Majority following | leave-one-out difference score (D33) | MITIGATED (T50): a reviewer who reports the others' mean scores exactly 0 and weighs exactly 1 (AT-REP-02); on the fixture the followers score below the expert |
+| Deliberate contrarianism | strictly proper scoring rule | CONTAINED: the difference score is strictly proper (AT-REP-05) — a contrarian who is wrong loses; a contrarian who is right gains (by design); the retired ratio-form BSS was not proper (paper Prop. 12) |
+| Cartel scoring (agree on predictions to farm the score) | anti-collusion | UNSOLVED — the score is per reviewer against outcomes; coordination does not change it but does change bridging (below) |
 
 ### 11.3 Bridging
 
@@ -1067,10 +1072,10 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-ID-07 ✓ | cross-source dedup | CIE then SPID same CF | `DuplicateEnrollment` | ID-001 |
 | AT-ID-08 ✓ | DLEQ soundness | member with `k_i + 1` | partial rejected | ID-003 |
 | AT-REP-01 | long-con, game-theoretic | agent maximizing Σ_t influence·(betrayal payoff) under EMA `(up, down)` and cap, with influence actually consumed by bridging | best response is honesty | REPUTATION-004 |
-| AT-REP-02 | consensus follower | `p_uj := p̄_j` for all j | BSS ≈ 0 under the *specified* baseline | REPUTATION-003 |
+| AT-REP-02 ✓ | consensus follower | `p_uj := p̄_{−u,j}` for all j (the others' mean, D33) | scores exactly 0 on every item and weighs exactly 1 — `level_c.rs`, `evaluator_score.rs` (T50) | REPUTATION-003 |
 | AT-REP-03 | denominator zero | all `o_j` equal | finite, defined result | REPUTATION-003 |
-| AT-REP-04 | cap binds | weights = `E_u ∈ (0,1)` with median > 1/3 | cap has an effect or the spec is changed | REPUTATION-005 |
-| AT-REP-05 | properness (D33) | random beliefs and baselines, exact expectation over all outcomes, `m ≤ 4` | the expected score is maximized by the true belief | REPUTATION-008 |
+| AT-REP-04 ✓ | cap binds | odds weights of nine crowd-level reviewers and one reliably 0.1 better | the outlier weighs 16 uncapped and 3 capped — `evaluator_score.rs`, `orchestrator_driver.rs` (T50) | REPUTATION-005 |
+| AT-REP-05 ✓ | properness (D33) | random beliefs and baselines, exact expectation over all outcomes, `m ≤ 4` | the expected score is maximized by the true belief — by exactly `Σ_j (p_j − q_j)²` over any other report (50 instances per `m`, 20 reports each, `evaluator_score.rs`, T50) | REPUTATION-008 |
 | AT-REP-06 | exploration weights (D35) | synthetic reviewers; outcomes observed with probability 1 (passed) or 0.05 (explored rejections) | the weighted score's expectation equals the full-information score within Monte Carlo error; truthful reporting stays optimal | REPUTATION-008 |
 | AT-REP-07 | change detection (D34) | seeded honest stream of 10,000 scored items; a reviewer that starts flipping 20% of forecasts | at most one alarm on the honest stream; the flipper caught within 100 scored items | REPUTATION-004 |
 | AT-COL-01 ✓ | identical cartel | 400/500 identical rows | Σw = √k | COLLUSION-001 |
@@ -1237,6 +1242,7 @@ Only gaps supported by evidence in the repository are listed. Each gives: locati
 *Location.* `reputation.rs::{weight_cap, capped_weight}`, tests using 2.0 and 5.0.
 *Minimum spec.* Define the weight scale (is `w = E_u`, or `w = E_u / median(E)`?) so the cap is meaningful.
 *Test.* AT-REP-04.
+*Status.* RESOLVED (D33, T50) — the weight is on the odds scale, `exp(γ·S_u·k_u/(k_u+k₀))`, and the cap binds (AT-REP-04 ✓).
 
 **G-13 — Sub-unit weights are boosted by the discount; sparse data unsupported; jitter evades clustering.**
 *Location.* `collusion.rs`.
@@ -1316,13 +1322,13 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py`; `irt.rs` (`kr20`), `pilot.rs` (`admit_anchors`), `revalidation.rs`, `anchor_reliability.rs` (AT-DIF-11), `latent_classes.rs` (the differential gap inverts in a campaign) | PARTLY RESOLVED (T53) — a batch whose anchors' KR-20 is below 0.90 is refused before the fit; the differential gap is a diagnostic only | θ inside the likelihood (D37) | T54, AT-DIF-12 |
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
-| REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED | — | — |
+| REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED — the retired function, kept as the sim oracle (D33, T50) | — | — |
 | REPUTATION-003 | consensus ≈ 0 | `reputation::crowd_baseline`; `level_c.rs` (AT-REP-02) | RESOLVED (T31) — E_u normalizes BSS against the crowd baseline `p̄_j` (D23); a consensus follower scores BSS 0. Sim's `levelc_bss` reference still base-rate | sim BSS → crowd | G-09 |
 | REPUTATION-004 | asymmetry deters long-con | `scoring/tests/adversarial.rs` | IMPLEMENTED; claim HYPOTHESIS | rates; game analysis | AT-REP-01 |
-| REPUTATION-005 | cap limits a node | `level_c.rs` (synthetic weights) | IMPLEMENTED (vacuous) | — | G-12 |
+| REPUTATION-005 | cap limits a node | `evaluator_score.rs`, `orchestrator_driver.rs` (`epoch_weight_cap`), AT-REP-04 | RESOLVED (T50) — odds-scale weights, the cap binds on an outlier | — | — |
 | REPUTATION-006 | probation | `probation.rs`, `orchestrator.rs` (`bridging_weights`) | WIRED (T5) — probation → `w_u = 0`, so a probationer's ratings do not move `b_j`; `orchestrator_driver.rs` | — | G-03 |
 | REPUTATION-007 | appeal stake coherent | `appeal.rs`, `orchestrator.rs` (`settle_appeal`), `appeal_stake.rs`, `end_to_end.rs` | TESTED — a zero-quality pseudo-observation escrowed at filing, replaced by `q_j` on promotion, left otherwise; the floor is the prior mean; `run_item` derives the checks from the verdicts (D27, T61) | floor and stake weight provisional | T25 |
-| REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py` | OPEN — ratio BSS improper | LOO difference score, exploration (D33, D35) | T50, T52, AT-REP-05/06 |
+| REPUTATION-008 | evaluator score proper | paper §5.3–5.4, `levelC_bss.py`; `reputation.rs` (`loo_scores`, `odds_weight`), `evaluator_score.rs` (AT-REP-05) | PARTLY RESOLVED (T50) — the leave-one-out difference score, strictly proper; the retired ratio was not (the paper's dissenter example reproduced) | live outcomes with exploration (D35) | T52, AT-REP-06 |
 | COLLUSION-001 | identical cartel → √k | `anti_collusion.rs`, `adversarial.rs` | TESTED (identical, dense, unit) | — | — |
 | COLLUSION-002 | jittered cartel detected | auditor probe (fails at σ=0.05) | UNSOLVED | robust statistic | AT-COL-02 |
 | COLLUSION-003 | sparse data | — | NOT IMPLEMENTED | — | AT-COL-03 |
@@ -1507,7 +1513,7 @@ The following cannot be established from the repository, from simulation, or fro
 | DIF Variant 1, MH | §6.5 | `crates/scoring/src/dif.rs`: `logistic_dif`, `DifCoefs`, `mantel_haenszel`, `MhResult`, `EtsClass`, `BETA2_MAX`, `MH_DELTA_B/C` | `level_b.rs` | `dif()` |
 | Purification | §6.5 | `crates/scoring/src/validation.rs`: `purify_theta`, `Purified` | `level_b.rs` | — |
 | DIF Variant 2 | §6.6 | `dif.rs`: `mixture_nll`, `mixture_dif`, `MixtureDif`, `MIXTURE_DIF_MAX`, `logsumexp2` | `level_b.rs`, `reproducibility.rs`, `power.rs` (ignored) | `sim/latent_dif_and_capacity.py::run` |
-| Reputation | §6.7 | `crates/scoring/src/reputation.rs`: `AuthorPrior`, `author_score`, `proposal_rate`, `brier_skill_score`, `base_rate_baseline`, `evaluator_score`, `asymmetric_ema`, `weight_cap`, `capped_weight`, `dasgupta_ghosh` | `level_c.rs`, `scoring/tests/adversarial.rs` | VALUTATORI block |
+| Reputation | §6.7 | `crates/scoring/src/reputation.rs`: `AuthorPrior`, `author_score`, `proposal_rate`, `difference_score`, `loo_baseline`, `loo_scores`, `mean_score`, `odds_weight`, `EvaluatorParams` (D33, T50), `brier_skill_score`, `base_rate_baseline` (sim oracle), `asymmetric_ema` (until T51), `weight_cap`, `capped_weight`, `dasgupta_ghosh` | `level_c.rs`, `evaluator_score.rs`, `scoring/tests/adversarial.rs` | VALUTATORI block |
 | Anti-collusion | §6.8 | `crates/scoring/src/collusion.rs`: `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights`, `ALPHA` | `anti_collusion.rs`, `adversarial.rs` | — |
 | Role nym | §7.1 | `crates/identity/src/nym.rs`: `Role`, `Nym`, `derive_nym`; `hash.rs::tagged` | `identity/tests/properties.rs` | — |
 | Rate limit | §7.1, ID-008 | `crates/identity/src/ratelimit.rs`: `rln_token`, `within_quota`, `SlotLedger`, `DoubleSpend` | `properties.rs` | — |

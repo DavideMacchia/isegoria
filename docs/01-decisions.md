@@ -508,6 +508,15 @@ decoys; on the same test the intercept moves from +0.09 to +0.32.
 
 ## D33 — Evaluator score: leave-one-out difference score, odds-scale weights with shrinkage
 
+> **Implemented (2026-09-25, T50):** `reputation::{loo_baseline, loo_scores, mean_score,
+> odds_weight, EvaluatorParams}` (`γ = 35`, `k₀ = 100`, provisional); `honeypot::reviewer_skills`
+> returns the mean leave-one-out difference score on the golden items; the review weight is
+> `min(w_max, exp(γ·S_u·k_u/(k_u+k₀)))` (`probation::effective_review_weight`,
+> `orchestrator::bridging_weights`) with `w_max = 3 × median` over the reviewers who carry
+> weight (`orchestrator::epoch_weight_cap`), where it binds. `evaluator_score` (`σ(γ·BSS)`) is
+> removed; `brier_skill_score` stays as the sim oracle only. AT-REP-02/04/05 pass
+> (`evaluator_score.rs`). The scored items are still the golden ones: D35 is T52.
+
 **Choice.** On every scored item the evaluator score is
 `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, where `p̄_{−u,j}` is the weight-adjusted
 mean forecast of the *other* panelists. `S_u` is its mean over the reviewer's scored
@@ -601,6 +610,9 @@ of pilot capacity.
 ---
 
 ## D36 — Probation: 30 scored outcomes, then shrinkage
+
+> **Implemented (2026-09-25, T50):** `probation::N_PROBATION = 30`; after it the odds weight
+> of D33 is shrunk by `k_u/(k_u + 100)`.
 
 **Choice.** A new evaluator pseudonym has weight 0 until it has 30 scored outcomes (was
 200). After that, the shrinkage of D33 moves its weight away from 1 only as evidence

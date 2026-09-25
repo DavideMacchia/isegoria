@@ -65,7 +65,7 @@ executable specification; the Rust implementation must reproduce their results.
 | `irt` | §B.1–B.2, B.4 | `theta_from_anchors`, `kr20` (anchor reliability, D37), `point_biserial`, `fit_2pl_item`, `A_MIN`, `R_PBIS_MIN`, `KR20_MIN` |
 | `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif::differential` is a diagnostic, D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
-| `reputation` | §C | `author_score`, `brier_skill_score`, `evaluator_score`, `asymmetric_ema`, `weight_cap`, `dasgupta_ghosh` |
+| `reputation` | §C | `author_score`, `loo_scores`, `mean_score`, `odds_weight` (D33), `weight_cap`, `asymmetric_ema` (until T51), `brier_skill_score` (sim oracle only), `dasgupta_ghosh` |
 | `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
 | `glm` (private) | — | shared maximum-likelihood logistic regression |
 | `optim` (private) | §A.5 | in-house L-BFGS + numerical gradient |
@@ -166,10 +166,10 @@ steps are seeded for reproducibility.
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch`, `admit_anchors` (KR-20 floor, D37/T53) (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
-| `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
+| `probation` | Cold start / P2 | `status`, `review_weight`, `effective_review_weight` (the capped odds weight, D33), `FounderSet`, `N_PROBATION` (30, D36) | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `revalidate_batch_latent` (the gated entry: items, respondents, anchor reliability — T9/T65/T53), `items_to_retire` | `scoring::dif`, `scoring::irt`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
-| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
+| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `epoch_weight_cap` (`3 × median` over the weights that count, D33), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -184,7 +184,7 @@ The invariants from [`docs/CLAUDE.md`](docs/CLAUDE.md):
 | 1 | Anonymity is the base; no demographic attributes | No such fields anywhere; DIF runs on latent axes (`scoring::dif`) |
 | 2 | Quality is never decided by majority vote | `scoring::bridging` + `scoring::dif`; `protocol::gate` has no vote count |
 | 3 | No money as stake | Bond is reputation (`protocol::deposit`, `scoring::reputation`) |
-| 4 | Two reputation scores, never combined | `scoring::reputation` (`author_score` vs `evaluator_score`); separate role nyms in `identity::nym` |
+| 4 | Two reputation scores, never combined | `scoring::reputation` (`author_score` vs `loo_scores`/`odds_weight`); separate role nyms in `identity::nym` |
 | 5 | One role, one deterministic non-rotatable pseudonym | `identity::nym::derive_nym` |
 | 6 | The state authenticates, does not issue | `identity::enrollment` (`UniquenessOracle`) separate from `credential::BlindIssuer` |
 | 7 | Scoring is deterministic and reproducible | `scoring` (pinned toolchain, seeded RNG); `tests/reproducibility.rs` |
@@ -219,8 +219,9 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
 1. **Oracle acceptance tests** run the Rust engine on the *same dataset* as the
    Python sims (exported by `sim/export_fixtures.py` into
    `crates/scoring/tests/fixtures/`) and check it reproduces their numbers — e.g.
-   bridging recovers the latent axis at |corr| ≈ 0.99; the evaluator BSS matches the
-   sim exactly (follows-the-crowd −1.33, expert 0.95).
+   bridging recovers the latent axis at |corr| ≈ 0.99; the retired evaluator BSS still
+   matches the sim exactly (follows-the-crowd −1.33, expert 0.95), and the difference
+   score that replaced it (D33) ranks the same profiles the same way.
 2. **Property tests** encode the design guarantees: cross-source duplicate
    enrollment is rejected; a tampered log entry breaks `verify`; a k-of-n checkpoint
    needs k valid signatures; erasure recovers from any k of n; a 500-node cartel's

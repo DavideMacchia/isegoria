@@ -168,7 +168,7 @@ flowchart TD
 
 - **Author score `C_a`** — how good your proposed questions turn out to be;
   it only controls your **rate limit** on new proposals.
-- **Evaluator score `E_u`** — how good your reviews are; it **weights your review
+- **Evaluator score `S_u`** — how good your reviews are; it **weights your review
   vote**.
 
 They live on **different, unlinkable pseudonyms** and are never merged. The

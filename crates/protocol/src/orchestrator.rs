@@ -5,7 +5,9 @@
 //!   minimizes the weighted objective `Σ w_u (r − r̂)²`; what was missing is the piece
 //!   that turns a reviewer's *previous-epoch* standing into the `w_u` the current fit
 //!   consumes. [`bridging_weights`] is that piece (probation = 0, founder = 1,
-//!   established = `min(w_max, E_u)`), and [`weighted_ratings`] hands it to the fit.
+//!   established = `min(w_max, exp(γ·S_u·k_u/(k_u+k₀)))`, D33), and
+//!   [`weighted_ratings`] hands it to the fit; [`epoch_weight_cap`] is the epoch's
+//!   `3 × median` over the weights that count.
 //!
 //! - **T12 / §9.1 — one lifecycle, one decision path.** The stage-to-stage decisions of
 //!   an epoch (a gate outcome becomes a pilot entry, a pilot verdict becomes pool or
@@ -18,21 +20,22 @@
 use crate::appeal::{AppealOutcome, AuthorHistory, Escrow};
 use crate::gate::GateOutcome;
 use crate::lifecycle::{step, Event, Invalid, State};
-use crate::probation::effective_review_weight;
+use crate::probation::{effective_review_weight, status, Status};
 use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
 use scoring::bridging::{Ratings, RatingsError};
+use scoring::reputation::weight_cap;
 
 /// A reviewer's standing carried from the previous epoch, in the same order as the
-/// ratings rows the fit will see. `e_u` is the evaluator score from that epoch
-/// (`reputation::evaluator_score` of the Brier skill score against the crowd baseline,
-/// `docs/01` D23 / T31); it is ignored on probation and for founders.
+/// ratings rows the fit will see. `skill` is `S_u`, the mean leave-one-out difference
+/// score over the reviewer's `judgments_with_outcome` scored items (`docs/01` D33 / T50,
+/// `reputation::{loo_scores, mean_score}`); it is ignored on probation and for founders.
 #[derive(Clone, Copy, Debug)]
 pub struct ReviewerStanding {
     pub is_founder: bool,
     pub judgments_with_outcome: usize,
-    pub e_u: f64,
+    pub skill: f64,
 }
 
 impl ReviewerStanding {
@@ -42,28 +45,53 @@ impl ReviewerStanding {
         ReviewerStanding {
             is_founder: true,
             judgments_with_outcome: 0,
-            e_u: 0.0,
+            skill: 0.0,
         }
     }
 
-    /// An established reviewer with evaluator score `e_u`.
-    pub fn established(e_u: f64) -> Self {
+    /// An established reviewer with skill `S_u`, just past probation.
+    pub fn established(skill: f64) -> Self {
         ReviewerStanding {
             is_founder: false,
             judgments_with_outcome: crate::probation::N_PROBATION,
-            e_u,
+            skill,
         }
     }
 }
 
 /// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
 /// BRIDGE-007). This is exactly the review vote weight — 0 on probation, 1 for a
-/// bootstrap founder, `min(w_max, E_u)` once established — so the same reputation that
-/// weights the aggregation also weights the fit that produces the bridge score.
+/// bootstrap founder, the capped odds weight of the skill once established (D33) — so
+/// the same reputation that weights the aggregation also weights the fit that produces
+/// the bridge score.
 pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
     prev.iter()
-        .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.e_u, w_max))
+        .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.skill, w_max))
         .collect()
+}
+
+/// The epoch's weight cap `w_max = 3 × median(w)` (`docs/02` §C.4, D33), over the
+/// uncapped weights of the reviewers who carry weight — founders at 1, established
+/// reviewers at their odds weight; probationers, at 0, are not part of the crowd the cap
+/// is relative to. With nobody carrying weight there is nothing to cap: `+∞`.
+pub fn epoch_weight_cap(prev: &[ReviewerStanding]) -> f64 {
+    let counted: Vec<f64> = prev
+        .iter()
+        .filter(|r| status(r.is_founder, r.judgments_with_outcome) != Status::Probation)
+        .map(|r| {
+            effective_review_weight(
+                r.is_founder,
+                r.judgments_with_outcome,
+                r.skill,
+                f64::INFINITY,
+            )
+        })
+        .collect();
+    if counted.is_empty() {
+        f64::INFINITY
+    } else {
+        weight_cap(&counted)
+    }
 }
 
 /// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the

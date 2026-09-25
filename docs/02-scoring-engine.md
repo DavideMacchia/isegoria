@@ -383,40 +383,60 @@ an author files only while `C_a` covers it, so a failed appeal costs the next on
 the evidence has restored the average. There is no additive gain — the reward for being
 right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
 
-### C.2 Evaluator score `E_u`
+### C.2 Evaluator score `S_u` and review weight `w_u`
 
-> **Superseded by D33 and D35 (T50, T52).** The ratio-form BSS below is not a proper
-> scoring rule (paper Prop. 12). It will be replaced by the leave-one-out difference
-> score `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, with weights
-> `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, scored on golden items, on live items that
-> reach Level B, and on a random 5% of gate rejections sent to the pilot (weighted 1/0.05).
+> **Revised by D33 (T50, done) and D35 (T52).** The ratio-form Brier skill score of the
+> first design is not a proper scoring rule (paper Prop. 12): it paid a dissenter to move
+> toward the crowd. Since T50 the score is the leave-one-out difference score below and
+> the weight lives on the odds scale. D35 (T52) will add the live outcomes and the
+> randomized exploration that make the scored items more than the golden ones.
 
 The reviewer does not give a binary judgment: they **declare a probability** `p_uj`
-that the item passes Level B empirical validation. It is scored with a **proper
-scoring rule**, which makes honesty the optimal strategy.
-
-Logarithmic score (very harsh punishment for confident wrongness):
-
-```
-S_uj = o_j · ln(p_uj) + (1 − o_j) · ln(1 − p_uj)      o_j ∈ {0,1} real outcome
-```
-
-Normalization against the crowd baseline `p̄_j` (Brier Skill Score):
+that the item passes Level B empirical validation. On every scored item — a golden item
+(`05` §Golden items) or, after T52, a live item whose outcome `o_j ∈ {0,1}` is known —
+the forecast is scored with a **strictly proper** rule, which makes honesty the optimal
+strategy whatever the crowd says:
 
 ```
-              Σ_j (p_uj − o_j)²
-BSS_u = 1 − ──────────────────────
-              Σ_j (p̄_j − o_j)²
+S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²      p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v
 ```
 
-**Fundamental property.** Someone who replicates the consensus gets `BSS ≈ 0`. You
+`p̄_{−u,j}` is the weight-adjusted mean forecast of the *other* panelists (`01` D23's
+crowd baseline minus the reviewer scored). The score is the reviewer's Brier improvement
+over the crowd: positive when they are right where the crowd is wrong, exactly 0 for a
+reviewer who reports the crowd's forecast, negative for noise or block voting. Its
+expectation is maximized by the true belief, by exactly `Σ_j (p_uj − q_uj)²` over any
+other report (`08` AT-REP-05).
+
+**Fundamental property.** Someone who replicates the consensus gets `S_u = 0`. You
 gain reputation only by being right **when the crowd is wrong**. This is the incentive
-needed against majority capture. In testing: "follows the peer average" → BSS −1.33
-(worse than the baseline); "psychometric expert" → BSS +0.95.
+needed against majority capture.
 
-Final normalization: `E_u = σ(γ · BSS_u)`, logistic, `E_u ∈ (0,1)`.
+`S_u` is the mean of `S_uj` over the reviewer's `k_u` scored items — the symmetric
+long-window mean of `01` D34 (the change detector on the per-item scores is T51).
 
-**Use.** `E_u` weights the review vote: `w_u = min(w_max, E_u)`.
+**Use.** `S_u` weights the review vote, on the odds scale and shrunk by the number of
+scored items:
+
+```
+w_u = exp( γ · S_u · k_u / (k_u + k₀) )       γ ≈ 35,  k₀ ≈ 100   (provisional, T25)
+w_u ← min(w_max, w_u),   w_max = 3 × median(w)  over the reviewers who carry weight
+```
+
+A crowd-level reviewer weighs 1; one reliably 0.02 better than the crowd weighs about
+double; the cap binds on an outlier (it never did on a score in `(0,1)`, `08` G-12).
+Shrinkage stops luck from buying weight: with 16 scored items one standard error of luck
+(0.025) is worth ×2.4 without it and ×1.13 with it. A new pseudonym has weight 0 until
+30 scored outcomes (`01` D36, `03` P2), then the shrinkage takes over.
+
+*History.* Until T50 the score was the Brier skill score against the crowd's mean
+forecast, `BSS_u = 1 − Σ_j (p_uj − o_j)² / Σ_j (p̄_j − o_j)²`, squashed by
+`E_u = σ(γ·BSS_u)` and used as `w_u = min(w_max, E_u)`. A ratio of two sums is not an
+expectation of a score: with one item the optimal report satisfies
+`logit p* = logit q + 2 logit b` (paper Prop. 12) — a reviewer who believes 0.30 while
+the crowd says 0.65 was best off reporting 0.60. The fixture oracle `levelc_bss.csv`
+still reproduces that function (`08` REPUTATION-002); on it the difference score tells
+the same story (the expert beats the crowd, the followers do not) and stays proper.
 
 ### C.3 Judgments without verifiable truth
 
@@ -438,17 +458,21 @@ own judgment, (b) the expected distribution of the others. The **surprisingly co
 answer is rewarded — more frequent than the group predicted. It extracts information
 from the informed minority.
 
-### C.4 Temporal asymmetry and cap
+### C.4 Temporal dynamics and cap
 
-> **Superseded by D33, D34 and D36 (T50, T51).** The asymmetric update rewards copying the
-> crowd (paper §5.5), and the cap never binds on `E_u ∈ (0,1)`. The weight will follow a
-> symmetric long-window mean with a CUSUM change detector (alarm → probation), the cap
-> will apply on the odds scale, and probation will last 30 scored outcomes instead of 200.
+> **Revised by D33, D34 and D36 (T50 done; T51 next).** The cap applies on the odds
+> scale, where it binds, and probation lasts 30 scored outcomes (T50). The asymmetric
+> update below rewards copying the crowd (paper §5.5): T51 replaces it with the
+> symmetric mean of §C.2 plus a one-sided CUSUM change detector on the per-item scores
+> (alarm → probation).
 
-- `E_u` rises slowly (average over a long window), falls quickly (immediate reaction
-  to failures). This makes the long-con attack unprofitable.
-- `w_max = 3 × median(w)`, a hard cap recomputed each epoch. Limits the damage of a
-  single event.
+- *Until T51:* `E_u` rises slowly (average over a long window), falls quickly (immediate
+  reaction to failures) — meant to make the long-con attack unprofitable, but it holds
+  a cautious reviewer who beats the crowd below one who copies it.
+- `w_max = 3 × median(w)`, a hard cap recomputed each epoch over the reviewers who
+  carry weight (founders at 1 and established reviewers at their odds weight, not
+  probationers at 0; `orchestrator::epoch_weight_cap`). Limits the damage of a single
+  event.
 
 ---
 
