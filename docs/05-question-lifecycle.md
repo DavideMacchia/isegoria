@@ -57,7 +57,11 @@ can propose as much as they want; each epoch a drawn subset enters the pipeline.
 
 - **Random assignment** of the `k` reviewers (odd, 7–11), stratified on the position
   `f_u` → the batch mirrors all positions of the axis. Prevents **brigading**: nobody
-  chooses what to review, and the item is not searchable before the verdict.
+  chooses what to review, and the item is not searchable before the verdict. A newcomer
+  — fewer than `n_min = 30` reviews on record (`02` §A.4, T39) — has the position the
+  fit projects for it on the axis it does not define (the origin, with no ratings yet)
+  and is a candidate like any other, at weight 0 until it is established (`01` D36): it
+  fills the panel and builds its record without defining the axis.
 - **Blind**: the reviewer does not see the author → prevents voting on the person.
 - **Commit-reveal**: first you publish the hash of your judgment (commitment), then
   once the phase is closed you reveal it → prevents copying others and information

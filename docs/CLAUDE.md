@@ -59,8 +59,8 @@ order — **mathematics** (T64, T65, T62, the side-balanced score T49, the appea
 band items T59, the appeal stake T61, the anchor-reliability gate T53, the proper
 evaluator score T50, the change detector T51, the band's extra round T60, the
 coordination detector on residuals T56, panel diversification T57, live outcomes
-with exploration T52 and the latent DIF target model T54 are done; next T39/T45, then
-T55 and the characterization T24/T25), then
+with exploration T52, the latent DIF target model T54 and the reviewer floor T39 are
+done; next T45, then T55 and the characterization T24/T25), then
 the **P2P network**, then **the rest** (protocol boundary, distributed identity,
 privacy, pilots) — and inside a phase, fix defects in existing code before adding
 features. Every task starts with a test that fails on the current code.

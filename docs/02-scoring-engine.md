@@ -116,11 +116,24 @@ inadequate at this scale, and the useful value on the intercept was around 0.08.
 - Run the fit on `m = 10` bootstrap subsamples (random removal of ~15% of judgments)
   and take the minimum of the side-balanced score over them, `min_s S_j^(s)`
   (pessimistic estimate): a question must pass in all repetitions.
-- `d = 2` if society has more than one fracture axis (e.g. right/left + urban/rural).
-  `d` chosen empirically by maximizing explained variance on historical data. Note:
-  Community Notes essentially bridges on a binary axis; `d=2` is the generalization.
-- Nodes with fewer than `n_min = 30` reviews do not contribute to defining the `f`
-  space (only to filling it).
+- **`d = 2` is descoped** (`01` D31, recorded here by T39): the model has one latent
+  axis. A second dimension — if a deployment shows one fracture axis is not enough (e.g.
+  right/left + urban/rural), chosen empirically by explained variance on historical data
+  — is a future option, not a plan. Community Notes essentially bridges on a binary
+  axis; `d = 2` would be the generalization.
+- **Reviewer floor (T39).** Nodes with fewer than `n_min = 30` reviews on record do not
+  contribute to defining the `f` space, only to filling it: they are absent from the
+  core fit — the axis `f_j`, the levels `b_j` and everyone else's position are exactly
+  those of the fit without them — and are then *placed* on the fixed axis by ridge least
+  squares over their own ratings (`Ratings::axis`, `orchestrator::axis_mask`,
+  `N_MIN_REVIEWS`): a position of their own, no influence on anyone else, and no side in
+  the side-balanced score. (Pinning their `f_u` at 0 instead would not do: the model is
+  invariant to `(f_u, b_j) → (f_u + c, b_j − c·f_j)`, so a single pinned reviewer with a
+  few extreme ratings drags the whole axis's origin to itself.) A founder defines the
+  axis from the start (the founder set is declared heterogeneous, `05` §Cold start),
+  otherwise the first epochs would have no axis. Until it is established a newcomer
+  weighs 0 anyway (`01` D36) and is assigned from the position it has (`05` [4]).
+  Provisional (T25).
 
 ### A.5 Optimization
 

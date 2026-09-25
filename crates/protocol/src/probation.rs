@@ -207,6 +207,7 @@ impl SkillTrack {
             is_founder,
             judgments_with_outcome: self.scored,
             skill: self.skill(),
+            reviews: self.reviewed,
         }
     }
 

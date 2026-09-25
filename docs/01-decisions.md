@@ -464,6 +464,10 @@ label and re-opens double enrollment for everyone. Resolves Q-12 / ID-006 (INV-1
 
 ## D31 — One ideological dimension (d=1) for now
 
+> **Recorded (2026-09-25, T39):** `d = 2` is descoped in `docs/02` §A.4; the reviewer
+> floor `n_min = 30` of the same section is implemented (`Ratings::axis`,
+> `orchestrator::axis_mask`: absent from the core fit, placed on the axis by projection).
+
 **Choice.** The bridging model uses a single latent axis (`d = 1`). A second dimension
 (`d = 2`) is deferred; the reference use case and the simulations do not require it.
 

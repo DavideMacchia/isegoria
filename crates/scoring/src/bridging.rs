@@ -30,6 +30,13 @@ pub struct Ratings {
     /// minimizes `Σ w_u (r_uj − r̂_uj)²` (docs/08 BRIDGE-007, G-03): `w_u` is the
     /// reviewer's `discount(cap(E_u))` (probation = 0) from the *previous* epoch.
     pub weights: Vec<f64>,
+    /// Per-reviewer flag, length `n`: whether the reviewer defines the latent axis
+    /// (`docs/02` §A.4, T39). A reviewer below the review floor `n_min` is absent from
+    /// the core fit — it shapes neither `f_j` nor `b_j` — and is then placed on the fixed
+    /// axis by projection: a position of its own (`f_u`, `b_u`) and no influence on
+    /// anyone else; it enters no side of the side-balanced score. All `true` by default
+    /// (call [`Ratings::with_axis`] to set it).
+    pub axis: Vec<bool>,
 }
 
 impl Ratings {
@@ -51,7 +58,17 @@ impl Ratings {
             m,
             obs,
             weights: vec![1.0; n],
+            axis: vec![true; n],
         }
+    }
+
+    /// Sets which reviewers define the latent axis (`docs/02` §A.4, T39): `false` keeps
+    /// the reviewer out of the core fit and places it on the fixed axis afterwards. One
+    /// flag per reviewer: a vector of another length is refused by [`Ratings::validate`]
+    /// at the fit (`RatingsError::AxisCount`).
+    pub fn with_axis(mut self, axis: Vec<bool>) -> Self {
+        self.axis = axis;
+        self
     }
 
     /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007). One weight per reviewer:
@@ -76,6 +93,12 @@ impl Ratings {
         }
         if let Some(u) = self.weights.iter().position(|w| !w.is_finite() || *w < 0.0) {
             return Err(RatingsError::BadWeight { u });
+        }
+        if self.axis.len() != self.n {
+            return Err(RatingsError::AxisCount {
+                expected: self.n,
+                found: self.axis.len(),
+            });
         }
         for o in &self.obs {
             if o.u >= self.n || o.j >= self.m {
@@ -112,6 +135,7 @@ impl Ratings {
             m: self.m,
             obs,
             weights: self.weights.clone(),
+            axis: self.axis.clone(),
         }
     }
 }
@@ -129,6 +153,8 @@ pub enum RatingsError {
     },
     /// `weights` does not hold one weight per reviewer.
     WeightCount { expected: usize, found: usize },
+    /// `axis` does not hold one flag per reviewer (T39).
+    AxisCount { expected: usize, found: usize },
     /// A rating that is not a finite number.
     NonFiniteRating { u: usize, j: usize },
     /// A weight that is not a finite, non-negative number.
@@ -150,6 +176,9 @@ impl std::fmt::Display for RatingsError {
             }
             RatingsError::WeightCount { expected, found } => {
                 write!(f, "{found} weights for {expected} reviewers")
+            }
+            RatingsError::AxisCount { expected, found } => {
+                write!(f, "{found} axis flags for {expected} reviewers")
             }
             RatingsError::NonFiniteRating { u, j } => write!(f, "rating ({u}, {j}) is not finite"),
             RatingsError::BadWeight { u } => {
@@ -202,6 +231,9 @@ pub struct Fit {
     pub b_j: Vec<f64>,
     pub f_u: Vec<f64>,
     pub f_j: Vec<f64>,
+    /// Which reviewers defined the axis (`Ratings::axis`, T39): the others were placed on
+    /// it by projection and enter no side of the side-balanced score.
+    pub axis: Vec<bool>,
     /// Convergence of the L-BFGS fit (docs/08 OPT-001).
     pub status: Convergence,
 }
@@ -252,18 +284,63 @@ pub fn fit(data: &Ratings, p: &BridgingParams) -> Result<Fit, RatingsError> {
 fn fit_validated(data: &Ratings, p: &BridgingParams) -> Fit {
     // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
     let data = data.canonical();
+    // The core fit is the axis reviewers' (T39): a reviewer off the axis is absent from
+    // it — as a zero-weight reviewer is (T42) — so it shapes neither the axis nor the
+    // item levels; it is placed on the fixed axis afterwards. With everyone on the axis
+    // the core is the data itself.
+    let off_axis: Vec<usize> = (0..data.n).filter(|&u| !data.axis[u]).collect();
+    let core = if off_axis.is_empty() {
+        data.clone()
+    } else {
+        let mut weights = data.weights.clone();
+        for &u in &off_axis {
+            weights[u] = 0.0;
+        }
+        Ratings {
+            weights,
+            ..data.clone()
+        }
+    };
     let mut best: Option<(f64, Fit)> = None;
     for k in 0..p.n_starts.max(1) {
-        let x0 = random_init(&data, p.seed.wrapping_add(k as u64));
-        let f = fit_with_init(&data, p, x0);
-        let obj = objective(&data, p, &pack(&f));
+        let x0 = random_init(&core, p.seed.wrapping_add(k as u64));
+        let f = fit_with_init(&core, p, x0);
+        let obj = objective(&core, p, &pack(&f));
         if best.as_ref().is_none_or(|(b, _)| obj < *b) {
             best = Some((obj, f));
         }
     }
     let mut f = best.expect("at least one start").1;
     canonical_sign(&mut f);
+    for &u in &off_axis {
+        let (b_u, f_u) = project(&data, p, &f, u);
+        f.b_u[u] = b_u;
+        f.f_u[u] = f_u;
+    }
     f
+}
+
+/// The position of a reviewer off the axis (T39): its `(b_u, f_u)` on the fixed axis
+/// `(μ, b_j, f_j)` of the core fit, by ridge least squares over its own ratings at unit
+/// weight — the same `λ_b`, `λ_f` as the fit. A placement in the space, with no
+/// influence on anyone else; without ratings it is the origin.
+fn project(data: &Ratings, p: &BridgingParams, f: &Fit, u: usize) -> (f64, f64) {
+    let (mut s1, mut sx, mut sxx, mut sy, mut sxy) = (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64);
+    for o in data.obs.iter().filter(|o| o.u == u) {
+        let x = f.f_j[o.j];
+        let y = o.r - f.mu - f.b_j[o.j];
+        s1 += 1.0;
+        sx += x;
+        sxx += x * x;
+        sy += y;
+        sxy += x * y;
+    }
+    let (a11, a12, a22) = (s1 + p.lam_b, sx, sxx + p.lam_f);
+    let det = a11 * a22 - a12 * a12;
+    if det.is_nan() || det <= 0.0 {
+        return (0.0, 0.0);
+    }
+    ((a22 * sy - a12 * sxy) / det, (a11 * sxy - a12 * sy) / det)
 }
 
 /// `f` is identified only up to sign (the objective is unchanged by `(f_u, f_j) →
@@ -387,6 +464,7 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
         b_j: lay.bj(&x).to_vec(),
         f_u: lay.fu(&x).to_vec(),
         f_j: lay.fj(&x).to_vec(),
+        axis: data.axis.clone(),
         status: m.status,
     }
 }
@@ -400,13 +478,15 @@ pub enum Side {
     B,
 }
 
-/// The side-balanced bridge score (`docs/02` §A.3, D32, T49). Reviewers are split into
-/// two sides by [`two_means`] on `f_u`; the model's predicted ratings `r̂_uj` — every
-/// reviewer's, rated or not — are averaged within each side; the score is the mean of the
-/// two side averages, so each side counts once whatever its size, and the gap between
-/// them is the item's polarization (`docs/05` [5b]). With one side only (every reviewer
-/// at one position) both side means are the mean over all reviewers; with no reviewers
-/// they are `μ + b_j`, the prediction for a neutral reviewer.
+/// The side-balanced bridge score (`docs/02` §A.3, D32, T49). The reviewers who define
+/// the axis (`Fit::axis`, T39) are split into two sides by [`two_means`] on `f_u`; the
+/// model's predicted ratings `r̂_uj` — every such reviewer's, rated or not — are averaged
+/// within each side; the score is the mean of the two side averages, so each side counts
+/// once whatever its size, and the gap between them is the item's polarization
+/// (`docs/05` [5b]). A reviewer off the axis carries the nominal side of the nearer
+/// centre and enters no average. With one side only (every reviewer at one position)
+/// both side means are the mean over all axis reviewers; with none they are `μ + b_j`,
+/// the prediction for a neutral reviewer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SideScores {
     /// Each reviewer's side, in reviewer order.
@@ -471,9 +551,44 @@ pub fn two_means(f_u: &[f64]) -> Vec<Side> {
 /// The side-balanced score of every item of a fit (see [`SideScores`]).
 pub fn side_balanced(fit: &Fit) -> SideScores {
     let (n, m) = (fit.b_u.len(), fit.b_j.len());
-    let side = two_means(&fit.f_u);
-    let n_a = side.iter().filter(|s| **s == Side::A).count();
-    let n_b = n - n_a;
+    let on_axis: Vec<usize> = (0..n)
+        .filter(|&u| fit.axis.get(u).copied().unwrap_or(true))
+        .collect();
+    let side = if on_axis.len() == n {
+        two_means(&fit.f_u)
+    } else {
+        // The sides are formed by the axis reviewers; an off-axis reviewer is labelled by
+        // the nearer side centre (a tie to A) and counts in no average (T39).
+        let f_axis: Vec<f64> = on_axis.iter().map(|&u| fit.f_u[u]).collect();
+        let axis_sides = two_means(&f_axis);
+        let (mut sum, mut count) = ([0.0_f64; 2], [0usize; 2]);
+        for (s, &f) in axis_sides.iter().zip(&f_axis) {
+            sum[*s as usize] += f;
+            count[*s as usize] += 1;
+        }
+        let centre = |k: usize| {
+            if count[k] > 0 {
+                sum[k] / count[k] as f64
+            } else {
+                0.0
+            }
+        };
+        let (ca, cb) = (centre(0), centre(1));
+        let mut axis_side = axis_sides.iter();
+        (0..n)
+            .map(|u| {
+                if fit.axis[u] {
+                    *axis_side.next().expect("one side per axis reviewer")
+                } else if (fit.f_u[u] - ca).abs() <= (fit.f_u[u] - cb).abs() {
+                    Side::A
+                } else {
+                    Side::B
+                }
+            })
+            .collect()
+    };
+    let n_a = on_axis.iter().filter(|&&u| side[u] == Side::A).count();
+    let n_b = on_axis.len() - n_a;
     let mut out = SideScores {
         side,
         side_a: Vec::with_capacity(m),
@@ -483,7 +598,7 @@ pub fn side_balanced(fit: &Fit) -> SideScores {
     };
     for j in 0..m {
         let (mut sum_a, mut sum_b) = (0.0_f64, 0.0_f64);
-        for u in 0..n {
+        for &u in &on_axis {
             let pred = fit.mu + fit.b_u[u] + fit.b_j[j] + fit.f_u[u] * fit.f_j[j];
             match out.side[u] {
                 Side::A => sum_a += pred,
@@ -558,6 +673,7 @@ pub fn bridge_scores(
             m: data.m,
             obs: sub_obs,
             weights: data.weights.clone(),
+            axis: data.axis.clone(),
         };
         let mut x0 = anchor.clone();
         for v in x0.iter_mut() {

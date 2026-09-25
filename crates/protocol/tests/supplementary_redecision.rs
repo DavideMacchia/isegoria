@@ -68,6 +68,7 @@ fn ratings_with_a_borderline_item_at(approval: f64) -> (Ratings, usize) {
             m: base.m + 1,
             obs,
             weights: base.weights.clone(),
+            axis: base.axis.clone(),
         },
         j,
     )
@@ -151,6 +152,7 @@ fn ratings_with_a_leaning_item(approval: f64, lift: f64) -> (Ratings, usize) {
             m: base.m + 1,
             obs,
             weights: base.weights.clone(),
+            axis: base.axis.clone(),
         },
         j,
     )
@@ -361,6 +363,7 @@ fn ratings_with_a_panel_rated_item(approval: f64, panel: &[usize]) -> (Ratings, 
             m: base.m + 1,
             obs,
             weights: base.weights.clone(),
+            axis: base.axis.clone(),
         },
         j,
     )
