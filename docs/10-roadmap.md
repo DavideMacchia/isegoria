@@ -54,8 +54,9 @@ reference implementation / testnet.
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
   (T64), the respondent gate (T65), the engine's input validation (T62), the
-  side-balanced bridge score (T49) and cross-platform reproducibility (AT-BR-04).
-  Details and evidence: [Completed work](#completed-work).
+  side-balanced bridge score (T49), cross-platform reproducibility (AT-BR-04) and the
+  appeal channel for polarized band items (T59). Details and evidence:
+  [Completed work](#completed-work).
 - **Open:** the design revisions D33–D41 (D32 is done, T49); the defects found by the
   third review (2026-09-24), all but T64, T65 and T62; the network runtime (persistence,
   transport, live anchoring); distributed identity; privacy hardening; everything
@@ -101,7 +102,6 @@ the caller's word.
 
 | Task | What it means (plain) | Decision / refs | Done when | Size |
 |---|---|---|---|---|
-| T59 | **A polarized band item keeps the appeal channel.** `Resolve { passed: false }` leads to `Rejected(Borderline)`, a terminal state, and `Appeal` from there is `UnexpectedEvent`: a true-but-divisive item that lands in the band and fails the re-decision loses the correction channel (`docs/05` [5b]) that an item scored clearly below the band keeps. **Decide first** (an amendment to D26 in `docs/01`; recommended: the below-band rule — a band item that fails the re-decision is `AppealEligible` if polarized and `Rejected(Borderline)` otherwise, since the appeal exists for polarization, not for defect), then: `supplementary_review` applies the below-band rule of `bridging_gate` (polarized → `AppealEligible`, otherwise `Reject`); `Event::Resolve` carries a `GateOutcome` (`Pass → Pilot1`, `AppealEligible → AppealEligible`, `Reject → Rejected(Borderline)`); update `orchestrator::run_item`, `ItemVerdicts::band_advances` (→ `band_outcome`), the reference models of `lifecycle_model.rs`/`orchestrator_model.rs`, and `supplementary_redecision.rs`. Polarization is the side gap of T49 | D26 (amendment), `docs/05` [5b], PROTO-004 | a polarized band item that fails the re-decision is `AppealEligible`, a non-polarized one `Rejected(Borderline)`; model tests extended | M |
 | T60 | **The supplementary review really adds reviewers.** `gate::supplementary_review` re-fits the *same* ratings and compares `b_j ≥ τ`. Since bootstrap-min ≤ full fit (a tested property), an item in the band because its bootstrap-min fell in `[τ−ε, τ+ε]` is re-decided by the full fit, which is higher by construction: the re-decision relaxes the robust threshold, it is not a second panel. `SupplementaryReview { item, extra_panel, commits, reveals }`: a second commit-reveal round (`orchestrator::review_round`) with `k_extra` beacon-drawn reviewers outside the first panel, whose ratings are *added* to `Ratings` before the re-decision; `Event::Resolve` becomes that round's result. Do it with T49 (the score changes anyway); until then `docs/01` D26 and `docs/08` PROTO-008 say what master does | D26, PROTO-008, BRIDGE-006, G-15 | the re-decision fits ratings from the first panel plus `k_extra` distinct new reviewers; a band item whose extra reviewers disapprove is rejected even though its first-panel full-fit `b_j ≥ τ` | L |
 | T61 | **An appeal checks the stake, and the escrow is settled.** `run_item` sends `Event::Appeal { within_window: true, reputation_covers_stake: true }` hard-wired: nothing computes whether the author's reputation covers the stake, and `gate::settle_appeal` is never called by the orchestrator, so the `appealed` flag of `Pilot1/Pilot2` reaches the terminal and is dropped. `ItemVerdicts` gains `appeal_within_window`, `author_reputation`, `appeal_stake`; `run_item` derives both flags from them and, for an appealed round, calls `settle_appeal(reputation, stake, promoted = reached ActivePool, gain)` and returns the new author reputation (or an event the caller applies). **Decide first (2026-09-24):** D27 says the stake is a *negative pseudo-observation inside the author's average* (`reputation::author_score`), escrowed at filing and replaced by the real result on verdict; `gate::settle_appeal` and the done-when below describe a *ledger* (reputation + gain, − stake). The two are not the same. Recommended: follow D27 — escrow a pseudo-observation in the author's quality list, replace it by the item's real quality when promoted, keep it when not — which also closes the open `gain`: there is no additive gain, promotion replaces the pseudo-observation. `docs/05` [5b] ("refunded, and the author gains") is then read as: the pseudo-observation goes and a real, good observation takes its place | D27, REPUTATION-007 | an appeal with reputation < stake → `Invalid::InsufficientReputation`; promoted → reputation + gain; failed → reputation − stake, never below 0 (the ledger form; rewritten if D27 is followed) | S |
 
@@ -136,7 +136,7 @@ order the work is done in. Sizes are the ones in the rows.
    and the README warning changed in the same commit. `AT-BR-04` (S) — done
    (2026-09-25): the golden bits checked on four platforms and in the release profile
    in CI.
-4. The D26 amendment, then T59 (M).
+4. The D26 amendment, then T59 (M) — done (2026-09-25).
 5. The D27 decision, then T61 (S).
 6. T53 (S) — the anchor-reliability gate.
 7. T50 (M), then T51 (M) — the proper evaluator score, then the change detector.
@@ -268,12 +268,13 @@ Not a phase; done alongside every task.
 
 - **Phase 1.** T64 and T65, the two severe defects, are done, and so are T62 and T49
   (the side-balanced score, which changed the golden outputs, the fixtures and `sim/` on
-  purpose), and `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
-  polarization by T49's side gap; T60 changes the score anyway). T61 is independent and
-  small, after the D27 decision. T50 before T51 and T52. T53 before T54. T55 needs its
-  evidence procedure specified first and comes last. T57 needs T56. T24/T25 close the
-  phase: the thresholds of T35, T49–T54 are final only after them. The full order and
-  the milestone split: [1.5](#15--order-of-execution-and-milestones).
+  purpose), and `AT-BR-04` right after it. T59 followed T49 (it measures polarization
+  by T49's side gap) and is done; T60 follows too (it changes the score anyway). T61 is
+  independent and small, after the D27 decision. T50 before T51 and T52. T53 before
+  T54. T55 needs its evidence procedure specified first and comes last. T57 needs T56.
+  T24/T25 close the phase: the thresholds of T35, T49–T54 are final only after them.
+  The full order and the milestone split:
+  [1.5](#15--order-of-execution-and-milestones).
 - **Phase 1 → 2.** T52's exploration draw works on today's beacon and becomes grind-free
   with T37.
 - **Phase 2.** T63 and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
@@ -302,6 +303,12 @@ other documents and commit messages refer to these ids and block names.
 | Task | What it means (plain) | Decision / refs | Done when | Size |
 |---|---|---|---|---|
 | T49 | **Side-balanced bridge score. Done (2026-09-24):** `bridging::two_means` (deterministic 1-D 2-means on `f_u`, initialized at its extremes, as the paper's script), `bridging::side_balanced(&Fit) -> SideScores` (per-side mean predictions, `score = (A + B)/2`, `gap = \|A − B\|`), `bridge_scores -> BridgeScores { robust: bootstrap-min of the score, full }`; `gate::bridging_gate(score, gap, τ, ε, appeal_gap)` with the provisional constants `TAU = 0.80`, `EPS = 0.02`, `APPEAL_GAP = 0.25` (`docs/02` §A.3); `supplementary_review` re-decides on the full fit's `S_j`. `sim/bridging_irt_dif.py` and `sim/export_fixtures.py` compute the same score; `expected_levelA.csv` gained `side_a_full, side_b_full, side_full, gap_full`, `expected_meta.csv` has `tau = 0.80`, `levelc_p/bss.csv` follow the new verdicts, `golden_bits.txt` regenerated; the README warning is gone. *Evidence:* `level_a.rs` matches the oracle (`S_j` to 0.004, the gap to 0.008, sides of 80 and 120); `side_balanced.rs` — AT-BR-08: leak ≤ 0.1 with 60/40 and 80/20 camps from 200 to 3,200 reviewers where the intercept leaks 0.5–0.9, and on the review's mirror-item dataset the camp-size effect on `S_j` stays within 0.1 at every ratio from 50/50 to 95/5 in both orientations while the intercept's is 0.7–0.9, neither mirror item passes and both stay polarized; AT-BR-09: ten decoys move no item by more than 0.02 and change no verdict, the consensus items alone stay within 0.02, the intercept moves by more than 0.1. `end_to_end.rs`: the pool is unchanged ({01, 07}: item 02 passes Level A on `S_j` and dies in the pilot screen with a 2PL slope of 0.47), and the appeal still recovers the true-but-divisive item on its gap (0.67). *Measured limits, recorded in `docs/02` §A.3:* a residual leak of 0.1–0.2 with 50–100 reviewers (a fraction of the intercept's), and noisy side means with a minority side of about ten reviewers (at 95/5 one consensus item in eight fell to 0.78). *Deviation from this row's target:* the leak bound holds from 200 reviewers, not from 50. *Pending:* the mutation-testing re-run the plan schedules after this step (`docs/11`, [1.5](#15--order-of-execution-and-milestones)) | D32; paper §3.3–3.4, §7.1; BRIDGE-008/009 | `AT-BR-08` and `AT-BR-09` pass — both fail on the intercept | M |
+
+### Phase 1.2 · The decisions built on the score: band and appeal
+
+| Task | What it means (plain) | Decision / refs | Done when | Size |
+|---|---|---|---|---|
+| T59 | **A polarized band item keeps the appeal channel. Done (2026-09-25),** after the D26 amendment (the below-band rule, decided the same day): `gate::supplementary_review(ratings, params, item, τ, appeal_gap)` returns `Pass` at or above the plain threshold and, below it, `AppealEligible` when the side gap is at least `appeal_gap` and `Reject` otherwise — never a second band; `Event::Resolve { outcome: GateOutcome }` moves `SupplementaryReview` to `Pilot1`, `AppealEligible` or `Rejected(Borderline)` and refuses `SupplementaryReview`; `ItemVerdicts::band_outcome` replaces `band_advances` and `run_item` walks the appeal from a band-derived `AppealEligible` as from any other. Reference models updated (`lifecycle_model.rs`, `orchestrator_model.rs`, with the fourth outcome generated so the refusal is exercised); `supplementary_redecision.rs` shows the rule on the fixture plus one leaning item (polarized → appeal, lukewarm on both sides → borderline, approved → pass) and that the partisan fixture items, re-decided, keep the appeal; the driver shows the band-derived appeal reaching the pool and, un-appealed, a polarization reject. *Was:* `Resolve { passed: false }` ended every failing band item in a terminal reject | D26 (amendment), `docs/05` [5b], PROTO-004 | a polarized band item that fails the re-decision is `AppealEligible`, a non-polarized one `Rejected(Borderline)`; model tests extended | M |
 
 ### Phase 1.3 · Engine robustness
 

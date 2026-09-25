@@ -84,15 +84,18 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
     );
 
     // The re-decision is the full fit's side-balanced score against the plain τ — a
-    // bridging decision over the latent axis, whichever way it falls.
+    // bridging decision over the latent axis, whichever way it falls — and below τ the
+    // below-band rule (T59): the gap decides between appeal and borderline reject.
     let full = side_balanced(&fit(&ratings, &params).unwrap());
     let expected = if full.score[borderline] >= TAU {
         GateOutcome::Pass
+    } else if full.gap[borderline] >= APPEAL_GAP {
+        GateOutcome::AppealEligible
     } else {
         GateOutcome::Reject
     };
     assert_eq!(
-        supplementary_review(&ratings, &params, borderline, TAU).unwrap(),
+        supplementary_review(&ratings, &params, borderline, TAU, APPEAL_GAP).unwrap(),
         expected,
         "the re-decision reads S_j = {:.4} against τ",
         full.score[borderline]
@@ -104,11 +107,86 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
     // (docs/01 D2, D32).
     for j in [7usize, 8] {
         assert_eq!(
-            supplementary_review(&ratings, &params, j, TAU).unwrap(),
-            GateOutcome::Reject,
-            "polarized item {j} must not be carried by the larger camp"
+            supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap(),
+            GateOutcome::AppealEligible,
+            "polarized item {j} must not be carried by the larger camp; it keeps the appeal"
         );
     }
+}
+
+/// The fixture plus one item rated by everyone: at `approval` on side A (camp A, `f < 0`)
+/// and at `approval + lift` on side B.
+fn ratings_with_a_leaning_item(approval: f64, lift: f64) -> (Ratings, usize) {
+    let base = ratings();
+    let true_f = read_matrix("true_f.csv");
+    let j = base.m;
+    let mut obs = base.obs.clone();
+    for (u, f) in true_f.iter().enumerate().take(base.n) {
+        let wobble = (((u * 7) % 11) as f64 - 5.0) * 0.004;
+        let r = if f[0] > 0.0 {
+            approval + lift
+        } else {
+            approval
+        };
+        obs.push(Obs {
+            u,
+            j,
+            r: (r + wobble).clamp(0.0, 1.0),
+        });
+    }
+    (
+        Ratings {
+            n: base.n,
+            m: base.m + 1,
+            obs,
+            weights: base.weights.clone(),
+        },
+        j,
+    )
+}
+
+/// T59 (D26 amendment): an item that fails the re-decision follows the below-band rule.
+/// Rejected for polarization — one side approves, the other does not — it keeps the
+/// appeal channel; rejected as a defect — both sides lukewarm — it is a borderline
+/// reject; and an item both sides approve passes.
+#[test]
+fn a_failing_re_decision_keeps_the_appeal_for_a_polarized_item_only() {
+    let params = BridgingParams::default();
+
+    // Polarized: side A at 0.55, side B at 0.95 — S_j ≈ 0.75 < τ, gap ≈ 0.40 ≥ 0.25.
+    let (ratings, j) = ratings_with_a_leaning_item(0.55, 0.40);
+    let sides = side_balanced(&fit(&ratings, &params).unwrap());
+    assert!(
+        sides.score[j] < TAU && sides.gap[j] >= APPEAL_GAP,
+        "S_j = {:.3}, gap = {:.3}",
+        sides.score[j],
+        sides.gap[j]
+    );
+    assert_eq!(
+        supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap(),
+        GateOutcome::AppealEligible
+    );
+
+    // A defect: both sides at 0.75 — S_j ≈ 0.75 < τ, gap ≈ 0.
+    let (ratings, j) = ratings_with_a_leaning_item(0.75, 0.0);
+    let sides = side_balanced(&fit(&ratings, &params).unwrap());
+    assert!(
+        sides.score[j] < TAU && sides.gap[j] < APPEAL_GAP,
+        "S_j = {:.3}, gap = {:.3}",
+        sides.score[j],
+        sides.gap[j]
+    );
+    assert_eq!(
+        supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap(),
+        GateOutcome::Reject
+    );
+
+    // Approved by both sides: passes.
+    let (ratings, j) = ratings_with_a_leaning_item(0.90, 0.0);
+    assert_eq!(
+        supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap(),
+        GateOutcome::Pass
+    );
 }
 
 #[test]
@@ -116,12 +194,35 @@ fn a_borderline_item_reaches_a_defined_terminal() {
     // AT-PRO-03: from `SupplementaryReview` the D26 re-decision gives a defined outcome —
     // pilot entry when it passes, a borderline reject when it does not — never a dead end.
     assert_eq!(
-        step(State::SupplementaryReview, Event::Resolve { passed: true }).unwrap(),
+        step(
+            State::SupplementaryReview,
+            Event::Resolve {
+                outcome: GateOutcome::Pass
+            }
+        )
+        .unwrap(),
         State::Pilot1 { appealed: false }
     );
     assert_eq!(
-        step(State::SupplementaryReview, Event::Resolve { passed: false }).unwrap(),
+        step(
+            State::SupplementaryReview,
+            Event::Resolve {
+                outcome: GateOutcome::Reject
+            }
+        )
+        .unwrap(),
         State::Rejected(RejectReason::Borderline)
+    );
+    // A polarized item that fails the re-decision keeps the appeal channel (T59).
+    assert_eq!(
+        step(
+            State::SupplementaryReview,
+            Event::Resolve {
+                outcome: GateOutcome::AppealEligible
+            }
+        )
+        .unwrap(),
+        State::AppealEligible
     );
 }
 
@@ -131,7 +232,7 @@ fn a_re_decision_of_an_item_outside_the_batch_is_an_error_not_a_panic() {
     let ratings = ratings();
     let m = ratings.m;
     assert_eq!(
-        supplementary_review(&ratings, &BridgingParams::default(), m, TAU),
+        supplementary_review(&ratings, &BridgingParams::default(), m, TAU, APPEAL_GAP),
         Err(RatingsError::ItemOutOfRange { j: m, m })
     );
 }

@@ -366,11 +366,15 @@ exactly where guessing matters. Resolves Q-6 / G-07.
 
 ## D26 — Borderline items: more reviewers, then a clean re-decision
 
-> **Not yet fully implemented** (third review, 2026-09-24, `docs/08` §0-quinquies): on master
-> the re-decision re-fits the first panel's ratings, so it relaxes the robust threshold
-> instead of adding reviewers; the extra round is roadmap T60. **Open question** (T59): a
-> polarized band item that fails the re-decision is rejected with no appeal, while an item
-> scored below the band can appeal — an amendment is to be decided before T59.
+> **Amendment (decided and implemented 2026-09-25, T59).** A band item that fails the
+> re-decision follows the below-band rule of the gate: with a side gap at or above the
+> appeal threshold it was rejected for polarization and is `AppealEligible`; otherwise it
+> is `Rejected(Borderline)`. Before, `Resolve { passed: false }` ended every failing band
+> item in a terminal reject, so a true-but-divisive item that happened to land in the band
+> lost the correction channel of `docs/05` [5b] that an item scored clearly below the band
+> keeps (third review, `docs/08` PROTO-004). The re-decision itself still re-fits the first
+> panel's ratings, so it relaxes the robust threshold instead of adding reviewers; the
+> extra round is roadmap T60.
 
 **Choice.** An item that lands in the uncertainty band at the bridging gate goes to an
 additional round of reviewers and is then re-decided against the plain threshold,

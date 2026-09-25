@@ -87,9 +87,10 @@ pub struct ItemVerdicts {
     pub gate: GateOutcome,
     /// The author appealed a polarization rejection.
     pub appealed: bool,
-    /// D26 supplementary re-decision result (`gate::supplementary_review`, T10/T30):
-    /// consulted only when `gate == SupplementaryReview`.
-    pub band_advances: bool,
+    /// D26 supplementary re-decision outcome (`gate::supplementary_review`, T10/T30/T59):
+    /// `Pass`, `AppealEligible` or `Reject`; consulted only when
+    /// `gate == SupplementaryReview`.
+    pub band_outcome: GateOutcome,
     /// Pilot stage 1 (discrimination screen) had enough distinct respondents (INV-8).
     pub enough_respondents: bool,
     /// Pilot stage 1 verdict.
@@ -149,10 +150,11 @@ pub fn review_round(
 /// refused unless every panelist revealed. `ActivePool` means it reached the pool.
 ///
 /// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
-/// (T10/T30): `band_advances` is the outcome of `gate::supplementary_review` — a re-run
-/// bridging fit re-deciding the side-balanced score against the plain threshold — so a
-/// passing band item
-/// advances to the pilot and a failing one is a `Borderline` reject, not a dead end.
+/// (T10/T30, amended by T59): `band_outcome` is the outcome of
+/// `gate::supplementary_review` — a re-run bridging fit re-deciding the side-balanced
+/// score against the plain threshold — so a passing band item advances to the pilot, a
+/// polarized failing one keeps the appeal channel, and a defect is a `Borderline`
+/// reject, never a dead end.
 pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
     let mut s = step(reviewed, Event::Score { outcome: v.gate })?;
 
@@ -160,7 +162,7 @@ pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
         s = step(
             s,
             Event::Resolve {
-                passed: v.band_advances,
+                outcome: v.band_outcome,
             },
         )?;
     }

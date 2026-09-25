@@ -235,10 +235,12 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
    item by the pilot screen; a true-but-divisive item recovered via the appeal). The
-   bridging uncertainty band is resolved by the **D26 re-decision** (`gate::supplementary_review`,
-   T10/T30): re-run the bridging fit and decide the side-balanced score against the plain threshold τ — a
-   bridging decision over the latent axis, not a weighted vote. It re-fits the first
-   panel's ratings; the extra reviewers of D26 are roadmap T60.
+   bridging uncertainty band is resolved by the **D26 re-decision**
+   (`gate::supplementary_review`, T10/T30): re-run the bridging fit and decide the
+   side-balanced score against the plain threshold τ — a bridging decision over the
+   latent axis, not a weighted vote — and a polarized item that fails it keeps the
+   appeal channel (D26 amendment, T59). It re-fits the first panel's ratings; the extra
+   reviewers of D26 are roadmap T60.
    `supplementary_redecision.rs` pins the improvement: the partisan fixture items 08/09
    are **not** passed (the retired weighted-mean tie-break carried them), while a genuine
    near-threshold item is. The √k anti-collusion stays covered at the scoring layer
@@ -291,9 +293,10 @@ to make the pipeline testable end-to-end.
   turn prior-epoch reviewer standing into the per-reviewer `w_u` the weighted objective
   minimizes over (docs/08 BRIDGE-007, roadmap T5 — **done**), and `end_to_end.rs::run_epoch`
   drives each item through the `lifecycle` state machine (T12 — **done**). The borderline
-  band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide the side-balanced score against
-  the plain threshold (`gate::supplementary_review`, T10/T30 — **done** on the first
-  panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
+  band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide the
+  side-balanced score against the plain threshold, and keep the appeal open for a
+  polarized item that fails (`gate::supplementary_review`, T10/T30/T59 — **done** on the
+  first panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
   tie-break. The open work is ordered in `docs/10` (mathematics → P2P network → the rest).
   Still open here: persistence (roadmap T13); `governance`
   sortition feeding the honeypot / blueprint committees; `revalidation` → `exposure`

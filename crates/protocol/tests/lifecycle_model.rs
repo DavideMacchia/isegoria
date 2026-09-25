@@ -222,8 +222,15 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             })
         }
 
-        (Band, Event::Resolve { passed: true }) => Ok(Pilot1 { appealed: false }),
-        (Band, Event::Resolve { passed: false }) => Ok(Rejected(RejectReason::Borderline)),
+        // The D26 re-decision, amended by T59: pass → pilot; below the threshold, the
+        // below-band rule — polarized → appealable, defect → borderline reject; a second
+        // band is not an outcome.
+        (Band, Event::Resolve { outcome }) => match outcome {
+            GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
+            GateOutcome::AppealEligible => Ok(Appealable),
+            GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
+            GateOutcome::SupplementaryReview => Err(UnexpectedEvent),
+        },
 
         (
             Appealable,
@@ -377,7 +384,7 @@ enum Op {
     CloseCommits,
     Reveal(Who, Disclosure),
     Score(GateOutcome),
-    Resolve(bool),
+    Resolve(GateOutcome),
     Appeal {
         within_window: bool,
         covers_stake: bool,
@@ -454,7 +461,7 @@ fn next_op(
             Op::Reveal(Who::Pending(pick), Disclosure::Opening)
         }
         Phase::Revealing(_) => Op::Score(outcome),
-        Phase::Band => Op::Resolve(bit(0)),
+        Phase::Band => Op::Resolve(outcome),
         Phase::Appealable if stray => Op::Appeal {
             within_window: bit(0),
             covers_stake: !bit(0),
@@ -486,7 +493,7 @@ fn next_op(
             0 => Op::Administer,
             1 => Op::Admit(true),
             2 => Op::Score(outcome),
-            3 => Op::Resolve(true),
+            3 => Op::Resolve(GateOutcome::Pass),
             4 => Op::AppealExpires,
             _ => Op::Pilot1Batch {
                 enough: true,
@@ -594,7 +601,7 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
             plain(Event::Reveal { nym, prob, nonce })
         }
         Op::Score(outcome) => plain(Event::Score { outcome }),
-        Op::Resolve(passed) => plain(Event::Resolve { passed }),
+        Op::Resolve(outcome) => plain(Event::Resolve { outcome }),
         Op::Appeal {
             within_window,
             covers_stake,
@@ -662,7 +669,7 @@ fn arbitrary_op() -> impl Strategy<Value = Op> {
         Just(Op::CloseCommits),
         (who(), disclosure()).prop_map(|(w, d)| Op::Reveal(w, d)),
         prop::sample::select(OUTCOMES.to_vec()).prop_map(Op::Score),
-        any::<bool>().prop_map(Op::Resolve),
+        prop::sample::select(OUTCOMES.to_vec()).prop_map(Op::Resolve),
         any::<(bool, bool)>().prop_map(|(within_window, covers_stake)| Op::Appeal {
             within_window,
             covers_stake

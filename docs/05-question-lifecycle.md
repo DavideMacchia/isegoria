@@ -75,9 +75,10 @@ Bridging does not tell "true but divisive" from "one-sided propaganda": they pro
 the same voting pattern, and no threshold saves the former (`02`, limit 1). Without an
 appeal the politically most important category is systematically lost.
 
-**Mechanism.** A question discarded at [5] *for polarization* — i.e. with high `|f_j|`
-and not for a formal defect — can, at the author's initiative, **skip review and go
-straight to the pilot**:
+**Mechanism.** A question discarded at [5] *for polarization* — a wide gap between the
+two sides' predicted approval (`02` §A.3), not a formal defect — whether it was scored
+below the band or failed the band's re-decision (`01` D26, amended by T59), can, at the
+author's initiative, **skip review and go straight to the pilot**:
 
 - it costs an amount of the author's reputation (`C_a`)
 - if the Level B psychometrics **promote** it, the reputation is refunded (and the

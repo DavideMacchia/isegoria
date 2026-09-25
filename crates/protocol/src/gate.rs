@@ -46,15 +46,21 @@ pub fn bridging_gate(score: f64, gap: f64, tau: f64, eps: f64, appeal_gap: f64) 
     }
 }
 
-/// D26 borderline re-decision (`docs/01` D26, `docs/08` PROTO-008, roadmap T10/T30).
+/// D26 borderline re-decision (`docs/01` D26 and its amendment, `docs/08` PROTO-008,
+/// roadmap T10/T30/T59).
 ///
 /// An item whose robust bootstrap-min score landed in the uncertainty band is re-decided
 /// by **re-running the bridging fit** over the panel — expanded with the extra reviewers
 /// D26 calls for (T60), folded into `ratings` before this call — and comparing its
-/// side-balanced score `S_j` to the plain threshold `tau`. This is a bridging decision
-/// over the latent axis, **not** a weighted vote of the same ratings (the retired
-/// `aggregate::resolve_band`), so a larger camp does not carry a polarized item: bridging
-/// gives such an item a wide side gap and an `S_j` below `tau`.
+/// side-balanced score `S_j` to the plain threshold `tau`, without the band. This is a
+/// bridging decision over the latent axis, **not** a weighted vote of the same ratings
+/// (the retired `aggregate::resolve_band`), so a larger camp does not carry a polarized
+/// item: bridging gives such an item a wide side gap and an `S_j` below `tau`.
+///
+/// An item that fails follows the below-band rule of [`bridging_gate`] (D26 amendment,
+/// T59): with a side gap of at least `appeal_gap` it was rejected for polarization and is
+/// `AppealEligible`; otherwise it is a `Reject` (a borderline reject in the lifecycle).
+/// The outcome is never `SupplementaryReview`: there is no second band.
 ///
 /// Malformed ratings, or an item index past the batch, are an error (T62), not a panic.
 pub fn supplementary_review(
@@ -62,6 +68,7 @@ pub fn supplementary_review(
     params: &BridgingParams,
     item: usize,
     tau: f64,
+    appeal_gap: f64,
 ) -> Result<GateOutcome, RatingsError> {
     if item >= ratings.m {
         return Err(RatingsError::ItemOutOfRange {
@@ -69,13 +76,14 @@ pub fn supplementary_review(
             m: ratings.m,
         });
     }
-    Ok(
-        if side_balanced(&fit(ratings, params)?).score[item] >= tau {
-            GateOutcome::Pass
-        } else {
-            GateOutcome::Reject
-        },
-    )
+    let sides = side_balanced(&fit(ratings, params)?);
+    Ok(if sides.score[item] >= tau {
+        GateOutcome::Pass
+    } else if sides.gap[item] >= appeal_gap {
+        GateOutcome::AppealEligible
+    } else {
+        GateOutcome::Reject
+    })
 }
 
 /// Appeal to the evidence filter (`docs/05` [5b], `docs/02` D8): the author stakes

@@ -508,12 +508,45 @@ fn a_band_item_is_resolved_by_the_d26_re_decision() {
     );
     // … the re-decision passing lifts it to the pilot,
     assert_eq!(
-        step(s.clone(), Event::Resolve { passed: true }).unwrap(),
+        step(
+            s.clone(),
+            Event::Resolve {
+                outcome: GateOutcome::Pass
+            }
+        )
+        .unwrap(),
         State::Pilot1 { appealed: false }
     );
-    // … and failing it is a defined borderline reject, not a dead end.
+    // … failing it as a defect is a defined borderline reject, not a dead end,
     assert_eq!(
-        step(s, Event::Resolve { passed: false }).unwrap(),
+        step(
+            s.clone(),
+            Event::Resolve {
+                outcome: GateOutcome::Reject
+            }
+        )
+        .unwrap(),
         State::Rejected(RejectReason::Borderline)
+    );
+    // … failing it as a polarized item keeps the appeal channel (D26 amendment, T59),
+    assert_eq!(
+        step(
+            s.clone(),
+            Event::Resolve {
+                outcome: GateOutcome::AppealEligible
+            }
+        )
+        .unwrap(),
+        State::AppealEligible
+    );
+    // … and a second band is not an outcome of a re-decision.
+    assert_eq!(
+        step(
+            s,
+            Event::Resolve {
+                outcome: GateOutcome::SupplementaryReview
+            }
+        ),
+        Err(Invalid::UnexpectedEvent)
     );
 }

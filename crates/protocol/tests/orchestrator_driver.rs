@@ -103,7 +103,7 @@ fn passing() -> ItemVerdicts {
     ItemVerdicts {
         gate: GateOutcome::Pass,
         appealed: false,
-        band_advances: false,
+        band_outcome: GateOutcome::Reject,
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
@@ -242,29 +242,66 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         gate: GateOutcome::SupplementaryReview,
         ..passing()
     };
-    // The D26 re-decision passes (re-fit b_j ≥ τ): it enters the pilot and reaches the pool.
+    // The D26 re-decision passes (re-fit S_j ≥ τ): it enters the pilot and reaches the pool.
     assert_eq!(
         run_item(
             reviewed(),
             &ItemVerdicts {
-                band_advances: true,
+                band_outcome: GateOutcome::Pass,
                 ..base
             }
         )
         .unwrap(),
         State::ActivePool
     );
-    // The re-decision fails: it is a defined borderline reject (no dead end, T10/T30).
+    // The re-decision fails as a defect: a defined borderline reject (no dead end, T10/T30).
     assert_eq!(
         run_item(
             reviewed(),
             &ItemVerdicts {
-                band_advances: false,
+                band_outcome: GateOutcome::Reject,
                 ..base
             }
         )
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
+    );
+    // The re-decision fails as a polarized item (T59): the appeal channel stays open — an
+    // appeal carries it to the pilot and the pool, no appeal is a polarization reject.
+    assert_eq!(
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                band_outcome: GateOutcome::AppealEligible,
+                appealed: true,
+                ..base
+            }
+        )
+        .unwrap(),
+        State::ActivePool
+    );
+    assert_eq!(
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                band_outcome: GateOutcome::AppealEligible,
+                appealed: false,
+                ..base
+            }
+        )
+        .unwrap(),
+        State::Rejected(RejectReason::Polarized)
+    );
+    // A second band is not an outcome of a re-decision.
+    assert_eq!(
+        run_item(
+            reviewed(),
+            &ItemVerdicts {
+                band_outcome: GateOutcome::SupplementaryReview,
+                ..base
+            }
+        ),
+        Err(Invalid::UnexpectedEvent)
     );
 }
 

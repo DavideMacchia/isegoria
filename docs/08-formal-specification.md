@@ -145,7 +145,11 @@ regression test are on master.
   **PARTIAL** → T60.
 - **PROTO-004 (update) — a polarized band item cannot appeal.** `Resolve { passed: false }`
   ends in `Rejected(Borderline)`, where `Appeal` is `UnexpectedEvent`; only items below the
-  band reach `AppealEligible`. **OPEN** → a decision (amendment to D26), then T59.
+  band reach `AppealEligible`. **RESOLVED** (T59, after the D26 amendment): `Event::Resolve`
+  carries the re-decision's `GateOutcome` — `Pass → Pilot1`, `AppealEligible →
+  AppealEligible`, `Reject → Rejected(Borderline)`, a second band refused — and
+  `gate::supplementary_review` applies the below-band rule on the side gap;
+  `supplementary_redecision.rs`, the driver and the two model suites.
 - **BRIDGE-009 (evidence).** Two mirror-image partisan items with eight consensual ones,
   default parameters, τ = 0.08 as in `end_to_end.rs`: the gap between the majority's item
   and its mirror is 0.00 / 0.11 / 0.35 / 0.56 at 50/50, 60/40, 80/20, 95/5, and at 95/5 the
@@ -871,7 +875,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Revealing` | `reveal(N_judge, cid, prob, nonce)` | `commit(prob,nonce,N_judge,cid)` matches; `prob ∈ [0,1]` | `Revealing` | store rating `r = prob` | mismatch; NaN/out-of-range prob (✗ not checked); reveal by a different nym |
 | `Revealing` | reveal deadline | ≥ `k_min` reveals (unspecified) | `Gated` | non-revealers: `E_u` penalty (unspecified) | — |
 | `Gated` | epoch scoring: `bridge_scores` → `bridging_gate(S_j, gap_j, τ, ε, γ_appeal)` (D32/T49: the robust side-balanced score and the side gap) | ratings of the whole epoch available; engine run reproducibly | `Pilot1` (Pass) / `SupplementaryReview` / `AppealEligible` / `Rejected` | scores published with checkpoint | scoring on a partial epoch |
-| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide the side-balanced score `S_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `S_j ≥ τ` else `Rejected(Borderline)` | — | defined terminal (T10/T30); ✗ the re-fit uses the first panel's ratings only — the extra round is T60; ✗ a polarized item that fails cannot appeal — T59 |
+| `SupplementaryReview` | D26 re-decision: re-run bridging over the expanded panel, decide the side-balanced score `S_j` vs the plain threshold τ (`gate::supplementary_review`, `Event::Resolve`) | band item scored | `Pilot1` if `S_j ≥ τ`; else `AppealEligible` if the side gap ≥ γ_appeal (T59), else `Rejected(Borderline)` | — | defined terminal (T10/T30); a polarized item that fails keeps the appeal (✓ T59); ✗ the re-fit uses the first panel's ratings only — the extra round is T60 |
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ stake` (✗ `run_item` passes both as `true`: T61) | `Pilot1{appealed}` | stake escrowed (REPUTATION-007; ✗ never settled: T61) | appeal after window; appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
@@ -1338,7 +1342,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-001 | deposit needs source | `lifecycle.rs` | TESTED | structured citation | docs/03 |
 | PROTO-002 | lottery | `lifecycle.rs`, proptest | TESTED | seed source | G-05 |
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
-| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs` | TESTED; a polarized band item cannot appeal (§0-quinquies) | escrow semantics; band appeal | T59, T61, G-15 |
+| PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs`, `supplementary_redecision.rs`, the model suites | TESTED; a polarized band item keeps the appeal (T59, D26 amendment) | escrow semantics | T61, G-15 |
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
 | PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
 | PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A replayed deposit is refused before the identity check and the quota charge, and the `Propose` proof is bound to the epoch (T64, `proto007_deposit_replay.rs`) | cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04 |

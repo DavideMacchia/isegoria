@@ -205,17 +205,30 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let gate: Vec<GateOutcome> = (0..m)
         .map(|j| bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP))
         .collect();
-    let band_advances: Vec<bool> = (0..m)
+    // A band item is re-decided (D26, amended by T59): pass, appeal-eligible if polarized,
+    // or a borderline reject. Its effective outcome is then gated like any other.
+    let band_outcome: Vec<GateOutcome> = (0..m)
         .map(|j| {
-            matches!(gate[j], GateOutcome::SupplementaryReview)
-                && supplementary_review(&ratings, &params, j, TAU).unwrap() == GateOutcome::Pass
+            if matches!(gate[j], GateOutcome::SupplementaryReview) {
+                supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap()
+            } else {
+                GateOutcome::Reject
+            }
+        })
+        .collect();
+    let effective: Vec<GateOutcome> = (0..m)
+        .map(|j| {
+            if matches!(gate[j], GateOutcome::SupplementaryReview) {
+                band_outcome[j]
+            } else {
+                gate[j]
+            }
         })
         .collect();
     let advancing: Vec<usize> = (0..m)
         .filter(|&j| {
-            matches!(gate[j], GateOutcome::Pass)
-                || band_advances[j]
-                || (matches!(gate[j], GateOutcome::AppealEligible) && appeals.contains(&j))
+            matches!(effective[j], GateOutcome::Pass)
+                || (matches!(effective[j], GateOutcome::AppealEligible) && appeals.contains(&j))
         })
         .collect();
 
@@ -309,7 +322,7 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
             let verdicts = ItemVerdicts {
                 gate: gate[j],
                 appealed: appeals.contains(&j),
-                band_advances: band_advances[j],
+                band_outcome: band_outcome[j],
                 enough_respondents: respondents.len() >= N1_MIN,
                 screen_passed: *screen_passed.get(&j).unwrap_or(&false),
                 dif_passed: *dif_passed.get(&j).unwrap_or(&false),
