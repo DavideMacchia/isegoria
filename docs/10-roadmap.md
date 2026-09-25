@@ -68,7 +68,8 @@ reference implementation / testnet.
 - **Open:** the design revision D41 (D32 is done, T49; D33 and D36, T50; D34, T51; D35, T52; D37, T53 and T54; D38, T55; D39 and D40, T56 and T57); the characterization of the thresholds (T24/T25); the defects found by the
   third review (2026-09-24), all but T64, T65, T62, T59 and T61; the network runtime
   (persistence, transport, live anchoring); distributed identity; privacy hardening;
-  everything external.
+  everything external; the [open problems](#open-problems) that wait on an owner
+  decision (T69).
 
 ---
 
@@ -290,6 +291,19 @@ Not a phase; done alongside every task.
   input. T69 waits on an owner decision: one of its options changes the scope of the
   respondent pseudonym (invariant #5).
 - **External.** Nothing in Phases 1–2 needs the external gates.
+
+---
+
+## Open problems
+
+Problems recorded in the docs and left undecided on purpose: each needs a choice from the
+owner before it becomes a task with a "done when". The options are stated and none is
+taken. `docs/08` §17 keeps the older unresolved questions (Q-1–Q-17) in the same spirit,
+and §18 the residual risks each one carries meanwhile.
+
+| Id | Problem | Options | Refs |
+|---|---|---|---|
+| T69 | **Respondent profiling through contested facts.** The respondent pseudonym is the same on every batch, so whoever holds the answer sheets with their proofs can join one person's sheets over time; since D38 the contested facts a person misses reveal their latent class, so the joined sheets are a profile. The score stays balanced; the respondent's privacy does not | (a) a batch-scoped respondent nullifier, as Semaphore's external nullifier — gives up invariant #5's single respondent pseudonym; (b) never keep or publish answer rows joined to the id — in tension with reproducibility (PRIV-004); (c) an RLN-style per-epoch rate limit in place of a stable id | PRIV-006, PRIV-P8; `docs/08` §17 Q-18, §18; the task row in [3.3](#33--statistical-privacy) |
 
 ---
 

@@ -1522,6 +1522,7 @@ Each question preserves an ambiguity found in the repository and offers precise 
 - **Q-15 (D15).** Same or distinct bodies for issuing committee and storage consortium?
 - **Q-16 (BRIDGE-001).** Is `d = 2` required for the reference use case? The sims never exercise it.
 - **Q-17 (docs/README §Status vs README.md §Status).** `docs/README.md` still says "No production code written yet" and "license to be decided"; `README.md` says the engine is complete and the license is EUPL-1.2. Which is authoritative? (Recommendation: delete the stale paragraph.)
+- **Q-18 (PRIV-006 / T69).** The scope of the respondent pseudonym, now that contested facts are administered continuously (D38) and the ones a person misses reveal their latent class: (a) a batch-scoped nullifier (Semaphore's external nullifier), giving up invariant #5's single respondent pseudonym; (b) a stable pseudonym whose answer rows are never kept or published joined to it, at the cost of PRIV-004's re-run; (c) an RLN-style per-epoch rate limit with no stable identifier. None chosen (`docs/10` Open problems).
 
 ---
 
@@ -1537,6 +1538,7 @@ Each question preserves an ambiguity found in the repository and offers precise 
 | Competence construct choice (L4) | philosophical | accept |
 | Faction impersonation over time (§11.3) | not analysed | quantify (AT-BR-07) |
 | Sample poisoning by coordinated respondents (§11.4) | not analysed | quantify (AT-DIF-07) |
+| Respondent profiling across batches through contested facts (PRIV-006) | opened by D38: a respondent id that is the same on every batch, and facts one class misses administered continuously | decide among T69's options (Q-18) |
 | Small-population anonymity loss | acknowledged, unquantified | accept with a floor |
 | Foreign-anchor double enrollment (F2) | acknowledged | accept or design |
 | Permanent identity loss on secret compromise | consequence of non-rotatability | decide (Q-13) |
