@@ -281,6 +281,28 @@ such, not as bias in the items (`01` D37).
 
 ---
 
+## Contested facts and DTF — Differential Test Functioning
+
+**DIF is not always bias.** If one camp is systematically misinformed about a true fact,
+people of that camp get an item stating it wrong more often *at equal competence*: the
+item shows DIF because of what they believe, not because of its wording. Discarding
+every such item would leave the bank unable to hold any fact a camp disputes.
+
+**Contested fact.** An item with DIF whose answer key is established by its cited
+primary source — checked step by step against the source, never by a vote (`02` §B.5).
+It is not discarded: it goes to a separate pool (`01` D38).
+
+**DTF.** DIF is about one item; DTF is about a whole test: at equal competence, how many
+points does one latent group expect to score more than another over the test? Items that
+favour one group and items that favour the other cancel out — only where their
+difficulties overlap, though, or the test would favour one group among the weak and the
+other among the strong. A test therefore draws contested facts only in **balanced sets**
+whose DTF stays within a small tolerance: each item leans, the test does not. Since the
+hidden groups found in two different batches cannot be matched, items measured in
+different batches never count as cancelling each other (`02` §B.7).
+
+---
+
 # Part 3 — Bayesian statistics
 
 ## Prior and posterior

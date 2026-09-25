@@ -174,3 +174,7 @@ latent.item_b,14,bfd68f178663bf29
 latent.item_b,15,bfe472c718a89125
 latent.bic_gain,0,400380eb76288000
 latent.posterior,digest,d62b52a5b661550e
+dtf,0,3feff26983de3a52
+dtf,1,3fcd876005cd8d6e
+dtf,2,3ff3aa20c2a8ced7
+dtf,3,3fbd98b137b9e4a8

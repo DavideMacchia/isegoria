@@ -62,10 +62,10 @@ reference implementation / testnet.
   (D34, T51), the band's extra round of reviewers (D26, T60), the coordination
   detector on model residuals (D39, T56), panel diversification (D40, T57), live
   outcomes with randomized exploration (D35, T52), the latent DIF target model with
-  θ inside the likelihood (D37, T54), the reviewer floor of the axis (T39) and the
-  differential oracles on random datasets (T45). Details and evidence:
-  [Completed work](#completed-work).
-- **Open:** the design revisions D38 and D41 (D32 is done, T49; D33 and D36, T50; D34, T51; D35, T52; D37, T53 and T54; D39 and D40, T56 and T57); the defects found by the
+  θ inside the likelihood (D37, T54), the reviewer floor of the axis (T39), the
+  differential oracles on random datasets (T45) and the contested-facts pool with its
+  balanced draw (D38, T55). Details and evidence: [Completed work](#completed-work).
+- **Open:** the design revision D41 (D32 is done, T49; D33 and D36, T50; D34, T51; D35, T52; D37, T53 and T54; D38, T55; D39 and D40, T56 and T57); the characterization of the thresholds (T24/T25); the defects found by the
   third review (2026-09-24), all but T64, T65, T62, T59 and T61; the network runtime
   (persistence, transport, live anchoring); distributed identity; privacy hardening;
   everything external.
@@ -87,13 +87,13 @@ The working paper (`paper/`) found properties of the scoring mechanism that the
 specification did not anticipate: a batch-relative, partly majoritarian bridge score,
 spurious latent classes from error in the ability proxy, an improper evaluator score, a
 weight cap that never binds, and a coordination detector with almost no data per
-epoch. The decisions D32–D41 correct them (D32: T49; D33 and D36: T50; D34: T51; D37's precondition: T53; D39: T56). Several change the
+epoch. The decisions D32–D41 correct them (D32: T49; D33 and D36: T50; D34: T51; D37: T53 and T54; D38: T55; D39: T56; D40: T57; D35: T52). Several change the
 specified metrics, so the simulations in `sim/`, the oracle fixtures and the golden
 outputs change with them — on purpose, as in T48.
 
-| Task | What it means (plain) | Decision / refs | Done when | Size |
-|---|---|---|---|---|
-| T55 | **Contested-facts pool.** An item with DIF whose key a primary source establishes (evidence procedure of `docs/02` §B.5) becomes a *contested fact*: separate pool, drawn only in balanced sets so that differential test functioning stays within a tolerance; define the DTF statistic and the procedure in `docs/02`/`docs/05` first — a docs task inside this phase; the implementation is the last item of the phase (Milestone 1b), since it adds a pool and a policy rather than correcting a number. **Specified (2026-09-25):** the source check (`docs/02` §B.5: four steps from the citation committed at deposit, the last a declared key rule on the cited data — no vote); the DTF within a fit, the bound across fits, `DTF_MAX = 0.10` and the balanced draw (`docs/02` §B.7); the lifecycle (`docs/05` [7b]) | D38; paper §4.7 | `AT-PRO-08`: every assembled test has DTF within tolerance; a DIF item without a verified source is rejected as before | L |
+All of them are done — the last, T55 (D38), on 2026-09-25 — and sit in
+[Completed work](#phase-11--correct-the-mechanism-d32d41) with their evidence; D41 is
+Phase 2 (T37).
 
 ### 1.2 · The decisions built on the score: band and appeal
 
@@ -112,7 +112,8 @@ the band re-decision, T60 — and sit in [Completed work](#phase-12--the-decisio
 
 Every value set above is provisional until it is measured: τ ≈ 0.80 (T49), the latent
 DIF cut (T35, T54), `γ` and the cap (T50), the CUSUM `k`/`h` (T51), the KR-20 floor
-(T53), `N_PROBATION`, and the sample floors of `docs/02` §B.6.
+(T53), `N_PROBATION`, the DTF tolerance and the bound's sampling error (T55), and the
+sample floors of `docs/02` §B.6.
 
 | Task | What it means (plain) | Refs | Size |
 |---|---|---|---|
@@ -141,7 +142,8 @@ order the work is done in. Sizes are the ones in the rows.
 10. T52 (L) — live outcomes with exploration — done (2026-09-25).
 11. T54 (L) — latent DIF with θ inside the likelihood — done (2026-09-25).
 12. T39 (S, descoped `d = 2`) and T45 (M) — done (2026-09-25).
-13. T55 (L) — contested facts; its specification is written earlier, during the phase.
+13. T55 (L) — contested facts: the specification, then the pool and the balanced draw —
+    done (2026-09-25).
 14. T24 (L), then T25 (M); T26 is external.
 
 **Two streams.** Steps 2–5 and 8 touch `bridging`, `gate`, `lifecycle` and the
@@ -158,7 +160,8 @@ returns errors instead of panicking.
 
 **Milestone 1b — "the mechanism is complete".** Steps 8–14: the features the decisions
 add (a second panel, exploration, the target DIF model, panel diversification, the
-contested-facts pool) and the characterization of every threshold.
+contested-facts pool — all done) and the characterization of every threshold (T24/T25,
+open).
 
 **Milestone 1 — "the mechanism is sound"** is 1a and 1b together. Every verdict is
 computed as D32–D41 specify; the band and appeal paths are decided by the gate, not by
@@ -271,8 +274,9 @@ Not a phase; done alongside every task.
   purpose), and `AT-BR-04` right after it. T59 followed T49 (it measures polarization
   by T49's side gap) and is done, and so is T60, the band's extra round. T61
   followed the D27 decision and is done. T50, T51 and T52 are done. T53 and T54 are done. T55
-  needs its evidence procedure specified first and comes last. T56 and T57 are done. T24/T25
-  close the phase: the thresholds of T35, T49–T54 are final only after them. The full
+  is done: its specification (the source check, the DTF bound) first, then the pool. T56
+  and T57 are done. T24/T25 close the phase: the thresholds of T35 and T49–T55 are final
+  only after them. The full
   order and the milestone split: [1.5](#15--order-of-execution-and-milestones).
 - **Phase 1 → 2.** T52's exploration draw (done) works on today's beacon and becomes
   grind-free with T37.
@@ -280,7 +284,8 @@ Not a phase; done alongside every task.
   and the reputation histories of T50–T51 a durable place to live.
 - **Phase 3.** T66 is the minimal form of T46's `Panel`. T58 builds on T33/T43 and
   draws replacements from the beacon (after T37). T20 supersedes T11. T37's
-  threshold-signature variant needs T19.
+  threshold-signature variant needs T19. T68 computes the source check T55 takes as an
+  input.
 - **External.** Nothing in Phases 1–2 needs the external gates.
 
 ---
@@ -311,6 +316,7 @@ other documents and commit messages refer to these ids and block names.
 | T54 | **Latent DIF with θ inside the likelihood. Done (2026-09-25):** `scoring::latent::{latent_dif, latent_dif_with, LatentParams { max_classes: 4, n_starts: 4, nodes: 41, theta_max: 5.0 }, LatentDif { classes, non_uniform, pi, eta, anchor_a, anchor_b, item_a, item_b, dif, a_gap, posterior, bic_gain, candidates, status }::flags(max_gap)}` — the paper's full mixture: the anchors in the likelihood with class-invariant parameters, a class ability mean `η_g` per class (`η_0 = 0`), θ integrated on a fixed grid, the number of classes and uniform vs non-uniform DIF by BIC from seeded starts, a fused NLL and analytic gradient from the EM artificial data (every transcendental function per node and item; per respondent two sums per class and one `exp` per class and node), the objective per respondent so the tolerances are scale-free; `revalidation::revalidate_batch_latent` runs it on the anchors it admits (`target_flags`); the proxy-θ `mixture_dif`/`revalidate_pool_latent` are retired from the production path and kept for the fixtures (golden bits unchanged; the target model pinned on a seeded batch, `latent.*` rows). *Evidence:* `latent_target_model.rs` — the paper's null batches at N = 6,000: 1 class at 10, 20, 30 and 60 anchors (KR-20 0.68–0.94), no item flagged, where the proxy model selects two classes at 10, 20 and 30 anchors and flags 8, 2 and 0 clean items; AT-DIF-12: 2, 4 and 6 of 8 items shifted by 0.9 at N = 6,000 with 30 anchors: exactly the shifted items flagged, their gaps 1.7–1.9 (the true 2δ = 1.8; 3.6 and 1.1 in the two-item case) and the clean items' at most 0.13; AT-DIF-01 (`calibration`): 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000; runtime: on one core (dev profile, `scoring` at opt-level 3) 8–32 s per 8-item null batch at N = 3,000, 90–110 s at N = 12,000, 15–25 s at N = 6,000, and 75–90 s for a campaign batch at N = 6,000 whose BIC search reaches three classes. The verdict threshold stays 1.0 on the gap, provisional (T24/T25): the null gaps are 0 and the campaign gaps 1.7–1.9 | D37; DIF-006/008/010 | `AT-DIF-01` holds on the cells run (item-level false-positive rate ≤ 5% on null batches, anchor KR-20 0.82–0.94, N = 3,000 and 12,000) and `AT-DIF-12` passes; runtime per batch recorded | L |
 | T39 | **Reviewer floor of the axis; `d = 2` descoped. Done (2026-09-25):** `scoring::bridging::Ratings::axis` (one flag per reviewer, `with_axis`, validated: `RatingsError::AxisCount`) — an off-axis reviewer is absent from the core fit (its weight zeroed there, as T42's "absent") and then placed on the fixed axis by ridge least squares over its own ratings (`project`: a position `(b_u, f_u)` of its own, no influence on anyone else; the origin with no ratings); `Fit::axis`; `side_balanced` forms the sides from the axis reviewers only (an off-axis reviewer carries the nominal side of the nearer centre and enters no average); with every reviewer on the axis the fit and the scores are bit-identical to before (golden bits unchanged). Pinning `f_u` at 0 was tried and rejected: the translation invariance `(f_u, b_j) → (f_u + c, b_j − c·f_j)` let one pinned sleeper drag the axis's origin by 0.2. `orchestrator::{N_MIN_REVIEWS = 30, axis_mask}` (founders always on the axis; `ReviewerStanding.reviews` from `SkillTrack::reviewed`), `weighted_ratings` sets the mask. `d = 2` is descoped in `docs/02` §A.4 per D31. The new-reviewer path of PROTO-003: the projected position, weight 0 (D36), a candidate like any other. *Evidence:* `scoring/tests/reviewer_floor.rs` (a sleeper with three extreme ratings: off the axis the axis, the levels and the others' positions are bit for bit those of the fit without it and it gets the position its ratings say, −0.5; on the axis it moves `f_j`; the masked all-true fit is bit-identical to the unmasked; the sides are formed by the axis reviewers; a mask of the wrong length is refused), `protocol/tests/reviewer_floor.rs` (the mask from the standings, the track's review count, a newcomer drawn into panels) | BRIDGE-001, PROTO-003, `docs/02` §A.4, D31 | the new-reviewer path of PROTO-003 exists; `d = 2` descoped in the docs | S |
 | T45 | **Wider differential oracles. Done (2026-09-25):** `crates/scoring/tests/differential_oracle.rs` — the engine against the paper's NumPy/SciPy implementations of the same models (`paper/scripts/common.py`) on random datasets: `sim/oracle_bridging.py` (eight seeded starts of the weighted bridging fit, the lowest objective kept) on six random two-camp datasets with uniform and random weights — the engine's objective never worse than the oracle's (1e-6 relative), and all six land in the same basin — the objectives agree to nine decimals and `μ`, `b_j`, `f_j` to 1e-3; `sim/oracle_mixture.py` (`common.dif_fit`, four starts) on four random batches — the one-class fits agree to 1e-6 relative, the engine's two-class uniform candidate never worse (1e-4 relative on the BIC), and the two-class BICs agree to four decimals on all four; on the two batches where the BIC selects two classes the gaps are the oracle's `2|d|` to 0.05. Self-skips without the pinned env (`sim/requirements.txt`), runs in CI. Analytic vs numerical gradient: in-module for the bridging objective, the proxy-θ mixture (`dif.rs`) and the target model (`latent.rs`, T54). `lbfgs` on known minima: Rosenbrock and the condition-10⁴ quadratic within a SciPy-like budget (T41/T48); the stall's gradient bound `√(2 λ_max · 1e-12 · (1 + |f|))` characterized and pinned on condition-10² to 10⁶ quadratics and Rosenbrock from three starts (`a_stall_convergence_leaves_the_gradient_within_its_bound`) | OPT-001, REPRO-003 | the oracle suite runs under the pinned sim env | M |
+| T55 | **Contested-facts pool. Done (2026-09-25):** specified first (`d7f6531`): the source check (`docs/02` §B.5 — four steps from the citation committed at deposit, the last a declared key rule on the cited data; no vote), the DTF within a fit and the bound across fits, `DTF_MAX = 0.10` and the balanced draw (`docs/02` §B.7), the lifecycle (`docs/05` [7b]). Then: `scoring::dtf::{ClassCurves::{new, of, dtf}, BadClasses, DTF_MAX}` — the unsigned DTF at the worst pair of counted classes over the batch's ability density, on the fit's 41-node grid; `protocol::contested::{ContestedPool::{record, remove, dtf, draw, draw_from_beacon}, NoBalancedDraw, RecordError}` — contested facts grouped by the fit that last measured them (a re-measured fact moves to its new fit), the bound summed in units of `2⁻³²` score points, the draw exact (a table of the least bound that completes `n` from the fits still to visit; each fit's subset drawn uniformly among those that can be completed) and seeded from the beacon (`randomness::CONTESTED`); `lifecycle::State::Contested`, `Event::Pilot2Batch`/`Revalidate { source_verified }` (a DIF item is contested only with a verified source, else rejected or retired as before; an explored one is measured as passed), `ItemVerdicts::source_verified`, `settle_appeal` promotes on `Contested`, `outcome_of(Contested)` = 1, `ItemHealth::source_verified`, `revalidation::latent_batch` (the admitted fit whose curves the pool records). *Evidence:* `scoring/tests/dtf.rs` — one item and offset pairs reproduce the values `docs/02` §B.7 quotes (independent quadrature to 1e-12), mirror items cancel exactly, the worst pair of three classes is read in any class order, bounded and subadditive over 200 random fits, a class under 5% is not counted, malformed classes refused; on a batch fitted at N = 3,000 (30 anchors, two leaners each way) the fitted DTF is within 0.03 of the true one on every set; `golden.rs` pins four DTF values (linux-gnu dev and release and linux-musl agree). `protocol/tests/contested_facts.rs` (AT-PRO-08) — see `docs/08` §12: every draw within the bound over 200 seeds and sizes 1–6 where the unconstrained draw exceeds it on 183–200 of 200; the draw exact against brute force and reaching every balanced selection; leaners of two fits add up and cancel once re-measured together; on two batches fitted through the production gate (`calibration`, N = 3,000, 60 anchors) the flagged items are exactly the leaning ones, every drawn test's bound ≤ 0.10 and its true DTF ≤ 0.104, the one-sided batch's facts never drawn. The model suites carry `Contested` and the new inputs. *Measured limit:* the bound is a point estimate — a drawn pair with a fitted bound of 0.076 had a true DTF of 0.104 — so its sampling error, like the tolerance, is T24/T25. *Left to T68:* the source check in code | D38; paper §4.7 | `AT-PRO-08`: every assembled test has DTF within tolerance; a DIF item without a verified source is rejected as before | L |
 
 ### Phase 1.2 · The decisions built on the score: band and appeal
 

@@ -19,18 +19,20 @@ pub enum RetirementReason {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ItemHealth {
     pub emerging_dif: bool,
+    /// The source check established the key: DIF moves it to the contested pool (D38).
+    pub source_verified: bool,
     pub drifted: bool,
     pub obsolete: bool,
 }
 
-/// Whether an item should leave the active pool, and why. Validity triggers are
-/// checked before exposure; the first that applies wins.
+/// Whether an item should leave the bank, and why. Validity triggers are checked before
+/// exposure; the first that applies wins. DIF on a sourced fact is no retirement (D38).
 pub fn should_retire(
     exposure: usize,
     limit: usize,
     health: ItemHealth,
 ) -> Option<RetirementReason> {
-    if health.emerging_dif {
+    if health.emerging_dif && !health.source_verified {
         Some(RetirementReason::EmergingDif)
     } else if health.drifted {
         Some(RetirementReason::Drift)

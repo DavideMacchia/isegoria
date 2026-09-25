@@ -111,6 +111,7 @@ fn verdicts(gate: GateOutcome, explored: bool) -> ItemVerdicts {
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
+        source_verified: false,
         pilot2_batch_size: 8,
         explored,
     }
@@ -151,7 +152,8 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
                 explored.clone(),
                 Event::Pilot2Batch {
                     batch_size: 8,
-                    passed: true
+                    passed: true,
+                    source_verified: false,
                 }
             ),
             Err(Invalid::UnexpectedEvent),
@@ -190,7 +192,8 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
                 screened.clone(),
                 Event::Pilot2Batch {
                     batch_size: K_MIN - 1,
-                    passed: true
+                    passed: true,
+                    source_verified: false,
                 }
             ),
             Err(Invalid::BatchTooSmall)
@@ -212,6 +215,7 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
                 Event::Pilot2Batch {
                     batch_size: K_MIN,
                     passed,
+                    source_verified: false,
                 },
             )
             .unwrap();
@@ -223,6 +227,7 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
                 Event::Pilot2Batch {
                     batch_size: 8,
                     passed: true,
+                    source_verified: false,
                 },
                 Event::Score {
                     outcome: GateOutcome::Pass,

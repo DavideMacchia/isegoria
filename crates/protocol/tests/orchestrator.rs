@@ -127,12 +127,20 @@ fn a_full_valid_walk_reaches_the_pool_then_retires() {
         Event::Pilot2Batch {
             batch_size: 8,
             passed: true,
+            source_verified: false,
         },
     )
     .unwrap();
     assert_eq!(s, State::ActivePool);
     s = step(s, Event::Administer).unwrap();
-    s = step(s, Event::Revalidate { emerging_dif: true }).unwrap();
+    s = step(
+        s,
+        Event::Revalidate {
+            emerging_dif: true,
+            source_verified: false,
+        },
+    )
+    .unwrap();
     assert!(matches!(s, State::Retired(_)));
 }
 
@@ -462,7 +470,8 @@ fn a_pilot2_batch_of_one_is_rejected() {
             State::Pilot2 { appealed: false },
             Event::Pilot2Batch {
                 batch_size: K_MIN - 1,
-                passed: true
+                passed: true,
+                source_verified: false,
             }
         ),
         Err(Invalid::BatchTooSmall)

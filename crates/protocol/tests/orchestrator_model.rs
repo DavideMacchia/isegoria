@@ -149,7 +149,7 @@ fn model_run_item(
         }
         return Ok(State::Measured {
             reason: why,
-            passed: v.dif_passed,
+            passed: v.dif_passed || v.source_verified,
         });
     }
     // An appeal is filed within its window by an author whose reputation covers the
@@ -171,8 +171,13 @@ fn model_run_item(
     if v.pilot2_batch_size < K_MIN {
         return Err(Invalid::BatchTooSmall);
     }
+    // A DIF failure is a contested fact when the source check established the key (D38).
     if !v.dif_passed {
-        return Ok(State::Rejected(RejectReason::Dif));
+        return Ok(if v.source_verified {
+            State::Contested
+        } else {
+            State::Rejected(RejectReason::Dif)
+        });
     }
     Ok(State::ActivePool)
 }
@@ -437,9 +442,20 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
         prop::bool::weighted(0.75),
         prop_oneof![1 => 0..K_MIN, 5 => K_MIN..K_MIN + 10],
         any::<bool>(),
+        any::<bool>(),
     )
         .prop_map(
-            |(gate, appealed, (within_window, covers), enough, screen, dif, batch, explored)| {
+            |(
+                gate,
+                appealed,
+                (within_window, covers),
+                enough,
+                screen,
+                dif,
+                batch,
+                explored,
+                verified,
+            )| {
                 ItemVerdicts {
                     gate,
                     appealed,
@@ -449,6 +465,7 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
                     enough_respondents: enough,
                     screen_passed: screen,
                     dif_passed: dif,
+                    source_verified: verified,
                     pilot2_batch_size: batch,
                     explored,
                 }
@@ -642,6 +659,7 @@ fn the_rounds_cover_every_outcome() {
     ];
     let item = [
         "ActivePool",
+        "Contested",
         "Rejected(Defect)",
         "Rejected(Borderline)",
         "Rejected(Polarized)",

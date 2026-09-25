@@ -5,6 +5,7 @@
 pub mod admission;
 pub mod appeal;
 pub mod blueprint;
+pub mod contested;
 pub mod deposit;
 pub mod exploration;
 pub mod exposure;

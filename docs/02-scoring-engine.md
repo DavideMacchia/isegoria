@@ -10,13 +10,13 @@ respondent's latent competence.
 > **Revisions from the working paper (decided 2026-09-24).** The working paper
 > (`paper/`, version 0.2) found properties of this specification that `docs/01` D32–D41
 > correct; the tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap.
-> D32 is implemented (T49, 2026-09-24): §A.3 below describes the side-balanced score as
-> built, with the amendment (appeal eligibility by the side gap) and the measured limits
-> the paper does not have. Until the others land, the text describes the implemented
-> behaviour, and the marked sections are superseded by the decisions: §B.3 latent-class
-> DIF (D37, D38), §C.2 evaluator score (D33, D35), §C.4 temporal asymmetry and cap (D33,
-> D34, D36), anti-collusion (D39, D40). `paper/README.md` lists what changed since the
-> paper's snapshot.
+> D32–D40 are implemented (T49–T57, 2026-09-24/25): the text describes the mechanism as
+> built, with the measured limits the paper does not have — the side-balanced score and
+> the appeal by the side gap (§A.3), the target latent model and its anchor precondition
+> (§B.3), the contested-facts pool (§B.5, §B.7), the evaluator score with exploration
+> (§C.2), the change detector and the cap (§C.4), coordination on residuals and panel
+> diversification (anti-collusion). D41, the beacon, is `10` T37. `paper/README.md` lists
+> what changed since the paper's snapshot.
 
 ---
 
@@ -211,7 +211,7 @@ tertiles, Mantel–Haenszel with ETS classification:
 
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
 
-> **Revised by D37 and D38 (T53 and T54 done; T55).** Error in the ability proxy creates
+> **Revised by D37 and D38 (T53, T54 and T55 done).** Error in the ability proxy creates
 > spurious latent classes (paper §4.5): the re-check runs only when the anchors' KR-20 on
 > the batch's respondents is ≥ 0.90 (`irt::KR20_MIN`, enforced by `revalidate_batch_latent`
 > — T53), and since T54 the fit is the target model below — the anchors inside the
@@ -219,7 +219,7 @@ tertiles, Mantel–Haenszel with ETS classification:
 > the proxy did. The differential gap of the retired proxy model is a diagnostic only
 > (`MixtureDif::differential`): it inverts in a campaign. An item whose DIF concerns
 > knowledge of a fact established by a primary source becomes a *contested fact* in a
-> balanced pool instead of being rejected (D38, T55): §B.7 defines the pool, its DTF
+> balanced pool instead of being rejected (D38, T55, done): §B.7 defines the pool, its DTF
 > statistic and the balanced draw, §B.5 the source check that classifies.
 
 ```
@@ -468,8 +468,11 @@ negligible DIF — at the ETS class-A boundary (`|Δ_MH| = 1`, a log-odds gap of
 mid-difficulty item has 0.08. For scale, with `a = 1.25` and two equal classes: one item
 with a difficulty gap of 1.8 has 0.41 at difficulty 0 and 0.21 at difficulty 2; two such
 items leaning opposite ways have 0.00 at equal difficulty, 0.04 at 0.25 apart, 0.07 at
-0.5 and 0.14 at 1.0. The bound is computed on the fitted curves; its sampling error is
-part of the characterization (T24).
+0.5 and 0.14 at 1.0. The bound is computed on the fitted curves, and it is a point
+estimate: on a batch fitted at N = 3,000 the fitted DTF of each set was within 0.03 of the
+true one, and on two batches fitted through the production gate a drawn pair with a fitted
+bound of 0.076 had a true DTF of 0.104 (`08` AT-PRO-08). Its sampling error, like the
+tolerance, is part of the characterization (T24/T25).
 
 **The balanced draw.** A test with `n` contested slots draws them from the beacon
 (INV-10; `randomness::CONTESTED`, keyed on the test's number) among the selections with
