@@ -1,9 +1,5 @@
-//! The anchor-reliability precondition of the latent re-check (`docs/01` D37, `docs/08`
-//! DIF-010, T53): error in the θ proxy creates latent classes that do not exist, so the
-//! production detector runs only when the anchors' KR-20 on the batch's own respondents
-//! is at least `KR20_MIN`. AT-DIF-11: the paper's null batches (no biased item, N =
-//! 6,000, `common.dif_generate`) with 20 anchors are refused before any fit, those with 60
-//! are accepted and raise no flag.
+//! The anchor-reliability precondition of the latent re-check: the production detector
+//! refuses to run below `KR20_MIN` (`docs/01` D37, `docs/08` DIF-010, T53).
 
 use identity::nym::Nym;
 use protocol::admission::NullifierSet;
@@ -27,10 +23,8 @@ fn sigmoid(z: f64) -> f64 {
     1.0 / (1.0 + (-z).exp())
 }
 
-/// The paper's null batch (`paper/scripts/common.py::dif_generate` with `n_biased = 0`):
-/// θ ~ N(0, 1); `n_anchor` clean anchors with `a ~ U(0.9, 1.6)`, `b ~ N(0, 1)`; `K` trial
-/// items with `a ~ U(1.0, 1.5)`, `b ~ N(0, 0.6)` and no class shift. Same distributions,
-/// a different (seeded) stream. Returns (anchors, responses), both respondents × items.
+/// The paper's null batch (`paper/scripts/common.py::dif_generate`, `n_biased = 0`).
+/// Returns (anchors, responses), both respondents × items.
 fn null_batch(seed: u64, n_anchor: usize) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let theta: Vec<f64> = (0..N).map(|_| normal(&mut rng)).collect();
@@ -67,10 +61,7 @@ fn respondents(n: usize) -> NullifierSet {
     set
 }
 
-/// The reliability of the anchor total follows the anchor count as in the paper's Table
-/// (10: 0.69, 20: 0.82, 30: 0.87, 60: 0.93; each the mean of four seeds): only from about
-/// 40 anchors up does the proxy clear the floor. 30 anchors — the reference fixtures'
-/// count — do not.
+/// The KR-20 proxy's reliability rises with the anchor count, as in the paper's Table.
 #[test]
 fn kr20_follows_the_anchor_count_as_in_the_paper() {
     let expect = [(10, 0.694), (20, 0.822), (30, 0.874), (60, 0.932)];
@@ -89,11 +80,8 @@ fn kr20_follows_the_anchor_count_as_in_the_paper() {
     assert!(kr20(&null_batch(1300, 60).0) >= KR20_MIN);
 }
 
-/// AT-DIF-11, the refusal: a null batch whose θ comes from 20 anchors is refused before
-/// any fit — and the bare engine on the same batch shows why: it selects a two-class
-/// model on data that has one class. On this batch the spurious gaps stay under the
-/// threshold (0.91); on the paper's four seeds they reached 1.04–1.16 and flagged one to
-/// three clean items.
+/// AT-DIF-11, the refusal: 20 anchors are refused before any fit; the bare engine on the
+/// same batch shows why, selecting a spurious two-class model.
 #[test]
 fn at_dif_11_twenty_anchors_are_refused_before_the_fit() {
     let (anchors, responses) = null_batch(1300, 20);

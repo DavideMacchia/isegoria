@@ -1,7 +1,6 @@
-//! Authenticated erasure recovery (docs/08 NET-007 / DS-4, T16): a corrupted (wrong, not
-//! missing) shard must be detected before decoding, not silently fed to Reed–Solomon.
-//! `reconstruct_verified` drops any shard that fails its committed manifest hash
-//! (AT-NET-06).
+//! Authenticated erasure recovery (`docs/08` NET-007/DS-4): a corrupted (wrong, not
+//! missing) shard must be detected before decoding. `reconstruct_verified` drops any
+//! shard that fails its committed manifest hash (AT-NET-06).
 
 use network::erasure::{encode, reconstruct, reconstruct_verified, RecoverError};
 
@@ -65,9 +64,6 @@ fn authentic_shards_with_losses_still_recover() {
 
 #[test]
 fn an_impossible_layout_is_refused_not_sized() {
-    // The shard counts and `orig_len` travel with the shards, so they are untrusted
-    // (T44): an overflowing count used to panic inside `ReedSolomon::new`, and a huge
-    // `orig_len` used to be allocated before anything checked it.
     let enc = encode(b"layout", DATA, PARITY);
     let shards = || enc.shards.iter().cloned().map(Some).collect::<Vec<_>>();
     let verified =

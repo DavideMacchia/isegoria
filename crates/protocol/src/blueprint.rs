@@ -1,8 +1,6 @@
-//! Coverage blueprint (`docs/05` [8], `docs/06` L2). DIF removes the bias of a single
-//! item, not of the *pool*: every item can pass DIF while the choice of topics is
-//! skewed. The blueprint fixes per-domain quotas that constrain how a test (or the
-//! active pool) is composed. The quotas themselves are set by a sortition committee
-//! (`governance`), not by vote; this module only holds and enforces them.
+//! Coverage blueprint (`docs/05` [8], `docs/06` L2): per-domain quotas constraining how
+//! a test or the active pool is composed, surfacing topic skew that per-item DIF cannot
+//! see. Quotas are set by a sortition committee (`governance`); this module enforces them.
 
 use rand::seq::SliceRandom;
 use rand::SeedableRng;

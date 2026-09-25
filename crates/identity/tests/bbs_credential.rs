@@ -1,8 +1,6 @@
-//! Blind BBS+ credential issuance (`docs/03` §M2) through the public API: the
-//! committee certifies a unique label without learning the holder's secret and
-//! without being able to recognise the credential later. Blindness and proof-of-
-//! knowledge soundness are asserted with internal access in `credential.rs`'s unit
-//! tests; here we pin the end-to-end round-trip and the issuer-key binding.
+//! Blind BBS+ credential issuance (`docs/03` §M2) through the public API: end-to-end
+//! round-trip and issuer-key binding. Blindness and PoK soundness are asserted with
+//! internal access in `credential.rs`'s unit tests.
 
 use identity::credential::{Credential, Issuer};
 use identity::enrollment::Label;

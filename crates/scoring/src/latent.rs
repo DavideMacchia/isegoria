@@ -1,19 +1,6 @@
-//! Latent DIF, the target model of `docs/01` D37 (T54): a latent-class IRT mixture with
-//! the anchors inside the likelihood and θ integrated out (`paper/` §7.3):
-//!
-//! ```text
-//! P(x_i) = Σ_g π_g ∫ Π_{a∈A} P_a(x_ia | θ) · Π_{j∈J} P_jg(x_ij | θ) · φ(θ; η_g, 1) dθ,   η_0 = 0
-//! ```
-//!
-//! The anchors' parameters are class-invariant and each class has its own ability mean
-//! `η_g`, so a class-wide shift is attributed to ability, not to the trial items; DIF is
-//! a trial item's departure from the anchors' account of the classes,
-//! `DIF_j = max_{g,h} |b_jg − b_jh|`. This replaces the proxy-θ model on the production
-//! path (`dif::mixture_dif`, the standardized anchor total as θ, kept for the fixtures):
-//! error in the proxy created latent classes that do not exist (paper Prop. 10,
-//! `docs/08` DIF-010). The integral is a rectangular quadrature on a fixed grid —
-//! deterministic, no eigen-solver — and every transcendental function is evaluated per
-//! node and item, never per respondent, so a batch of 12,000 respondents fits in seconds.
+//! Latent DIF, the target model of `docs/01` D37: a latent-class IRT mixture with the
+//! anchors inside the likelihood and θ integrated over a fixed grid (`paper/` §7.3,
+//! `docs/02` §B.3, `docs/08` DIF-010).
 
 use crate::dif::MIN_CLASS_SHARE;
 use crate::fmath::{cos, exp, ln, ln_1p};
@@ -23,12 +10,11 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::cell::RefCell;
 
-/// Settings of the target-model fit.
 #[derive(Clone, Copy, Debug)]
 pub struct LatentParams {
     /// Largest number of latent classes tried; the BIC picks among `1..=max_classes`.
     pub max_classes: usize,
-    /// Seeded starts per candidate model (the objective is non-convex).
+    /// Seeded starts per candidate model.
     pub n_starts: usize,
     pub seed: u64,
     /// Quadrature nodes of the rectangular grid over `[−theta_max, theta_max]`.
@@ -59,8 +45,7 @@ pub struct LatentDif {
     pub non_uniform: bool,
     /// Mixing proportion of each class.
     pub pi: Vec<f64>,
-    /// Class ability means `η_g` (`η_0 = 0`): a class-wide shift lands here, on the
-    /// anchors' scale, not on the trial items.
+    /// Class ability means `η_g`, with `η_0 = 0`.
     pub eta: Vec<f64>,
     /// The anchors' class-invariant 2PL parameters.
     pub anchor_a: Vec<f64>,
@@ -68,8 +53,8 @@ pub struct LatentDif {
     /// `item_a[g][j]`, `item_b[g][j]`: the trial items' parameters per class.
     pub item_a: Vec<Vec<f64>>,
     pub item_b: Vec<Vec<f64>>,
-    /// Per-item `DIF_j = max_{g,h} |b_jg − b_jh|` over classes with share ≥
-    /// [`MIN_CLASS_SHARE`] — the quantity `docs/02` §B.3 thresholds. 0 with one class.
+    /// Per item, `max_{g,h} |b_jg − b_jh|` over classes with share ≥ [`MIN_CLASS_SHARE`]
+    /// (`docs/02` §B.3); 0 with one class.
     pub dif: Vec<f64>,
     /// Per-item `max_{g,h} |a_jg − a_jh|` (non-uniform DIF); 0 when `a_j` is shared.
     pub a_gap: Vec<f64>,
@@ -79,14 +64,11 @@ pub struct LatentDif {
     pub bic_gain: f64,
     /// Every candidate tried: `(classes, non_uniform, BIC)`.
     pub candidates: Vec<(usize, bool, f64)>,
-    /// Convergence of the selected fit (docs/08 OPT-001).
     pub status: Convergence,
 }
 
 impl LatentDif {
-    /// The per-item verdict: an item is flagged when the selected fit converged, prefers
-    /// a mixture, and the item's difficulty gap exceeds `max_gap` — gaps read off a fit
-    /// that is not evidence of a mixture are optimizer output, not an estimate (T35).
+    /// Per item, `dif[j] > max_gap`, and only from a converged fit with two or more classes.
     pub fn flags(&self, max_gap: f64) -> Vec<bool> {
         let trustworthy = self.status == Convergence::Converged && self.classes >= 2;
         self.dif
@@ -96,8 +78,7 @@ impl LatentDif {
     }
 }
 
-/// One candidate model: `g` classes over `na` anchors and `k` trial items, with a shared
-/// or a per-class trial-item discrimination.
+/// A candidate: `g` classes over `na` anchors and `k` trial items, `a` shared or per class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Model {
     g: usize,
@@ -140,7 +121,6 @@ impl Model {
     fn free_params(&self) -> usize {
         self.len()
     }
-    /// Class proportions from the logits (softmax with class 0 as reference).
     fn pi(&self, p: &[f64]) -> Vec<f64> {
         let mut z = vec![0.0; self.g];
         for g in 1..self.g {
@@ -151,7 +131,6 @@ impl Model {
         let s: f64 = e.iter().sum();
         e.iter().map(|v| v / s).collect()
     }
-    /// Class ability means, `η_0 = 0`.
     fn eta(&self, p: &[f64]) -> Vec<f64> {
         let mut eta = vec![0.0; self.g];
         for g in 1..self.g {
@@ -161,7 +140,6 @@ impl Model {
     }
 }
 
-/// The quadrature grid: equally spaced nodes over `[−theta_max, theta_max]`.
 struct Grid {
     theta: Vec<f64>,
 }
@@ -175,8 +153,7 @@ impl Grid {
         Grid { theta }
     }
 
-    /// Log prior weights of a class with mean `eta` (`φ(θ_q − η)`, normalized over the
-    /// grid) and the grid mean of θ under them.
+    /// Per node, `ln φ(θ_q − eta)` normalized over the grid, and the grid mean of θ under it.
     fn log_weights(&self, eta: f64) -> (Vec<f64>, f64) {
         let lw: Vec<f64> = self
             .theta
@@ -192,8 +169,7 @@ impl Grid {
     }
 }
 
-/// The responses as the likelihood reads them: per respondent, the anchors and the items
-/// answered correctly (a value of at least 0.5); per anchor, how many did.
+/// Per respondent, the indices of the anchors and items answered correctly (`>= 0.5`).
 struct Data {
     n: usize,
     correct_anchors: Vec<Vec<usize>>,
@@ -246,14 +222,9 @@ fn cell(a: f64, theta: f64, b: f64) -> Cell {
     Cell { softplus, sigma }
 }
 
-/// The negative marginal log-likelihood and its gradient in one pass — and, on request,
-/// the class posteriors. Every transcendental function is evaluated per node and item,
-/// never per respondent: a respondent's log-likelihood at a node is
-/// `θ_q · Σ_{correct} a − Σ_{correct} a·b` plus a node constant, so the pass over the
-/// respondents is two sums per class and one `exp` per class and node. The gradient reads
-/// the EM "artificial data": per node the expected number of respondents, and per
-/// respondent the class posterior `r_ig` and its first θ-moment `Σ_q θ_q r_igq`, which
-/// together with the plain counts of correct answers give every item's gradient.
+/// The negative marginal log-likelihood with its gradient and, on request, the class
+/// posteriors. Transcendentals are evaluated per node and item, never per respondent: at
+/// a node a respondent's log-likelihood is `θ_q Σ_{correct} a − Σ_{correct} a·b` + constant.
 fn evaluate(
     model: &Model,
     p: &[f64],
@@ -284,7 +255,6 @@ fn evaluate(
     let item_ab: Vec<Vec<f64>> = (0..gn)
         .map(|g| (0..k).map(|j| item_a[g][j] * item_b[g][j]).collect())
         .collect();
-    // Anchor cells per node, and the node's total softplus.
     let anchor_cells: Vec<Vec<Cell>> = (0..q)
         .map(|qi| {
             (0..na)
@@ -296,8 +266,6 @@ fn evaluate(
         .iter()
         .map(|cells| cells.iter().map(|c| c.softplus).sum())
         .collect();
-    // Item cells per class and node, and the class-node constant
-    // `ln π_g + ln w_gq − Σ_a softplus − Σ_j softplus`.
     let item_cells: Vec<Vec<Vec<Cell>>> = (0..gn)
         .map(|g| {
             (0..q)
@@ -321,7 +289,6 @@ fn evaluate(
         })
         .collect();
 
-    // The pass over the respondents.
     let mut n_gq = vec![vec![0.0; q]; gn];
     // Per anchor `Σ_i x_ia · E[θ | x_i]`; per class and item `Σ_i x_ij r_ig` and
     // `Σ_i x_ij Σ_q θ_q r_igq`.
@@ -388,7 +355,8 @@ fn evaluate(
         }
     }
 
-    // The gradient from the artificial data.
+    // The gradient from the EM "artificial data": the expected respondents per node, and
+    // per respondent the class posterior `r_ig` and its first θ-moment `Σ_q θ_q r_igq`.
     let mut grad = vec![0.0; p.len()];
     let n_q: Vec<f64> = (0..q)
         .map(|qi| (0..gn).map(|g| n_gq[g][qi]).sum())
@@ -432,13 +400,11 @@ fn evaluate(
 /// A parameter vector with its NLL and gradient.
 type Evaluated = (Vec<f64>, f64, Vec<f64>);
 
-/// Gradient tolerance of a fit, on the NLL per respondent (`G_TOL` × the batch on the
-/// total): a mean gradient this small moves no parameter by more than about 1e-4.
+/// Gradient tolerance of a fit, on the NLL per respondent.
 const G_TOL: f64 = 1e-5;
 
-/// Minimizes the NLL of `model` from `p0`. The objective handed to the optimizer is the
-/// NLL per respondent, so its tolerances do not depend on the batch size; the NLL
-/// returned is the total.
+/// Minimizes the NLL of `model` from `p0`; the optimizer sees the NLL per respondent, the
+/// NLL returned is the total.
 fn fit_from(model: &Model, p0: Vec<f64>, data: &Data, grid: &Grid) -> (f64, Vec<f64>, Convergence) {
     let scale = 1.0 / data.n.max(1) as f64;
     let cache: RefCell<Option<Evaluated>> = RefCell::new(None);
@@ -460,17 +426,14 @@ fn fit_from(model: &Model, p0: Vec<f64>, data: &Data, grid: &Grid) -> (f64, Vec<
     (eval(&m.x).0 / scale, m.x, m.status)
 }
 
-/// `−logit` of an item's proportion correct, clamped: the one-class start of its
-/// difficulty.
 fn start_difficulty(correct: usize, n: usize) -> f64 {
     let p = ((correct as f64 + 0.5) / (n as f64 + 1.0)).clamp(0.02, 0.98);
     (-(ln(p) - ln(1.0 - p))).clamp(-3.0, 3.0)
 }
 
-/// The target model of D37 on a batch: `anchors` (respondents × anchors, 0/1, the
-/// DIF-free anchors the respondents answered) and `x` (respondents × trial items, 0/1).
-/// The number of classes (`1..=4`) and uniform vs non-uniform DIF are chosen by BIC, each
-/// candidate from several seeded starts; θ is integrated over a fixed grid.
+/// The D37 target model on a batch: `anchors` (respondents × anchors, 0/1) and `x`
+/// (respondents × trial items, 0/1). Classes (`1..=4`) and uniform vs non-uniform DIF are
+/// chosen by BIC, each candidate from several seeded starts (`docs/02` §B.3).
 pub fn latent_dif(anchors: &[Vec<f64>], x: &[Vec<f64>], seed: u64) -> LatentDif {
     latent_dif_with(
         anchors,
@@ -492,8 +455,7 @@ pub fn latent_dif_with(anchors: &[Vec<f64>], x: &[Vec<f64>], lp: &LatentParams) 
     let ln_n = ln(n.max(1) as f64);
     let bic = |model: &Model, nll: f64| 2.0 * nll + model.free_params() as f64 * ln_n;
 
-    // One class: the anchors and the items under one normal population; its solution
-    // seeds every mixture start.
+    // The one-class solution seeds every mixture start.
     let one = Model {
         g: 1,
         na,
@@ -522,8 +484,7 @@ pub fn latent_dif_with(anchors: &[Vec<f64>], x: &[Vec<f64>], lp: &LatentParams) 
     let mut best = (bic1, one, p1.clone(), st1);
     let mut rng = ChaCha8Rng::seed_from_u64(lp.seed);
     for g in 2..=lp.max_classes.max(1) {
-        // Staged search: once adding a class no longer lowers the BIC, larger mixtures
-        // (slower, and increasingly unidentified) are not tried.
+        // Once adding a class no longer lowers the BIC, larger mixtures are not tried.
         let best_before = best.0;
         for per_class_a in [false, true] {
             let model = Model {
@@ -551,7 +512,6 @@ pub fn latent_dif_with(anchors: &[Vec<f64>], x: &[Vec<f64>], lp: &LatentParams) 
                     }
                 }
                 let fit = fit_from(&model, p0, &data, &grid);
-                // Prefer a converged start; among equals, the lowest NLL (earliest on a tie).
                 let better = match &chosen {
                     None => true,
                     Some((f, _, s)) => {
@@ -633,8 +593,7 @@ mod tests {
     use super::*;
     use crate::optim::numerical_gradient;
 
-    /// The straightforward marginal likelihood: per respondent, the sum over classes and
-    /// nodes of the prior weight times the product of the cells' probabilities.
+    /// The marginal likelihood computed the straightforward way.
     fn reference_nll(
         model: &Model,
         p: &[f64],
@@ -675,8 +634,7 @@ mod tests {
         -total
     }
 
-    /// Timing of one evaluation and of single fits on a batch of 6,000 respondents with
-    /// 30 anchors (the paper's campaign): run with `--ignored --nocapture`.
+    /// Timing of one evaluation and of single fits on a paper-sized batch (`--ignored`).
     #[test]
     #[ignore]
     fn timing_on_a_paper_batch() {
@@ -774,9 +732,7 @@ mod tests {
         );
     }
 
-    /// The BIC penalty counts the free parameters: `G − 1` proportions, `G − 1` class
-    /// means, `2A` anchor parameters, `K` (shared) or `K·G` (per-class) discriminations,
-    /// and `K·G` difficulties.
+    /// The BIC penalty counts the free parameters of each model shape.
     #[test]
     fn free_parameters_are_counted_as_specified() {
         let (na, k) = (5, 8);
@@ -806,8 +762,7 @@ mod tests {
         }
     }
 
-    /// The fused NLL matches the straightforward marginal likelihood, and the analytic
-    /// gradient matches central differences for every model shape.
+    /// The fused NLL and analytic gradient match the reference likelihood and central differences.
     #[test]
     fn nll_and_gradient_match_the_reference() {
         let mut rng = ChaCha8Rng::seed_from_u64(54);

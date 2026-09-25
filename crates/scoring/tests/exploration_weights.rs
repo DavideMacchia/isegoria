@@ -1,9 +1,5 @@
-//! Live outcomes with randomized exploration (`docs/01` D35, T52; paper Prop. "Exploration
-//! restores properness"). When the gate decides which outcomes are observed, scoring only
-//! the observed items pays a reviewer to report on the gate's side; observing a random
-//! fraction `ε` of the rejections and weighting each observed score by `1/π_j` gives a
-//! score whose expectation is the full-information score, which truthful reports maximize
-//! (AT-REP-06).
+//! Live outcomes with randomized exploration (`docs/01` D35; paper Prop. "Exploration
+//! restores properness", AT-REP-06).
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -29,18 +25,14 @@ fn expected_score(p: f64, q: f64, b: f64, tau: f64, epsilon: f64, weighted: bool
         .iter()
         .map(|&o| {
             let prob = if o > 0.5 { q } else { 1.0 - q };
-            // Observed with probability π (score × weight), unobserved otherwise (0).
             prob * pi * weight * difference_score(p, b, o)
         })
         .sum()
 }
 
-/// AT-REP-06, the exact half: under a gate that observes the outcome only on the
-/// reports it passes (and on `ε` of the rest), the inverse-probability-weighted score has
-/// exactly the full-information expectation `(b − q)² − (p − q)²` whatever the report, so
-/// the true belief is its unique optimum; the bare observed score is scaled by `π(p)` and
-/// pays a reviewer who believes 0.40 while the crowd says 0.70 to report 0.50 — the
-/// gate's side — whether the exploration rate is 5% or zero.
+/// AT-REP-06, the exact half: the inverse-probability-weighted score has exactly the
+/// full-information expectation `(b − q)² − (p − q)²` whatever the report, so the truth
+/// is its unique optimum; the bare observed score instead rewards shading toward the gate.
 #[test]
 fn at_rep_06_the_weighted_score_is_proper_under_a_report_dependent_gate() {
     let (tau, eps) = (0.5, 0.05);
@@ -60,7 +52,6 @@ fn at_rep_06_the_weighted_score_is_proper_under_a_report_dependent_gate() {
             "a report other than the belief scored higher"
         );
     }
-    // The paper's dissenter, under the gate: honest 0.40 against a crowd at 0.70.
     let (q, b) = (0.40, 0.70);
     let truthful = expected_score(q, q, b, tau, eps, false);
     let on_the_gate_s_side = expected_score(0.50, q, b, tau, eps, false);
@@ -90,13 +81,9 @@ fn normal(r: &mut ChaCha8Rng) -> f64 {
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 
-/// AT-REP-06, the Monte Carlo half: a panel of nine with forecast noise from 0.05 to 0.30
-/// (the paper's marked regime) on 100,000 items; the gate passes an item when the panel's
-/// mean forecast reaches 0.5 and a seeded draw explores 5% of the rest. Per reviewer, the
-/// inverse-probability-weighted mean of the observed leave-one-out scores is within Monte
-/// Carlo error of the full-information mean over every item, while the mean of the
-/// passed items alone is biased by many standard errors for the best and the worst
-/// reviewer.
+/// AT-REP-06, the Monte Carlo half: per reviewer, the inverse-probability-weighted mean
+/// of the observed leave-one-out scores is within Monte Carlo error of the full-information
+/// mean, while the passed-items-only mean is biased by many standard errors.
 #[test]
 fn the_weighted_mean_matches_the_full_information_score_within_monte_carlo_error() {
     const N: usize = 100_000;

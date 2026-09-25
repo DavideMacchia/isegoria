@@ -1,7 +1,6 @@
-//! One credential per label (docs/08 ID-007, T11): a person has exactly one uniqueness
-//! label (enrollment), so the issuer signs at most one credential for it. This is the
-//! structural block on whitewashing — you cannot mint a fresh identity to shed a bad
-//! reputation, whatever secret you choose.
+//! One credential per label (`docs/08` ID-007): a person has exactly one uniqueness
+//! label, so the issuer signs at most one credential for it — the structural block on
+//! whitewashing.
 
 use identity::credential::{Credential, IssuanceError, IssuanceRegistry, Issuer};
 use identity::enrollment::Label;
@@ -25,9 +24,8 @@ fn at_id_02_a_second_credential_for_a_label_is_refused() {
 
 #[test]
 fn at_id_03_whitewashing_with_a_fresh_secret_is_refused() {
-    // Enroll once → one label. Requesting with secret x₁ then a NEW secret x₂ carries the
-    // same label both times, so the second issuance is refused: a person cannot obtain a
-    // second, reputation-free identity by picking a fresh secret.
+    // Requesting with a NEW secret still carries the same label, so the second
+    // issuance is refused.
     let issuer = Issuer::new([1u8; 32]);
     let label = Label([7u8; 32]);
     let mut registry = IssuanceRegistry::new();

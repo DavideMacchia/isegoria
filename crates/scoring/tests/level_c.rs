@@ -68,16 +68,14 @@ fn following_the_crowd_does_not_pay() {
     assert!(s(3) > 0.0, "the expert should beat the crowd: {}", s(3));
     assert!(s(3) > s(1), "expert beats peer-following");
     assert!(s(3) > s(2), "expert beats bridging-following");
-    // The retired ratio-form skill score told the same story on this fixture; what it
-    // could not do is stay proper (paper Prop. 12, `evaluator_score.rs`).
     let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
     assert!(brier_skill_score(&p[3], &o, &baseline) > 0.0);
 }
 
+/// AT-REP-02 / D33: a consensus follower (forecast = panel mean) scores exactly 0 and
+/// draws odds weight exactly 1 — not a reward.
 #[test]
 fn at_rep_02_a_consensus_follower_scores_zero() {
-    // docs/08 AT-REP-02 / D33: a reviewer whose forecast is the other panelists' mean
-    // earns exactly 0 on every item, so their odds weight is exactly 1 — not a reward.
     let o = read_vector("levelc_o.csv");
     let mut p = read_matrix("levelc_p.csv");
     let n = p.len();
@@ -108,7 +106,7 @@ fn the_odds_weight_is_positive_and_monotone_in_the_skill() {
 
 #[test]
 fn author_score_shrinks_small_samples() {
-    // docs/02 §C.1: 2/2 accepted → 4/7 ≈ 0.571; 180/200 → 182/205 ≈ 0.888.
+    // docs/02 §C.1's worked examples.
     let prior = AuthorPrior::default();
 
     let a = author_score(&[1.0, 1.0], &[0.0, 0.0], &prior);
@@ -146,9 +144,8 @@ fn proposal_rate_scales_with_author_score() {
 
 #[test]
 fn the_cusum_reacts_to_a_sustained_drop_not_to_variance() {
-    // D34: scores alternating ±0.3 around the reference never accumulate (each drop of
-    // 0.3 − k is undone by the rise), while a run of scores 0.1 below the reference
-    // crosses h = 1.5 after ⌈1.5 / (0.1 − 0.03)⌉ = 22 items.
+    // D34: scores alternating ±0.3 around the reference never accumulate, while a run
+    // 0.1 below the reference crosses `h = 1.5` after ⌈1.5 / (0.1 − 0.03)⌉ = 22 items.
     let params = CusumParams::default();
     let mut noisy = Cusum::new();
     for i in 0..1000 {
@@ -189,7 +186,6 @@ fn peer_prediction_rewards_informative_agreement() {
 fn brier_skill_score_is_finite_when_the_baseline_is_perfect() {
     let o = vec![1.0, 1.0, 1.0, 1.0];
     let baseline = base_rate_baseline(&o); // = [1,1,1,1], zero error
-                                           // A predictor that also nails it, and one that is wrong: both must stay finite.
     for p in [vec![1.0; 4], vec![0.2, 0.9, 0.5, 0.7]] {
         let bss = brier_skill_score(&p, &o, &baseline);
         assert!(bss.is_finite(), "BSS must be finite, got {bss}");

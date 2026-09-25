@@ -1,14 +1,6 @@
-"""Differential oracle for the bridging fit (docs/08 REPRO-003, T45).
-
-The paper's NumPy/SciPy implementation of the weighted bridging objective
-(paper/scripts/common.py: analytic gradient, L-BFGS-B at gtol 1e-10, ftol 1e-15) on a dataset
-the Rust tests wrote, from eight seeded starts, the lowest objective kept — the same rule the
-engine follows (T48). Reads <dir>/R.csv (respondents x items), <dir>/mask.csv (0/1) and
-<dir>/weights.csv (one weight per reviewer); writes <dir>/oracle.csv as `name,value` lines:
-objective, mu, then b_j[k], f_j[k], b_u[k], f_u[k].
-
-Usage: python sim/oracle_bridging.py <dir>
-"""
+"""Differential oracle for the bridging fit (`docs/08` REPRO-003): the paper's SciPy fit
+(`paper/scripts/common.py`) on `<dir>/R.csv`, `mask.csv` and `weights.csv`; writes
+`<dir>/oracle.csv` as `name,value` lines."""
 import os
 import sys
 

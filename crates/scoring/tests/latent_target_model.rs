@@ -1,12 +1,6 @@
-//! The target model of `docs/01` D37 (T54): the anchors inside the likelihood and θ
-//! integrated out. Error in the θ proxy created latent classes that do not exist (paper
-//! Prop. 10, `docs/08` DIF-010): on the paper's null batches the proxy model selects a
-//! mixture with 10, 20 or 30 anchors, the target model does not (AT-DIF-01, the
-//! item-level false-positive rate); and a campaign — 2, 4 or 6 of 8 items shifted the
-//! same way — is flagged on exactly the shifted items (AT-DIF-12), where the proxy's
-//! differential gap inverted. The paper-scale cases run under `calibration`; the default
-//! suite keeps one null batch per anchor count that fooled the proxy and the inverting
-//! campaign.
+//! The target model of `docs/01` D37: the anchors inside the likelihood and θ integrated
+//! out, fixing the spurious latent classes a θ proxy creates (paper Prop. 10, `docs/08`
+//! DIF-010, AT-DIF-01, AT-DIF-12). Paper-scale cases run under `calibration`.
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -29,10 +23,9 @@ fn sigmoid(z: f64) -> f64 {
     1.0 / (1.0 + (-z).exp())
 }
 
-/// The paper's batch (`paper/scripts/common.py::dif_generate`): θ ~ N(0, 1), a hidden
-/// axis `z = ±1`; `n_anchor` clean anchors with `a ~ U(0.9, 1.6)`, `b ~ N(0, 1)`; `K` trial
-/// items with `a ~ U(1.0, 1.5)`, `b ~ N(0, 0.6)`, the first `n_biased` shifted by `δ·z`.
-/// Returns (anchors, responses), both respondents × items.
+/// The paper's batch (`paper/scripts/common.py::dif_generate`): `n_anchor` clean anchors
+/// and `K` trial items over a 2PL, the first `n_biased` trial items shifted by `δ·z` on a
+/// hidden axis `z = ±1`. Returns (anchors, responses), both respondents × items.
 fn batch(
     n: usize,
     n_anchor: usize,
@@ -80,9 +73,8 @@ fn rounded(v: &[f64]) -> Vec<f64> {
     v.iter().map(|x| (x * 100.0).round() / 100.0).collect()
 }
 
-/// The paper's null batches with 10 and 20 anchors (KR-20 0.68 and 0.83) at N = 6,000:
-/// the proxy model selects a mixture and flags clean items, the target model selects one
-/// class and flags none.
+/// The paper's null batches with 10 and 20 anchors at N = 6,000: the proxy model selects
+/// a mixture and flags clean items, the target model selects one class and flags none.
 #[test]
 fn the_target_model_finds_no_mixture_where_the_proxy_did() {
     for n_anchor in [10usize, 20] {
@@ -205,9 +197,8 @@ fn at_dif_12_campaigns_of_2_4_and_6_of_8_are_flagged_exactly() {
 }
 
 /// AT-DIF-01 on the target model (`calibration`): null batches with 20, 40 and 60
-/// anchors (KR-20 about 0.82, 0.90 and 0.93), four seeds at N = 3,000 and one at
-/// N = 12,000 — 120 clean items; the item-level false-positive rate is at most 5%. The
-/// runtime per batch is recorded (DIF-009).
+/// anchors, four seeds at N = 3,000 and one at N = 12,000 — the item-level
+/// false-positive rate over the 120 clean items is at most 5%.
 #[cfg(feature = "calibration")]
 #[test]
 fn at_dif_01_the_item_level_false_positive_rate_on_null_batches() {

@@ -1,12 +1,5 @@
-//! Respondents pass the identity gate, and the pilot floors count persons, not rows
-//! (`docs/08` §9.1 `Pilot1` row, PROTO-013, INV-9, T65 — AT-PRO-09).
-//!
-//! A respondent enters a batch through `pilot::submit_response`, proving a `Respond`
-//! nullifier bound to the batch and the epoch; the admitted `NullifierSet` is what the
-//! floors of `screen`, `dif_batch` and `revalidate_batch_latent` count. So the same
-//! person cannot answer a batch twice, 300 answer sheets from one person do not meet
-//! `N1_MIN`, a proof for one batch is refused on another, and a row that no admitted
-//! respondent stands behind is refused.
+//! Respondents pass the identity gate and the pilot floors count persons, not rows
+//! (`docs/08` §9.1 `Pilot1`, PROTO-013, INV-9; AT-PRO-09).
 
 use identity::credential::{AnonymousCredential, Credential, Issuer};
 use identity::enrollment::Label;
@@ -38,7 +31,7 @@ fn person(issuer: &Issuer, i: u32) -> AnonymousCredential {
     pending.finalize(issuer.issue(&req).unwrap())
 }
 
-/// A `Respond` proof bound to `batch` at `EPOCH`, the way a real respondent client builds it.
+/// A `Respond` proof bound to `batch` at `EPOCH`.
 fn respond_proof(issuer: &Issuer, cred: &AnonymousCredential, batch: Cid) -> NullifierProof {
     prove(
         cred,
@@ -48,8 +41,7 @@ fn respond_proof(issuer: &Issuer, cred: &AnonymousCredential, batch: Cid) -> Nul
     )
 }
 
-/// A respondent set of `n` admitted ids, built directly (the gate itself is tested above;
-/// the floors only read the set's size).
+/// `n` admitted respondent ids, without the gate.
 fn admitted(n: usize) -> NullifierSet {
     let mut set = NullifierSet::new();
     for i in 0..n {
@@ -60,9 +52,7 @@ fn admitted(n: usize) -> NullifierSet {
     set
 }
 
-/// `n` respondents' answers to 60 clean anchors, a Guttman pattern on evenly spaced
-/// difficulties: a reliable θ proxy (KR-20 ≈ 0.98, above `KR20_MIN`), as the latent
-/// re-check's anchor precondition requires (D37, T53).
+/// `n` Guttman answer rows over 60 anchors: a reliable θ proxy for the latent re-check (D37).
 fn anchors(n: usize) -> Vec<Vec<f64>> {
     (0..n)
         .map(|i| {
@@ -92,8 +82,7 @@ fn the_same_person_cannot_answer_a_batch_twice() {
     let batch = batch_id(&[cid(b"item-A"), cid(b"item-B")]);
     let mut respondents = NullifierSet::new();
 
-    // Two independent proofs (fresh randomness) by the same person share the `Respond`
-    // nullifier id: the first is admitted, the second is a duplicate.
+    // Two independent proofs by one person share the `Respond` nullifier id.
     let p1 = respond_proof(&issuer, &alice, batch);
     let p2 = respond_proof(&issuer, &alice, batch);
     let id = submit_response(&p1, &issuer.public(), batch, EPOCH, &mut respondents).unwrap();
@@ -104,7 +93,6 @@ fn the_same_person_cannot_answer_a_batch_twice() {
     );
     assert_eq!(respondents.len(), 1, "one person, one respondent");
 
-    // Another person is admitted alongside.
     let bob = person(&issuer, 2);
     let pb = respond_proof(&issuer, &bob, batch);
     assert!(submit_response(&pb, &issuer.public(), batch, EPOCH, &mut respondents).is_ok());
@@ -113,7 +101,6 @@ fn the_same_person_cannot_answer_a_batch_twice() {
 
 #[test]
 fn three_hundred_rows_from_one_respondent_are_not_enough() {
-    // One admitted person hands in 300 answer sheets: the stage-1 floor counts persons.
     let issuer = issuer();
     let batch = batch_id(&[cid(b"item-A"), cid(b"item-B"), cid(b"item-C")]);
     let mut respondents = NullifierSet::new();
@@ -129,7 +116,7 @@ fn three_hundred_rows_from_one_respondent_are_not_enough() {
         })
     );
 
-    // The same for the production latent re-check: 3,000 rows, one person.
+    // The same for the latent re-check.
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())
         .collect();
@@ -193,8 +180,6 @@ fn a_proof_for_another_role_cannot_respond() {
 fn rows_without_a_respondent_are_refused() {
     let respondents = admitted(N1_MIN);
 
-    // One row more than the admitted respondents: somebody's answers stand behind no
-    // proof.
     let (theta, items) = sample(N1_MIN + 1, 3);
     assert_eq!(
         screen(&respondents, &theta, &items),
@@ -215,11 +200,10 @@ fn rows_without_a_respondent_are_refused() {
         })
     );
 
-    // Exactly the admitted respondents: the screen runs.
     let (theta, items) = sample(N1_MIN, 3);
     assert!(screen(&respondents, &theta, &items).is_ok());
 
-    // The latent re-check: 3,000 admitted persons, 3,001 rows.
+    // The same for the latent re-check.
     let respondents = admitted(N_LATENT_MIN);
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN + 1)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())

@@ -1,7 +1,6 @@
-//! Checkpoint-seeded randomness (docs/08 INV-10 / CRYPTO-008, docs/01 D29, T8): the
-//! lottery, reviewer assignment, honeypot placement and sortition all seed from the
-//! signed consortium checkpoint head — fixed after deposits close and uninfluenceable —
-//! so nobody can grind a draft to pick their own reviewers (AT-BR-05).
+//! Checkpoint-seeded randomness (`docs/08` INV-10/CRYPTO-008, `docs/01` D29, T8): every
+//! draw seeds from the signed consortium checkpoint head, fixed after deposits close, so
+//! nobody can grind a draft to pick reviewers (AT-BR-05).
 
 use identity::nym::Nym;
 use network::consortium::{Checkpoint, Consortium, Member};
@@ -11,8 +10,7 @@ use protocol::lottery::admit_from_beacon;
 use protocol::randomness::{Beacon, HONEYPOT, LOTTERY, REVIEW_ASSIGNMENT, SORTITION};
 use protocol::review::{assign_from_beacon, Reviewer};
 
-/// A checkpoint co-signed by a threshold of the consortium, reduced to its beacon. The
-/// head is what an author cannot influence or predict before deposits close.
+/// A checkpoint co-signed by a threshold of the consortium, reduced to its beacon.
 fn signed_beacon(head: [u8; 32]) -> Beacon {
     let members: Vec<Member> = (0u8..4).map(|i| Member::from_seed([i + 1; 32])).collect();
     let consortium = Consortium::new(members.iter().map(|m| m.public()).collect(), 3);
@@ -50,10 +48,7 @@ fn at_br_05_a_panel_does_not_depend_on_draft_bytes() {
     let reviewers = pool(50);
     let (k, slot) = (9, 4u64);
 
-    // The panel is a pure function of (beacon, slot). An author who regenerates the draft
-    // whitespace changes its bytes and CID, but neither enters the assignment — its slot
-    // and the beacon are unchanged — so every variant gets the SAME panel. Grinding the
-    // draft is futile.
+    // The panel is a pure function of (beacon, slot); draft bytes never enter it.
     let panel = nyms(&assign_from_beacon(&reviewers, k, &beacon, slot));
     for _draft_variant in 0..1000 {
         assert_eq!(
@@ -62,16 +57,14 @@ fn at_br_05_a_panel_does_not_depend_on_draft_bytes() {
         );
     }
 
-    // The panel IS bound to the signed checkpoint: a different head — which the author
-    // cannot produce, it needs a threshold of consortium signatures — yields a different
-    // draw. So the panel cannot be precomputed at deposit time.
+    // The panel is bound to the signed head: a different one yields a different draw.
     let other = signed_beacon([9u8; 32]);
     assert_ne!(
         nyms(&assign_from_beacon(&reviewers, k, &other, slot)),
         panel
     );
 
-    // Different items (slots) get different panels, so assignment is not degenerate.
+    // Different slots draw different panels.
     assert_ne!(
         nyms(&assign_from_beacon(&reviewers, k, &beacon, slot + 1)),
         panel
@@ -89,8 +82,6 @@ fn admission_seeds_from_the_checkpoint_and_is_deterministic() {
     assert_eq!(a, b, "deterministic per (beacon, epoch)");
     assert_eq!(a.len(), 5);
 
-    // The lottery seed is bound to the checkpoint head: a different head gives a
-    // different seed (so a different admission), and the author controls neither.
     let other = signed_beacon([6u8; 32]);
     assert_ne!(
         beacon.seed(LOTTERY, 7),
@@ -104,9 +95,7 @@ fn admission_seeds_from_the_checkpoint_and_is_deterministic() {
 #[test]
 fn beacon_seeds_are_deterministic_and_domain_separated() {
     let beacon = signed_beacon([1u8; 32]);
-    // Deterministic.
     assert_eq!(beacon.seed(LOTTERY, 0), beacon.seed(LOTTERY, 0));
-    // Separated across purpose and index, so the four draws never share a stream.
     assert_ne!(beacon.seed(LOTTERY, 0), beacon.seed(REVIEW_ASSIGNMENT, 0));
     assert_ne!(beacon.seed(HONEYPOT, 0), beacon.seed(SORTITION, 0));
     assert_ne!(beacon.seed(LOTTERY, 0), beacon.seed(LOTTERY, 1));

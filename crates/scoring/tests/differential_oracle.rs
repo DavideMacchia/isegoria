@@ -1,13 +1,6 @@
-//! Differential oracles on random datasets (`docs/08` REPRO-003, T45): the engine against
-//! the paper's NumPy/SciPy implementations of the same models (`paper/scripts/common.py`,
-//! driven by `sim/oracle_bridging.py` and `sim/oracle_mixture.py`) — not only on the
-//! fixed fixtures. Needs the pinned sim environment (`sim/requirements.txt`, the repo
-//! `.venv` or a `python3` that imports numpy/scipy); self-skips without it, so
-//! `cargo test` stays green, and runs for real in CI, which installs it.
-//!
-//! Both sides run seeded multi-starts and keep the lowest objective. The engine may
-//! find a better minimum than the oracle — never a worse one — and where the two
-//! objectives agree the parameters agree too.
+//! Differential oracles on random datasets (`docs/08` REPRO-003): the engine against the
+//! paper's NumPy/SciPy implementations (`paper/scripts/common.py`, `sim/oracle_bridging.py`,
+//! `sim/oracle_mixture.py`); self-skips without a sim `python3` (numpy/scipy).
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -137,9 +130,8 @@ fn dataset(seed: u64, n: usize, m: usize, density: f64, random_weights: bool) ->
 }
 
 /// The bridging fit against the paper's SciPy fit on six random datasets: the engine's
-/// objective is never worse than the oracle's (within 1e-6 relative), and where the
-/// two agree the parameters agree to 1e-3 — `μ`, `b_j`, and `f_j` up to the sign the
-/// engine canonicalizes.
+/// objective is never worse than the oracle's (within 1e-6 relative), and where the two
+/// agree the parameters agree to 1e-3.
 #[test]
 fn the_bridging_fit_matches_the_scipy_oracle_on_random_datasets() {
     if !sim_env_available() {
@@ -219,11 +211,9 @@ fn the_bridging_fit_matches_the_scipy_oracle_on_random_datasets() {
     );
 }
 
-/// The two-class uniform mixture on a fixed ability against the paper's SciPy fit on
-/// four random batches: the one-class negative log-likelihoods agree to 1e-6 relative,
-/// the engine's two-class uniform candidate is never worse than the oracle's (within
-/// 1e-4 relative on the BIC), and where they agree the gaps are the oracle's `2|d|` to
-/// 0.05.
+/// The two-class uniform mixture against the paper's SciPy fit on four random batches:
+/// the one-class log-likelihoods agree to 1e-6 relative, the two-class BIC is never
+/// worse than the oracle's (within 1e-4), and where they agree the gaps match to 0.05.
 #[test]
 fn the_mixture_matches_the_scipy_oracle_on_random_batches() {
     if !sim_env_available() {

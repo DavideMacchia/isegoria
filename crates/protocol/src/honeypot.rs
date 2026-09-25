@@ -1,7 +1,6 @@
-//! Golden items (`docs/05`, §Golden items). A fraction η≈5% of the review queue are
-//! items of known quality, indistinguishable from the rest, giving a continuous
-//! direct measure of E_u and catching nodes that vote at random or in blocks.
-//! They must be produced by a sortition committee (defended in `governance`).
+//! Golden items (`docs/05`, §Golden items): a fraction `η` of the review queue are items
+//! of known quality, indistinguishable from the rest, giving a continuous direct measure
+//! of `E_u`. Produced by a sortition committee (`governance`).
 
 use crate::randomness::{Beacon, HONEYPOT};
 use rand::seq::SliceRandom;
@@ -41,10 +40,8 @@ pub fn inject<T: Clone>(queue: &[T], golden: &[T], rate: f64, seed: u64) -> Vec<
 }
 
 /// Skill `S_u` of each panel reviewer on the golden items (`docs/01` D33, T50): the mean
-/// leave-one-out difference score `(p̄_{−u,j} − o_j)² − (p_uj − o_j)²` of their forecasts
-/// against the known outcomes, the baseline being the weight-adjusted mean of the *other*
-/// panelists' forecasts. Strictly proper; a reviewer who copies the others scores exactly
-/// 0; random or block voting scores below zero. `predictions[u][j]`.
+/// leave-one-out difference score against the known outcomes. Strictly proper; a reviewer
+/// who copies the others scores exactly 0; random or block voting scores below zero.
 pub fn reviewer_skills(
     predictions: &[Vec<f64>],
     weights: &[f64],

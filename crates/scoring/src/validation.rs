@@ -1,8 +1,4 @@
-//! Level B — iterative purification. See `docs/02`, §B.4.
-//!
-//! θ estimated on DIF-contaminated items biases the very measure used to judge
-//! those items. The fix: flag DIF items, re-estimate θ on the clean set, repeat
-//! until the flagged set is a fixed point.
+//! Level B — iterative purification. See `docs/02` §B.4.
 
 use crate::dif::{logistic_dif, BETA2_MAX};
 use crate::irt::standardize;
@@ -15,8 +11,7 @@ pub struct Purified {
     pub iterations: usize,
 }
 
-/// `anchors` and `batch` are respondents × items. θ starts on the anchors, then
-/// each round re-estimates it on the anchors plus the currently-clean batch items.
+/// `anchors` and `batch` are respondents × items.
 pub fn purify_theta(
     anchors: &[Vec<f64>],
     batch: &[Vec<f64>],

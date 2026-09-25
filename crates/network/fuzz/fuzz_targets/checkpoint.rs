@@ -1,8 +1,6 @@
-//! Checkpoint ingestion (NET-006, T44): arbitrary sequences of checkpoints, some honestly
-//! signed by members and some carrying attacker-chosen signature bytes and indices, fed
-//! to a `CheckpointClient` with and without the log. No panic, and the §9.4 rules hold
-//! after every step: the trusted height never decreases, only `Accepted` changes the
-//! trusted checkpoint, and acceptance needs a threshold of distinct member signatures.
+//! Checkpoint ingestion (NET-006): arbitrary sequences of checkpoints, some honestly
+//! signed and some carrying attacker-chosen signature bytes/indices, fed to a
+//! `CheckpointClient` with and without the log. No panic, and the §9.4 invariants hold.
 #![no_main]
 
 use arbitrary::Arbitrary;
@@ -105,8 +103,7 @@ fuzz_target!(|ops: Vec<Op>| {
                     assert!(honest >= THRESHOLD);
                     if let Some(prior) = before {
                         assert!(cp.height > prior.height);
-                        // The first checkpoint is trusted on first use; every later one
-                        // must be extended by the log when the client holds it (T38).
+                        // Every checkpoint after the first must be extended by the log.
                         if with_log {
                             assert!(log.verify_extends(&cp).is_ok());
                         }

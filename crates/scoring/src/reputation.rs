@@ -1,18 +1,13 @@
-//! Level C — node reputation. See `docs/02`, §C.
-//!
-//! Two scores that must never be combined (CLAUDE.md #4, `docs/01` D5): the author
-//! score `C_a` gates the proposal rate limit; the evaluator score `E_u` weights the
-//! review vote. They live on separate, unlinkable pseudonyms.
+//! Level C — node reputation (`docs/02` §C). The author score `C_a` (proposal rate limit)
+//! and the evaluator score `E_u` (review weight) live on separate, unlinkable pseudonyms
+//! and are never combined (CLAUDE.md #4, `docs/01` D5).
 
 use crate::fmath::exp;
-
-// -------------------------- C.1 author score --------------------------
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorPrior {
     pub alpha0: f64,
     pub beta0: f64,
-    /// time constant of `w = exp(−Δt / T)`, in months
     pub decay_months: f64,
 }
 
@@ -26,8 +21,7 @@ impl Default for AuthorPrior {
     }
 }
 
-/// Posterior-mean author score with shrinkage and time decay. `qualities[j]` is the
-/// final quality `q_j ∈ [0,1]` of item `j`, `ages_months[j]` its age.
+/// Posterior-mean author score (shrinkage, time decay): `qualities[j] ∈ [0,1]`, `ages_months[j]`.
 pub fn author_score(qualities: &[f64], ages_months: &[f64], prior: &AuthorPrior) -> f64 {
     let mut sum_wq = 0.0;
     let mut sum_w = 0.0;
@@ -39,18 +33,11 @@ pub fn author_score(qualities: &[f64], ages_months: &[f64], prior: &AuthorPrior)
     (prior.alpha0 + sum_wq) / (prior.alpha0 + prior.beta0 + sum_w)
 }
 
-/// Maps the author score to a proposal rate: `q_min + (q_max − q_min)·C_a`.
 pub fn proposal_rate(c_a: f64, q_min: f64, q_max: f64) -> f64 {
     q_min + (q_max - q_min) * c_a
 }
 
-// ------------------------ C.2 evaluator score (D33) ------------------------
-
-/// Parameters of the odds-scale evaluator weight (`docs/01` D33, T50):
-/// `w_u = exp(γ · S_u · k_u / (k_u + k₀))`. At `γ ≈ 35` a reviewer reliably 0.02 better
-/// than the crowd weighs about double; `k₀ ≈ 100` scored items is the shrinkage that
-/// stops luck from buying weight (with 16 scored items one standard error of luck,
-/// 0.025, is worth ×2.4 without shrinkage and ×1.13 with it). Provisional (T25).
+/// Odds-scale evaluator weight `w_u = exp(γ · S_u · k_u / (k_u + k₀))` (D33); provisional (T25).
 #[derive(Clone, Copy, Debug)]
 pub struct EvaluatorParams {
     pub gamma: f64,
@@ -66,18 +53,12 @@ impl Default for EvaluatorParams {
     }
 }
 
-/// The per-item difference score `d = (baseline − o)² − (p − o)²` (D33, paper Prop. 14):
-/// the reviewer's Brier improvement over the baseline on one scored item. Strictly proper
-/// — the baseline term does not depend on the report, and the Brier score is strictly
-/// proper — and exactly 0 for a report equal to the baseline.
+/// Per-item Brier improvement over the baseline (D33): strictly proper, 0 at the baseline.
 pub fn difference_score(p: f64, baseline: f64, o: f64) -> f64 {
     (baseline - o).powi(2) - (p - o).powi(2)
 }
 
-/// Leave-one-out crowd baselines `p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v` (D33: the
-/// D23 crowd baseline minus the reviewer being scored). `predictions[u][j]`, `weights[u]`.
-/// A reviewer whose other panelists carry no weight has nothing to be compared with: the
-/// baseline is their own forecast, so every score of theirs is 0.
+/// Leave-one-out crowd baseline (D33); with no other weight, a reviewer's own forecast.
 pub fn loo_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<Vec<f64>> {
     let m = predictions.first().map_or(0, |row| row.len());
     (0..predictions.len())
@@ -108,8 +89,6 @@ pub fn loo_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<Vec<f64>> 
         .collect()
 }
 
-/// Per-reviewer, per-item difference scores against the leave-one-out baseline (D33):
-/// `scores[u][j] = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`.
 pub fn loo_scores(predictions: &[Vec<f64>], weights: &[f64], outcomes: &[f64]) -> Vec<Vec<f64>> {
     let baseline = loo_baseline(predictions, weights);
     predictions
@@ -125,8 +104,7 @@ pub fn loo_scores(predictions: &[Vec<f64>], weights: &[f64], outcomes: &[f64]) -
         .collect()
 }
 
-/// `S_u`: the mean of a reviewer's per-item scores — the symmetric long-window mean of
-/// D34 — 0 with nothing scored.
+/// `S_u`, the symmetric long-window mean of a reviewer's per-item scores (D34).
 pub fn mean_score(scores: &[f64]) -> f64 {
     if scores.is_empty() {
         0.0
@@ -135,12 +113,7 @@ pub fn mean_score(scores: &[f64]) -> f64 {
     }
 }
 
-/// The inverse-probability-weighted mean score (D35, T52; paper, "Exploration restores
-/// properness"): each observed score at `1/π_j`, its inverse inclusion probability, over
-/// the `reviewed` items whose outcome could have been observed — the observed ones and
-/// those the exploration draw left unobserved. Its expectation is the mean with every
-/// outcome observed, whatever the gate decided, so the score stays strictly proper.
-/// `observed` pairs `(score, π)`; 0 with nothing reviewed.
+/// Inverse-probability-weighted mean of `(score, π)` pairs (D35): proper whatever the gate decided.
 pub fn inverse_probability_mean(observed: &[(f64, f64)], reviewed: usize) -> f64 {
     if reviewed == 0 {
         0.0
@@ -149,19 +122,13 @@ pub fn inverse_probability_mean(observed: &[(f64, f64)], reviewed: usize) -> f64
     }
 }
 
-/// The evaluator's review weight on the odds scale, shrunk toward 1 by the number of
-/// scored items: `exp(γ · S_u · k_u / (k_u + k₀))` (D33). 1 for a crowd-level reviewer
-/// and for one with nothing scored; unbounded above, so the cap `3 × median` can bind.
+/// Odds-scale review weight (D33): 1 at crowd level or with nothing scored; see [`weight_cap`].
 pub fn odds_weight(s_u: f64, k_u: usize, params: &EvaluatorParams) -> f64 {
     let k = k_u as f64;
     exp(params.gamma * s_u * k / (k + params.k0))
 }
 
-/// Brier Skill Score of predictions `p` against outcomes `o`, normalized by a
-/// `baseline` predictor. Zero means "no better than the baseline"; positive means
-/// right when the baseline is wrong. *Retired as the evaluator score* (D33, T50): the
-/// ratio of two sums is not proper — the optimal report moves toward the outcome the
-/// crowd favours (paper Prop. 12). Kept for the sim-reproduction oracle (REPUTATION-002).
+/// Brier Skill Score of `p` against `o`; not proper, kept for the sim oracle (REPUTATION-002).
 pub fn brier_skill_score(p: &[f64], o: &[f64], baseline: &[f64]) -> f64 {
     let mut num = 0.0;
     let mut den = 0.0;
@@ -169,26 +136,20 @@ pub fn brier_skill_score(p: &[f64], o: &[f64], baseline: &[f64]) -> f64 {
         num += (p[i] - o[i]).powi(2);
         den += (baseline[i] - o[i]).powi(2);
     }
-    // A zero-variance baseline (e.g. every outcome identical, so the base rate equals
-    // every outcome) has no error to improve on: skill is undefined. Report it as a
-    // finite, neutral 0.0 rather than dividing by zero into NaN/−∞.
+    // A zero-variance baseline has no error to improve on: 0.0, not a division by zero.
     if den == 0.0 {
         return 0.0;
     }
     1.0 - num / den
 }
 
-/// Constant base-rate baseline (mean outcome), as used in `sim/bridging_irt_dif.py`.
-/// Kept for the sim-reproduction test; the evaluator score uses [`crowd_baseline`].
+/// Constant base-rate baseline (mean outcome), kept for the sim-reproduction test only.
 pub fn base_rate_baseline(o: &[f64]) -> Vec<f64> {
     let mean = o.iter().sum::<f64>() / o.len() as f64;
     vec![mean; o.len()]
 }
 
-/// Crowd baseline (`docs/01` D23, docs/08 G-09): per-item weight-adjusted mean of the
-/// panel's declared predictions, `p̄_j = Σ_u w_u p_uj / Σ_u w_u`, the reviewer included.
-/// The evaluator score reads its leave-one-out form ([`loo_baseline`], D33): the whole
-/// panel's mean is kept as the crowd forecast of an item. `predictions[u][j]`.
+/// Crowd baseline, reviewer included (`docs/01` D23); the evaluator score uses [`loo_baseline`].
 pub fn crowd_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
     let m = predictions.first().map_or(0, |row| row.len());
     let total: f64 = weights.iter().sum();
@@ -208,13 +169,7 @@ pub fn crowd_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-// -------------------- C.4 change detection & cap --------------------
-
-/// Parameters of the one-sided CUSUM on a reviewer's per-item scores (`docs/01` D34,
-/// T51): the allowance `k` (a drop smaller than this per item is noise) and the alarm
-/// threshold `h`. At `k = 0.03`, `h = 1.5` the paper measures 0.07 false alarms per
-/// 1,000 scored items for an honest reviewer and a median delay of 36 items to catch a
-/// reviewer who starts flipping 20% of forecasts. Provisional (T25).
+/// One-sided CUSUM parameters (`docs/01` D34): allowance `k` and alarm threshold `h`; provisional.
 #[derive(Clone, Copy, Debug)]
 pub struct CusumParams {
     pub k: f64,
@@ -227,10 +182,8 @@ impl Default for CusumParams {
     }
 }
 
-/// A one-sided CUSUM detecting a sustained *drop* of a reviewer's per-item scores below
-/// their own long-run mean (D34): `s ← max(0, s + (reference − score) − k)`, alarm when
-/// `s > h`, after which the statistic restarts from 0. It reacts to a change, not to
-/// variance: a cautious reviewer with noisy scores around a good mean raises nothing.
+/// One-sided CUSUM (D34) for a sustained *drop* of a reviewer's per-item scores below their
+/// long-run mean: a change in mean, not in variance.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Cusum {
     s: f64,
@@ -241,8 +194,7 @@ impl Cusum {
         Self::default()
     }
 
-    /// Feeds one per-item `score` against the reviewer's `reference` mean; `true` on an
-    /// alarm (the statistic is reset).
+    /// Feeds one `score` against the reviewer's `reference` mean; `true` on an alarm, which resets.
     pub fn observe(&mut self, reference: f64, score: f64, params: &CusumParams) -> bool {
         self.s = (self.s + (reference - score) - params.k).max(0.0);
         if self.s > params.h {
@@ -253,20 +205,16 @@ impl Cusum {
         }
     }
 
-    /// The current statistic, for diagnostics.
     pub fn statistic(&self) -> f64 {
         self.s
     }
 }
 
-/// Hard per-node weight cap `3 × median(weights)` (`docs/02`, §C.4), recomputed each
-/// epoch over the weights that count. On the odds scale of [`odds_weight`] it binds
-/// (D33; it never did on `E_u ∈ (0,1)`, docs/08 G-12).
+/// Per-node weight cap `3 × median(weights)` (`docs/02` §C.4) on the odds scale, per epoch.
 pub fn weight_cap(weights: &[f64]) -> f64 {
     3.0 * median(weights)
 }
 
-/// Applies the vote weight `w_u = min(w_max, w)`.
 pub fn capped_weight(w: f64, w_max: f64) -> f64 {
     w.min(w_max)
 }
@@ -285,11 +233,9 @@ fn median(values: &[f64]) -> f64 {
     }
 }
 
-// -------------------- C.3 peer prediction (no ground truth) --------------------
-
-/// Dasgupta–Ghosh peer-prediction score for dimensions with no empirical verdict
-/// (`docs/02`, §C.3): agreement with a reference reviewer on a shared item, minus
-/// the baseline agreement estimated on two items judged separately.
+/// Dasgupta–Ghosh peer-prediction score for dimensions without a verdict (`docs/02` §C.3):
+/// agreement with a reference reviewer on a shared item minus the agreement on two
+/// items judged separately.
 pub fn dasgupta_ghosh(shared_p: bool, shared_q: bool, p_other: bool, q_other: bool) -> f64 {
     (shared_p == shared_q) as i32 as f64 - (p_other == q_other) as i32 as f64
 }

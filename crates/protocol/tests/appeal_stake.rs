@@ -1,7 +1,6 @@
 //! The appeal stake is a pseudo-observation inside the author's average (`docs/01` D27,
-//! `docs/08` REPUTATION-007, T61): filing escrows a zero-quality observation that the
-//! evidence filter's verdict settles, an author below the floor cannot file, and the
-//! orchestrator derives the appeal's checks from the verdicts instead of asserting them.
+//! `docs/08` REPUTATION-007, T61): filing escrows a zero that the evidence filter's
+//! verdict settles; an author below the floor cannot file.
 
 use identity::nym::Nym;
 use network::cid::{cid, Cid};
@@ -36,7 +35,6 @@ fn filing_escrows_a_zero_and_lowers_the_reputation_at_once() {
     // (2 + 0) / (2 + 3 + 1)
     assert!((author.reputation(&prior()) - 1.0 / 3.0).abs() < 1e-12);
 
-    // Failed: the zero stands.
     author.settle(escrow, AppealOutcome::Failed);
     assert_eq!(author.qualities(), &[0.0]);
     assert!((author.reputation(&prior()) - 1.0 / 3.0).abs() < 1e-12);
@@ -49,8 +47,7 @@ fn promotion_replaces_the_escrow_with_the_measured_quality() {
     let escrow = author.file_appeal(&prior()).unwrap();
     author.settle(escrow, AppealOutcome::Promoted { quality: 0.9 });
     assert_eq!(author.qualities(), &[0.9]);
-    // (2 + 0.9) / 6: above the pre-appeal reputation — the author gains a real, good
-    // observation for being right against the opinion filter.
+    // (2 + 0.9) / 6, above the pre-appeal reputation.
     let after = author.reputation(&prior());
     assert!((after - 2.9 / 6.0).abs() < 1e-12);
     assert!(after > before);
@@ -166,14 +163,14 @@ fn the_terminal_state_settles_the_escrow() {
     author.record(0.9, 6.0);
     let before = author.reputation(&prior());
 
-    // Promoted: the item reached the pool, its measured quality replaces the zero.
+    // Promoted.
     let escrow = author.file_appeal(&prior()).unwrap();
     let terminal = run(reviewed(), &appealed()).unwrap();
     settle_appeal(&mut author, escrow, &terminal, 0.85);
     assert_eq!(author.qualities(), &[0.9, 0.85]);
     assert!(author.reputation(&prior()) > before);
 
-    // Failed at the DIF stage: the zero stands and the reputation is below where it was.
+    // Failed at the DIF stage.
     let mut author = AuthorHistory::new();
     author.record(0.9, 6.0);
     let before = author.reputation(&prior());

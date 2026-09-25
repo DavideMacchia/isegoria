@@ -52,8 +52,6 @@ fn merkle_inclusion_proof_verifies() {
     // A wrong leaf does not verify.
     let bad = merkle_proof(&leaves, 3).expect("leaf in range");
     assert!(!verify_proof(leaf_hash(&[99]), &bad, root));
-    // There is no proof for a leaf that does not exist (T44: this used to panic, or
-    // return a proof for no leaf at all).
     assert!(merkle_proof(&leaves, leaves.len()).is_none());
     assert!(merkle_proof(&leaves, usize::MAX).is_none());
     assert!(merkle_proof(&[], 0).is_none());
@@ -67,10 +65,9 @@ fn changing_a_leaf_changes_the_root() {
     assert_ne!(merkle_root(&a), merkle_root(&b));
 }
 
-/// NET-003 / AT-NET-02: duplicating the last leaf MUST change the root. A
-/// duplicate-last-node tree hashes the odd node with itself, so `[x, y, z]` and
-/// `[x, y, z, z]` collide (CVE-2012-2459); RFC 6962 promotion prevents it. Checked
-/// across several odd sizes so the collision cannot survive at any level boundary.
+/// NET-003 / AT-NET-02: duplicating the last leaf must change the root (else the
+/// duplicate-last-node collision of CVE-2012-2459, `[x,y,z]` = `[x,y,z,z]`) — checked
+/// across several odd sizes.
 #[test]
 fn root_commits_to_the_leaf_count() {
     for n in [1usize, 3, 5, 7, 9, 13] {
@@ -85,8 +82,7 @@ fn root_commits_to_the_leaf_count() {
     }
 }
 
-/// Inclusion proofs stay consistent under promotion at every tree size, including
-/// the promoted odd node at the far right (which has no sibling at some levels).
+/// Inclusion proofs stay consistent under promotion at every tree size.
 #[test]
 fn inclusion_proofs_verify_at_every_size() {
     for n in 1..=17usize {
@@ -144,8 +140,7 @@ fn anchoring_lifecycle() {
     let pending = anchor.submit(root);
     assert_eq!(anchor.verify(&pending), AnchorState::Pending);
 
-    // Once the calendar confirms, the upgraded proof carries a Bitcoin attestation
-    // that matches the (injected) block Merkle root, so it verifies as confirmed.
+    // Once the calendar confirms, the upgraded proof matches the injected block root.
     let confirmed = anchor.upgrade(&pending);
     assert_eq!(confirmed.root, root);
     assert_eq!(
@@ -153,8 +148,7 @@ fn anchoring_lifecycle() {
         AnchorState::Confirmed { height: 0 }
     );
 
-    // The same confirmed proof is worthless to a verifier that has not seen that
-    // block: the Bitcoin attestation does not match its (empty) chain view.
+    // The same confirmed proof is worthless to a verifier that has not seen that block.
     let bystander = OtsAnchor::new("https://bob.calendar.example");
     assert_eq!(bystander.verify(&confirmed), AnchorState::Invalid);
 

@@ -1,10 +1,6 @@
-//! A deposit is accepted once (`docs/08` §9.1 row 1, PROTO-007, T64).
-//!
-//! The same `(draft, proof)` presented again — by the author or by anyone who saw it in
-//! transit — is refused as a duplicate **before** the identity check and the quota
-//! charge, so a replay appends nothing and costs the author nothing. A `Propose` proof
-//! is bound to the draft *and* the epoch (`deposit_context`, AT-ID-05), so it does not
-//! outlive its epoch.
+//! A deposit is accepted once (`docs/08` §9.1 row 1, PROTO-007, T64): a replayed
+//! `(draft, proof)` is refused before the identity check and the quota charge. A
+//! `Propose` proof is bound to the draft and the epoch (AT-ID-05).
 
 use identity::credential::{AnonymousCredential, Credential, Issuer};
 use identity::enrollment::Label;
@@ -32,7 +28,7 @@ fn draft(tag: &str) -> Draft {
     }
 }
 
-/// A `Propose` proof bound to `draft` at `epoch`, the way a real author client builds it.
+/// A `Propose` proof bound to `draft` at `epoch`.
 fn propose_proof(
     issuer: &Issuer,
     cred: &AnonymousCredential,
@@ -78,7 +74,6 @@ fn a_replayed_deposit_is_refused_before_the_quota_is_charged() {
     assert_eq!(log.len(), 1, "a replay appends nothing");
     assert_eq!(ledger.used(&proposer), 1, "a replay is not charged");
 
-    // The author's quota is intact: a second, different draft still goes through.
     let d2 = draft("another question");
     let proof2 = propose_proof(&issuer, &cred, &d2, EPOCH);
     assert!(
@@ -90,8 +85,7 @@ fn a_replayed_deposit_is_refused_before_the_quota_is_charged() {
 
 #[test]
 fn the_same_draft_with_a_fresh_proof_is_still_a_duplicate() {
-    // Not a byte replay: the author proves again (fresh randomness) for the same draft.
-    // The content id is the same, so the log refuses it — one deposit per draft.
+    // Not a byte replay: a fresh proof for the same draft, same content id.
     let (issuer, cred) = issued([9u8; 32]);
     let mut log = TransparencyLog::new();
     let mut ledger = QuotaLedger::new();
@@ -126,8 +120,7 @@ fn a_propose_proof_does_not_outlive_its_epoch() {
     let d = draft("a question");
     let proof = propose_proof(&issuer, &cred, &d, EPOCH);
 
-    // Presented in the next epoch, the proof does not verify: nothing is appended or
-    // charged.
+    // The next epoch: the proof does not verify.
     assert_eq!(
         try_deposit(&mut log, &mut ledger, &issuer, &d, &proof, EPOCH + 1),
         Err(DepositRejected::Unproven(Unproven::BadProof))

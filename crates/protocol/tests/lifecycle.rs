@@ -268,12 +268,11 @@ fn pilot_stage2_drops_dif_items() {
     );
 }
 
+/// AT-DIF-06: an item perfectly predicted by θ separates the fit (β₂ at infinity), so the
+/// screen returns Undetermined rather than a spurious pass or reject.
 #[cfg(feature = "calibration")]
 #[test]
 fn pilot_stage2_reports_undetermined_on_a_separated_item() {
-    // docs/08 AT-DIF-06: an item perfectly predicted by θ separates the logistic fit,
-    // so β₂ is at infinity — the screen returns Undetermined rather than a spurious
-    // pass or reject.
     let (theta, group) = synthetic();
     let perfect: Vec<f64> = theta.iter().map(|&t| (t > 0.0) as u8 as f64).collect();
     let v = stage2_dif(&theta, &group, &[perfect]);
@@ -606,11 +605,10 @@ fn meta_level_change_boundaries_and_malformed_tally() {
     assert!(!change_approved(usize::MAX, 3, 60));
 }
 
+/// `docs/08` IQ-2: `total_cmp` makes a NaN position defined (sorts last), not a panic,
+/// even where Rust's sort (≥ 1.81) may reject a non-total comparator.
 #[test]
 fn float_sorts_tolerate_nan_positions_without_panicking() {
-    // docs/08 IQ-2: the protocol sorts caller-supplied f64 positions. With `total_cmp`
-    // a NaN position is a defined input (sorts last) rather than a panic — including
-    // at sizes where Rust's sort (≥ 1.81) may detect and reject a non-total comparator.
     let mut rs = reviewers(300);
     for r in rs.iter_mut().step_by(37) {
         r.f_u = f64::NAN;

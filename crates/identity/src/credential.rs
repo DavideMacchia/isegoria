@@ -1,26 +1,6 @@
-//! Anonymous credential and its blind issuance. See `docs/03`, §M2.
-//!
-//! The committee certifies eligibility for a fresh, already-unique label without
-//! learning the holder's secret and without being able to recognise the credential
-//! later. This is a real **BBS+** blind signature (crate `bbs_plus`, BLS12-381):
-//!
-//! 1. the holder commits to its secret (hidden) and proves, in zero knowledge, that
-//!    it knows the committed value (`schnorr_pok`);
-//! 2. the issuer checks that proof and blind-signs `(secret, label)`, learning only
-//!    the label;
-//! 3. the holder unblinds into a signature over `(secret, label)` it can later prove
-//!    knowledge of.
-//!
-//! **What is real:** blindness (the issuer never sees the secret), the proof of
-//! knowledge that binds the request, and a verifiable BBS+ signature.
-//!
-//! **What is still modeled (`docs/03` §M2, future work):** the issuing key lives with
-//! a *single* [`Issuer`]; the spec calls for a **threshold** t-of-n key split across
-//! the committee (so no sub-threshold coalition can issue or link). `bbs_plus` ships a
-//! `threshold` module to grow into. Selective-disclosure *presentation* of the
-//! credential (proving knowledge of the signature while revealing only the label — the
-//! `PoKOfSignature` protocol, tied to the M3 nullifier) is likewise future work; here
-//! the holder verifies its own freshly issued signature.
+//! Anonymous credential and its blind issuance (`docs/03` §M2): a real BBS+ blind
+//! signature over `(secret, label)`, issued single-key ([`Issuer`]) or threshold
+//! ([`ThresholdIssuer`]).
 
 use crate::enrollment::Label;
 use crate::nym::{derive_nym, Nym, Role};
@@ -64,8 +44,7 @@ const MSG_COUNT: u32 = 2;
 const IDX_SECRET: usize = 0;
 const IDX_LABEL: usize = 1;
 
-/// The root secret a node holds. The three role nyms derive from it; it never
-/// leaves the holder.
+/// The root secret a node holds; the three role nyms derive from it and it never leaves the holder.
 #[derive(Clone)]
 pub struct Credential {
     secret: [u8; 32],
@@ -79,8 +58,7 @@ impl fmt::Debug for Credential {
 }
 
 impl Credential {
-    /// The holder picks its own secret with a CSPRNG; the issuer must not learn it
-    /// (that is what blind issuance guarantees).
+    /// The holder's own secret, generated with a CSPRNG; the issuer never learns it.
     pub fn from_secret(secret: [u8; 32]) -> Self {
         Credential { secret }
     }
@@ -111,7 +89,6 @@ impl Credential {
             .commit_to_messages([(IDX_SECRET, &secret)], &blinding)
             .expect("single committed message at a valid index");
 
-        // Prove knowledge of (secret, blinding) opening C, via Fiat–Shamir.
         let bases = pok_bases(&issuer.params);
         let sc = SchnorrCommitment::new(&bases, vec![Fr::rand(&mut rng), Fr::rand(&mut rng)]);
         let challenge = pok_challenge(&bases, &commitment, &sc.t, label)
@@ -143,8 +120,8 @@ fn pok_bases(params: &SignatureParamsG1<E>) -> [G1Affine; 2] {
 }
 
 /// Fiat–Shamir challenge over the full transcript: bases, commitment, the prover's
-/// `t`, and the label the request is bound to. Fallible rather than panicking because
-/// the issuer computes it over a request it received (T44).
+/// `t`, and the label the request is bound to. Fallible, not panicking: the issuer
+/// computes it over a request it received.
 fn pok_challenge(
     bases: &[G1Affine; 2],
     commitment: &G1Affine,
@@ -165,8 +142,7 @@ fn label_scalar(label: &Label) -> Fr {
     Fr::from_le_bytes_mod_order(&label.0)
 }
 
-/// What a holder sends to the issuer: a commitment hiding the secret, the label it
-/// wants signed, and a proof of knowledge of the committed secret.
+/// The holder's request: a commitment hiding the secret, a label and a proof of knowledge.
 #[derive(Clone, Debug)]
 pub struct IssuanceRequest {
     commitment: G1Affine,
@@ -195,7 +171,6 @@ impl fmt::Debug for PendingIssuance {
 }
 
 impl PendingIssuance {
-    /// Unblind the issuer's response into a usable anonymous credential.
     pub fn finalize(self, blind: BlindSignature) -> AnonymousCredential {
         AnonymousCredential {
             signature: blind.0.unblind(&self.blinding),
@@ -232,9 +207,7 @@ impl AnonymousCredential {
         &self.label_scalar
     }
 
-    /// Holder-side check that the freshly issued signature is valid under the
-    /// issuer's key. (Real presentation to a third party reveals only the label via a
-    /// proof of knowledge of the signature — future work, see the module docs.)
+    /// Holder-side check that the freshly issued signature is valid under the issuer's key.
     pub fn verify(&self, issuer: &IssuerPublic) -> bool {
         let messages = [self.secret, self.label_scalar];
         self.signature
@@ -250,15 +223,12 @@ pub enum IssuanceError {
     InvalidProofOfKnowledge,
     /// BBS+ signing failed (e.g. malformed request).
     Signing,
-    /// A credential was already issued for this label (`docs/08` ID-007): one
-    /// credential per uniqueness label, so a person cannot obtain a second identity.
+    /// A credential was already issued for this label (`docs/08` ID-007).
     AlreadyIssued,
 }
 
-/// Records which uniqueness labels have already been issued a credential, so a person —
-/// who has exactly one label (`enrollment`) — gets exactly one credential (`docs/08`
-/// ID-007). Mirrors [`crate::enrollment::EnrollmentRegistry`]; pair it with
-/// [`Issuer::issue_once`].
+/// Labels already issued a credential (`docs/08` ID-007). Mirrors
+/// [`crate::enrollment::EnrollmentRegistry`]; pair with [`Issuer::issue_once`].
 #[derive(Default)]
 pub struct IssuanceRegistry {
     issued: HashSet<Label>,
@@ -275,8 +245,7 @@ impl IssuanceRegistry {
     }
 }
 
-/// A single blind issuer. Holds the BBS+ secret key; `public()` hands out everything
-/// a holder needs to build and later verify a credential.
+/// A single blind issuer: holds the BBS+ secret key; `public()` shares what a holder needs.
 pub struct Issuer {
     params: SignatureParamsG1<E>,
     secret_key: SecretKey<Fr>,
@@ -284,9 +253,7 @@ pub struct Issuer {
 }
 
 impl Issuer {
-    /// Derive the issuing key deterministically from `seed` (so tests and a reloaded
-    /// operator agree). Production replaces this single key with a threshold t-of-n
-    /// distributed key generation across the committee.
+    /// Derives the issuing key deterministically from `seed`.
     pub fn new(seed: [u8; 32]) -> Self {
         let params = SignatureParamsG1::<E>::new::<Sha256>(PARAMS_LABEL, MSG_COUNT);
         let keypair = KeypairG2::<E>::generate_using_seed::<Sha256>(&seed, &params);
@@ -326,12 +293,9 @@ impl Issuer {
         .map_err(|_| IssuanceError::Signing)
     }
 
-    /// One credential per label (`docs/08` ID-007): blind-sign only if `registry` has not
-    /// already issued for this label, recording it on success. This is what stops
-    /// whitewashing with a fresh secret (AT-ID-03): the label is fixed at enrollment, so a
-    /// second request under a new secret carries the same label and is refused
-    /// (AT-ID-02). The label is recorded only after a valid signature, so a bad request
-    /// does not burn it.
+    /// One credential per label (`docs/08` ID-007, AT-ID-02/AT-ID-03): blind-signs only
+    /// if `registry` has not already issued for this label, recording it only after a
+    /// valid signature so a bad request does not burn the label.
     pub fn issue_once(
         &self,
         registry: &mut IssuanceRegistry,
@@ -346,8 +310,6 @@ impl Issuer {
     }
 }
 
-/// Verify a request's Fiat–Shamir proof of knowledge of the committed secret. Shared
-/// by the single [`Issuer`] and the threshold [`ThresholdIssuer`].
 fn verify_request(
     params: &SignatureParamsG1<E>,
     request: &IssuanceRequest,
@@ -384,17 +346,9 @@ const BASE_OT_KEY_SIZE: u16 = 128;
 type Ote = MultiplicationOTEParams<KAPPA, STAT>;
 type Gadget = GadgetVector<Fr, KAPPA, STAT>;
 
-/// Threshold BBS+ issuer (`docs/03` §M2): the signing key is Shamir-shared across `n`
-/// members, and a signature needs `t` of them. Issuance runs the DKLS-based MPC of
-/// [`bbs_plus::threshold`] over an in-process committee and yields a standard BBS+
-/// signature — so the holder's request and unblinding are identical to the single
-/// [`Issuer`], and `AnonymousCredential` verifies against the committee's aggregate key.
-///
-/// **What is real:** threshold signing — `t-1` members cannot sign, and the committee
-/// never learns the holder's committed secret. **Still modeled (future work):** a real
-/// interactive distributed key generation and base-OT setup between remote members
-/// (here a trusted dealer + in-process base OT, seeded for reproducibility) and network
-/// transport; the whole committee runs in one process.
+/// Threshold BBS+ issuer (`docs/03` §M2): the key is Shamir-shared `t`-of-`n`; issuance
+/// runs the DKLS MPC of [`bbs_plus::threshold`] in-process and yields a signature that
+/// verifies like the single [`Issuer`]'s, over the committee's aggregate key.
 pub struct ThresholdIssuer {
     params: SignatureParamsG1<E>,
     public_key: PublicKeyG2<E>,
@@ -406,13 +360,8 @@ pub struct ThresholdIssuer {
 }
 
 impl ThresholdIssuer {
-    /// Set up an `n`-member committee that needs `t` to sign, deterministically from
-    /// `seed`: a trusted dealer derives the Shamir shares and the one-time base-OT
-    /// material. A real remote DKG and OT bootstrap are future work.
-    ///
-    /// # Panics
-    ///
-    /// Unless `1 <= t <= n`: the committee's shape is operator configuration.
+    /// Sets up an `n`-member committee needing `t` to sign, deterministic in `seed` (a
+    /// trusted dealer stands in for DKG). Panics unless `1 <= t <= n`.
     pub fn new(seed: [u8; 32], n: u16, t: u16) -> Self {
         assert!(t >= 1 && t <= n, "need 1 <= t <= n");
         let mut rng = StdRng::from_seed(seed);
@@ -570,10 +519,6 @@ impl ThresholdIssuer {
     }
 }
 
-/// Bootstrap pairwise base OT between all `n` members (one-time setup). Mirrors the
-/// reference `do_pairwise_base_ot` from `oblivious_transfer_protocols` (which lives in
-/// that crate's own test module and so is not importable), driving every message of the
-/// endemic-OT exchange in-process. Real deployments run this between remote members.
 fn setup_base_ot<const KEY_SIZE: u16>(
     rng: &mut StdRng,
     num_base_ot: u16,
@@ -637,9 +582,8 @@ fn setup_base_ot<const KEY_SIZE: u16>(
 
 #[cfg(test)]
 mod tests {
-    //! Properties that need to see inside the request: blindness (the commitment
-    //! hides the secret) and soundness (a request whose proof does not match its
-    //! transcript is refused). The round-trip is covered in `tests/bbs_credential.rs`.
+    //! Properties needing the request's internals: blindness (the commitment hides the
+    //! secret), soundness (a mismatched proof is refused); round-trip: `tests/bbs_credential.rs`.
     use super::*;
 
     fn label(byte: u8) -> Label {
@@ -654,14 +598,10 @@ mod tests {
 
         let (req, _) = holder.request_issuance(&label(7), &issuer);
 
-        // The committed point is not any trivial encoding of the secret: serialising
-        // it does not reveal the secret bytes.
         let mut bytes = Vec::new();
         req.commitment.serialize_compressed(&mut bytes).unwrap();
         assert!(!bytes.windows(secret.len()).any(|w| w == secret));
 
-        // Blinding is fresh each time, so the same (secret, label) yields a different
-        // commitment on every request — the issuer cannot link two requests.
         let (req2, _) = holder.request_issuance(&label(7), &issuer);
         assert_ne!(req.commitment, req2.commitment);
     }
@@ -696,9 +636,8 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    //! Property tests (T42) over arbitrary secrets, labels and single-byte corruptions.
-    //! They live in the crate because the byte-level encoding of a credential
-    //! (signature ‖ secret ‖ label scalar) is not part of the public API.
+    //! Property tests over arbitrary secrets, labels and single-byte corruptions on the
+    //! byte-level encoding (signature ‖ secret ‖ label scalar), not part of the public API.
     use super::*;
     use ark_serialize::CanonicalDeserialize;
     use proptest::prelude::*;

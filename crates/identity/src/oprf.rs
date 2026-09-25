@@ -1,29 +1,6 @@
-//! Threshold OPRF for the uniqueness label (`docs/03` §M1).
-//!
-//! The single-server [`crate::enrollment::VoprfOracle`] is a real oblivious PRF, but
-//! one party holds the whole key and could brute-force the small codice-fiscale space
-//! by evaluating the PRF on candidates. The spec's answer is a **threshold** OPRF: the
-//! key is split t-of-n across the committee, so no sub-threshold coalition can evaluate
-//! it. This module implements that.
-//!
-//! Construction: a threshold DH-OPRF over Ristretto255. The key `k` is Shamir-shared
-//! (`f(0) = k`, share `k_i = f(i)`, public commitment `Y_i = k_i·G`). To label an
-//! anchor `x`: the client blinds `H(x)` to `B = r·H(x)`; each committee member returns
-//! `Z_i = k_i·B` with a Chaum–Pedersen **DLEQ proof** that the same `k_i` sits behind
-//! its public `Y_i`; the client verifies each proof, Lagrange-combines any `t` of them
-//! to `Z = k·B`, unblinds `W = r⁻¹·Z = k·H(x)`, and hashes `W` into the label. `W` is
-//! independent of the blind and of which `t` members answered, so the label is stable.
-//!
-//! **What is real:** the threshold cryptography — Shamir sharing, per-share DLEQ
-//! verifiability, Lagrange reconstruction — so `t` members can label an anchor, `t-1`
-//! cannot, and a member cannot cheat with a share that disagrees with its public
-//! commitment. It is a bespoke construction on the vetted `curve25519-dalek` group
-//! (allowed as a tested exception, see `docs/CLAUDE.md`); it is not wire-compatible
-//! with the RFC 9497 `VoprfOracle`.
-//!
-//! **What is still modeled (future work):** a real distributed key generation ceremony
-//! (here a trusted dealer derives the shares in one process), network transport between
-//! members, and proactive share refresh. The committee is run in-process.
+//! Threshold OPRF for the uniqueness label (`docs/03` §M1): a bespoke `t`-of-`n`
+//! DH-OPRF over Ristretto255 (Shamir-shared key, per-share DLEQ, Lagrange combine),
+//! not wire-compatible with the RFC 9497 [`crate::enrollment::VoprfOracle`].
 
 use crate::enrollment::{Anchor, Label, UniquenessOracle};
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT as G;
@@ -192,13 +169,9 @@ pub struct ThresholdOprfOracle {
 }
 
 impl ThresholdOprfOracle {
-    /// Trusted-dealer key generation (real DKG is future work): derive a degree-`t−1`
-    /// polynomial from `seed` and hand share `f(i)` to member `i` (1-based). The same
-    /// seed rebuilds the same committee, so labels are reproducible across processes.
-    ///
-    /// # Panics
-    ///
-    /// Unless `1 <= t <= n`: the committee's shape is operator configuration.
+    /// Trusted-dealer keygen (real DKG is future work): derives a degree-`t-1` polynomial
+    /// from `seed`, handing share `f(i)` to member `i`, so the same seed always rebuilds
+    /// the same committee. Panics unless `1 <= t <= n`.
     pub fn new(seed: [u8; 32], n: usize, t: usize) -> Self {
         assert!(t >= 1 && t <= n, "need 1 <= t <= n");
         let coeffs: Vec<Scalar> = (0..t).map(|j| scalar_from_seed(&seed, j)).collect();
@@ -231,9 +204,8 @@ impl ThresholdOprfOracle {
         if quorum.len() < self.threshold {
             return None;
         }
-        // Lagrange interpolation requires distinct x-coordinates. A duplicate index
-        // double-counts one share and, via `Scalar::invert(0) = 0` in the `x_i − x_j`
-        // denominator, silently yields a wrong label; reject it instead.
+        // A duplicate index double-counts a share and, via `Scalar::invert(0) = 0` in
+        // `x_i − x_j`, would silently yield a wrong label — reject instead.
         let mut distinct = quorum.to_vec();
         distinct.sort_unstable();
         distinct.dedup();
@@ -260,8 +232,7 @@ impl ThresholdOprfOracle {
     }
 }
 
-/// Fuzzing entry point (T44): the quorum-level protocol is private, but which members
-/// answered is exactly the input a client cannot trust.
+/// Fuzzing entry point: exposes the quorum protocol, whose input a client cannot trust.
 #[cfg(fuzzing)]
 impl ThresholdOprfOracle {
     #[doc(hidden)]
@@ -298,7 +269,6 @@ mod tests {
 
     #[test]
     fn any_t_of_n_subset_yields_the_same_label() {
-        // The label depends only on the key, not on which quorum answered.
         let oracle = ThresholdOprfOracle::new([2u8; 32], 5, 3);
         let input = b"VRDLGI85M02F205Z";
         let l1 = oracle.label_with_quorum(input, &[1, 2, 3]).unwrap();
@@ -314,7 +284,6 @@ mod tests {
         let input = b"RSSMRA80A01H501U";
         let correct = oracle.label(&anchor("RSSMRA80A01H501U"));
 
-        // A sub-threshold quorum is refused outright.
         assert!(oracle.label_with_quorum(input, &[1, 2]).is_none());
 
         // And interpolating 2 shares as if the threshold were 2 gives a *different*
@@ -329,14 +298,11 @@ mod tests {
 
     #[test]
     fn a_quorum_with_duplicate_indices_is_refused() {
-        // ID-003(ii) / AT-ID-04: Lagrange interpolation needs distinct x-coordinates.
-        // A repeated index double-counts a share and (via `Scalar::invert(0) = 0`)
-        // would otherwise return a wrong label silently rather than error.
+        // AT-ID-04 (`docs/08` ID-003(ii)): a repeated index must not interpolate.
         let oracle = ThresholdOprfOracle::new([7u8; 32], 5, 3);
         let input = b"RSSMRA80A01H501U";
         assert!(oracle.label_with_quorum(input, &[1, 1, 2]).is_none());
         assert!(oracle.label_with_quorum(input, &[2, 2, 2]).is_none());
-        // A distinct quorum of the same size still works.
         assert!(oracle.label_with_quorum(input, &[1, 2, 3]).is_some());
     }
 

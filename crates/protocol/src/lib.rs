@@ -1,9 +1,6 @@
-//! Question lifecycle orchestration. See `docs/05-question-lifecycle.md`.
-//!
-//! Ties together the three lower layers: `scoring` (the two filters), `identity`
-//! (role pseudonyms and rate limits), `network` (the tamper-evident log). Each
-//! stage names the attack it neutralizes; the deterministic pieces (lottery,
-//! reviewer assignment) are seeded for reproducibility.
+//! Question lifecycle orchestration (`docs/05-question-lifecycle.md`): ties together
+//! `scoring` (the two filters), `identity` (role pseudonyms, rate limits) and `network`
+//! (the tamper-evident log); the deterministic pieces are seeded for reproducibility.
 
 pub mod admission;
 pub mod appeal;

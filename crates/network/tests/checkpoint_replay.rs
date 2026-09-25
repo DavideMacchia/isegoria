@@ -1,9 +1,6 @@
-//! Checkpoint hardening: network binding, monotonic height, and equivocation evidence
-//! (docs/08 NET-006 / §9.4 / DS-3, T15). A light node (`CheckpointClient`) tracks the last
-//! trusted head for one network + member set and applies the §9.4 rules:
-//! - AT-NET-03: an old (non-monotonic) checkpoint is a replay → `Stale`.
-//! - AT-NET-04: two threshold-signed checkpoints at one height, different heads → `Forked`.
-//! - AT-NET-05: a checkpoint for another network is rejected.
+//! Checkpoint hardening (`docs/08` NET-006 §9.4, DS-3): a light node tracks the last
+//! trusted head for one network + member set. AT-NET-03 (replay → `Stale`), AT-NET-04
+//! (equivocation → `Forked`), AT-NET-05 (wrong network → rejected).
 
 use network::consortium::{
     Checkpoint, CheckpointClient, CheckpointReject, CheckpointUpdate, Consortium, Member,

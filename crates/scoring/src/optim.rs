@@ -88,9 +88,6 @@ where
             }
         }
 
-        // Strong-Wolfe line search (T48). Armijo-only backtracking accepted tiny steps in
-        // narrow valleys, where the stall test below then declared a premature
-        // "convergence" far from any minimum.
         let accepted = wolfe_search(&x, fx, gd, &d, &cost, &grad);
         let Some(Trial {
             x: x_new,
@@ -156,10 +153,8 @@ const WOLFE_C2: f64 = 0.9;
 const MAX_EXPANSIONS: usize = 40;
 const MAX_ZOOM: usize = 60;
 
-/// Line search satisfying the strong Wolfe conditions along a descent direction `d`
-/// (`gd = ∇f(x)·d < 0`), after Nocedal & Wright, Algorithms 3.5 and 3.6, with a
-/// safeguarded cubic interpolation. Returns a point with sufficient decrease — one that
-/// also satisfies the curvature condition whenever the bracket allows it — or `None`
+/// Line search on a descent direction `d` (`gd = ∇f(x)·d < 0`) satisfying the strong Wolfe
+/// conditions where the bracket allows it (Nocedal & Wright, Algorithms 3.5–3.6). `None`
 /// when no step lowers the cost. Deterministic.
 fn wolfe_search<C, G>(x: &[f64], fx: f64, gd: f64, d: &[f64], cost: &C, grad: &G) -> Option<Trial>
 where
@@ -238,9 +233,8 @@ where
 }
 
 /// Minimizer of the cubic through both bracket ends (values and slopes), kept at least
-/// 0.1% of the bracket away from either end so the bracket keeps shrinking; bisection
-/// when the cubic is unusable. (A 10% margin rejects the exact minimizer of a quadratic
-/// whenever it lies near an end — the usual case on a first, overshooting step.)
+/// 0.1% of the bracket from either end so it keeps shrinking; bisection when the cubic
+/// is unusable.
 fn interpolate(lo: &End, hi: &End) -> f64 {
     let (a0, a1) = (lo.a, hi.a);
     let mid = 0.5 * (a0 + a1);
@@ -388,10 +382,7 @@ mod tests {
         }
     }
 
-    /// L-BFGS, not steepest descent: on a condition-10⁴ quadratic the quasi-Newton
-    /// updates reach the minimum within a SciPy-like budget (SciPy L-BFGS-B, m = 10: ~790
-    /// gradients). Disabling the two-loop recursion, corrupting the curvature pairs or
-    /// the scaling leaves the old tests green but breaks this one (T41).
+    /// L-BFGS, not steepest descent: a condition-10⁴ quadratic converges in a bounded budget.
     #[test]
     fn solves_an_ill_conditioned_quadratic_within_a_quasi_newton_budget() {
         let lam = ill_conditioned_lambdas(20);
@@ -406,8 +397,7 @@ mod tests {
         assert!(grads.get() <= 800, "{} gradient evaluations", grads.get());
     }
 
-    /// Rosenbrock to 1e-6 within a SciPy-like budget: ~51 gradients with the strong-Wolfe
-    /// search (SciPy L-BFGS-B ~46). The former Armijo-only search needed ~670 (T48).
+    /// Converges on Rosenbrock to 1e-6 within a bounded gradient-call budget.
     #[test]
     fn solves_rosenbrock_within_a_budget() {
         let cost = |x: &[f64]| (1.0 - x[0]).powi(2) + 100.0 * (x[1] - x[0] * x[0]).powi(2);
@@ -428,14 +418,8 @@ mod tests {
         assert!(grads.get() <= 80, "{} gradient evaluations", grads.get());
     }
 
-    /// What a stall-reported `Converged` guarantees (T45; `docs/08` OPT-001). The run
-    /// stops on a relative progress below `1e-12 · (1 + |f|)` even while `‖g‖_∞ ≫ g_tol`;
-    /// for a quadratic model the last step's decrease is at least `‖g‖² / (2 λ_max)`, so
-    /// at a stall `‖g‖_∞ ≤ √(2 λ_max · 1e-12 · (1 + |f|))` — about `1.4e-4 · √λ_max` near
-    /// `f = 0`, not `g_tol`. Pinned on the condition-10² to 10⁶ quadratics and on
-    /// Rosenbrock (λ_max ≈ 1.0e3 at the minimum) with an unattainable `g_tol`: the
-    /// gradient at the reported convergence stays within that bound, and the minimizer is
-    /// reached to the precision the bound allows.
+    /// A stall-reported `Converged` still bounds `‖g‖_∞` (via the stall tolerance and the
+    /// quadratic's curvature), even when `g_tol` itself is unattainable (T45; `docs/08` OPT-001).
     #[test]
     fn a_stall_convergence_leaves_the_gradient_within_its_bound() {
         let bound = |lam_max: f64, f: f64| (2.0 * lam_max * 1e-12 * (1.0 + f.abs())).sqrt();
@@ -507,10 +491,8 @@ mod tests {
         assert_eq!((costs.get(), grads.get()), (1, 1));
     }
 
-    /// In one dimension a single curvature pair gives the exact Hessian, so the second
-    /// direction lands on the minimum: one gradient to start, one after the backtracked
-    /// first step, one at the minimum. (The `γ` scaling cancels in 1-D; `golden.rs` pins
-    /// it through the full fits.)
+    /// In one dimension a single curvature pair gives the exact Hessian: one gradient to
+    /// start, one after the backtracked step, one at the minimum.
     #[test]
     fn one_curvature_pair_solves_a_one_dimensional_quadratic() {
         let grads = Cell::new(0);
@@ -560,10 +542,9 @@ mod tests {
         assert_eq!(m.x, vec![0.0]);
     }
 
-    /// Sufficient decrease is required even where the slope is flat. On
-    /// `f(a) = −a + (2 + 3ε)a² − (1 + 2ε)a³` (ε = 5·10⁻⁵) the first unit step lands on a
-    /// point with `f'(1) = 0` but `f(1) = ε > f(0)`: it satisfies the curvature condition
-    /// and must still be rejected, or the run "converges" at a point worse than its start.
+    /// Sufficient decrease is required even where the slope is flat: on `f(a) = −a + (2 +
+    /// 3ε)a² − (1 + 2ε)a³`, the first unit step has `f'(1) = 0` but `f(1) > f(0)` and must
+    /// still be rejected, or the run "converges" at a point worse than its start.
     #[test]
     fn a_flat_point_that_raises_the_cost_is_not_accepted() {
         let e = 5e-5;
@@ -599,10 +580,8 @@ mod tests {
     }
 
     /// The optimizer's trajectory is part of the reproducibility contract (invariant #7):
-    /// on reference problems the exact number of evaluations and the final point, bit for
-    /// bit, are pinned. A change to the line search that still converges — a different
-    /// bracket orientation, interpolation margin or stopping width — moves these. After an
-    /// intended change, re-derive the constants from the failure message.
+    /// evaluation counts and the final point, bit for bit, are pinned on reference
+    /// problems. After an intended change, re-derive the constants from the failure message.
     #[test]
     fn trajectories_on_reference_problems_are_pinned() {
         fn run(
@@ -652,10 +631,8 @@ mod tests {
             },
             |x: &[f64]| vec![4.0 * (x[0] - 1.0).powi(3)],
         );
-        // Exercise the bracketing branches: a slope that stays at −1 until a cliff past
-        // the minimum (expansion overshoots with a rising value), and a steep wall where
-        // an interpolated point is lower than the bracket end but far too steep (the
-        // bracket must be re-oriented).
+        // Exercises the bracketing branches: an overshoot past a cliff, and an
+        // interpolated point too steep, forcing the bracket to re-orient.
         let cliff = run(
             vec![0.0],
             |x: &[f64]| -x[0] + (x[0] - 6.0).exp(),
@@ -689,10 +666,8 @@ mod tests {
         assert_eq!((wall.0, wall.1, &wall.2[..]), PINNED_WALL);
     }
 
-    /// A gradient that points uphill (here the sign is wrong): no step lowers the cost,
-    /// so the line search fails. It used to report `Converged` — the shrinking step
-    /// barely moved `f` and read as a stall, or `x + step·d` rounded back to `x` and
-    /// passed Armijo with no progress (T41). The start point is not made worse.
+    /// A gradient that points uphill: no step lowers the cost, so the line search fails
+    /// rather than reporting `Converged` (T41); the start point is not made worse.
     #[test]
     fn an_uphill_gradient_is_a_failed_line_search_not_convergence() {
         let costs = Cell::new(0);

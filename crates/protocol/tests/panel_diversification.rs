@@ -1,8 +1,6 @@
 //! Panel diversification (`docs/01` D40, T57): a detected coordination cluster constrains
-//! the assignment, not the weights. AT-BR-10: over randomized draws no panel holds two
-//! members of one flagged cluster — where a uniform draw puts two or more on about 7% of
-//! panels (the paper's 1,000 reviewers, a cluster of 50, panels of 9) — and no honest
-//! reviewer's weight changes.
+//! the assignment, not the weights (AT-BR-10) — no panel holds two of its members, and no
+//! honest reviewer's weight changes.
 
 use identity::nym::Nym;
 use network::consortium::Checkpoint;
@@ -33,8 +31,7 @@ fn normal(r: &mut ChaCha8Rng) -> f64 {
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 
-/// 1,000 reviewers spread on the axis; the first 50 form one flagged cluster (id 0), the
-/// rest are singletons (their own index).
+/// Reviewers spread on the axis; the first `CLUSTER` form one flagged cluster.
 fn population() -> (Vec<Reviewer>, Vec<usize>) {
     let mut r = ChaCha8Rng::seed_from_u64(40);
     let reviewers: Vec<Reviewer> = (0..N)
@@ -54,9 +51,8 @@ fn in_cluster(panel: &[Reviewer]) -> usize {
         .count()
 }
 
-/// AT-BR-10: no diversified panel holds two members of the cluster, every panel is
-/// still nine distinct reviewers spanning the axis — while the uniform draw seats two or
-/// more members on about 7% of panels.
+/// AT-BR-10: no diversified panel holds two members of the flagged cluster, and every
+/// panel still spans the axis.
 #[test]
 fn at_br_10_no_panel_holds_two_members_of_a_flagged_cluster() {
     let (reviewers, clusters) = population();
@@ -121,7 +117,6 @@ fn the_extra_panel_avoids_the_first_panel_and_its_clusters() {
 /// singleton clusters the draw is the plain stratified one.
 #[test]
 fn an_emptied_stratum_is_filled_from_the_axis_and_singletons_change_nothing() {
-    // Twelve reviewers, evenly spaced; the four lowest form one cluster.
     let reviewers: Vec<Reviewer> = (0..12)
         .map(|i| Reviewer {
             nym: nym(i),
@@ -141,7 +136,6 @@ fn an_emptied_stratum_is_filled_from_the_axis_and_singletons_change_nothing() {
     );
     let distinct: HashSet<Nym> = panel.iter().map(|r| r.nym).collect();
     assert_eq!(distinct.len(), 9);
-    // Singletons everywhere: the same panel as the plain draw.
     let singletons: Vec<usize> = (0..12).collect();
     let plain: Vec<Nym> = assign_reviewers(&reviewers, 9, 3)
         .iter()
@@ -156,9 +150,8 @@ fn an_emptied_stratum_is_filled_from_the_axis_and_singletons_change_nothing() {
     assert!(assign_diverse(&reviewers, &clusters[..5], &[], 9, 3).is_empty());
 }
 
-/// AT-BR-10, the other half: the protocol's weights take no cluster input — a flagged
-/// reviewer and an honest one with the same standing weigh the same, and the sublinear
-/// discount is never applied on the protocol path (D40).
+/// AT-BR-10, the other half: weights take no cluster input, so equal standings weigh
+/// the same and no sublinear discount applies (D40).
 #[test]
 fn no_reviewer_s_weight_changes_with_the_clusters() {
     let standings = vec![ReviewerStanding::established(0.02); 4];

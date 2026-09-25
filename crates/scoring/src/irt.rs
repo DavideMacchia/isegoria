@@ -5,10 +5,7 @@ use crate::glm::{fit_logistic, LogisticFit};
 pub const A_MIN: f64 = 0.6;
 pub const B_ABS_MAX: f64 = 2.5;
 pub const R_PBIS_MIN: f64 = 0.20;
-/// Anchor-reliability floor of the latent re-check (`docs/01` D37, T53): the standardized
-/// anchor total stands in for θ only when the anchors' KR-20, on the batch's own
-/// respondents, is at least this — about 40 anchors of the reference design (the paper's
-/// Table: 30 anchors give 0.87, 40 give 0.90, 60 give 0.93). Provisional (T25).
+/// Anchor-reliability floor for the latent re-check (`docs/01` D37, T53), provisional (T25).
 pub const KR20_MIN: f64 = 0.90;
 
 /// Ability θ from a set of DIF-free anchor items: standardized total score
@@ -18,14 +15,9 @@ pub fn theta_from_anchors(anchors: &[Vec<f64>]) -> Vec<f64> {
     standardize(&totals)
 }
 
-/// Kuder–Richardson 20 of the anchor total: `K/(K−1) · (1 − Σ_j p_j(1−p_j) / Var(T))`,
-/// with `p_j` the proportion answering anchor `j` correctly and `Var(T)` the population
-/// variance of the totals (the paper's `revisions_dif.py`). `anchors` is respondents ×
-/// anchors, one row per respondent (as [`theta_from_anchors`]). It is the reliability of
-/// the θ proxy: below [`KR20_MIN`] the latent-class detector mistakes proxy error for a
-/// latent class (`docs/08` DIF-010). With fewer than two anchors, no respondents or no
-/// spread in the totals there is no reliability to measure: 0, not NaN (T36). A ragged
-/// matrix is read up to its shortest row.
+/// `anchors` is respondents × anchors, one row per respondent (as [`theta_from_anchors`]):
+/// reliability of the θ proxy for the [`KR20_MIN`] gate (`docs/08` DIF-010). 0, not NaN,
+/// below two anchors, no respondents or no spread; a ragged matrix reads to its shortest row.
 pub fn kr20(anchors: &[Vec<f64>]) -> f64 {
     let n = anchors.len();
     let k = anchors.iter().map(Vec::len).min().unwrap_or(0);
@@ -62,10 +54,9 @@ pub(crate) fn standardize(values: &[f64]) -> Vec<f64> {
     values.iter().map(|t| (t - mean) / sd).collect()
 }
 
-/// Point-biserial: correlation between a binary item and the total score.
-/// Negative usually means a wrong answer key (`docs/02`, §B.2). If either side has no
-/// variance (everyone answered alike, or θ is flat) the correlation is undefined; it is
-/// reported as 0, which fails the `R_PBIS_MIN` screen rather than propagating NaN (T36).
+/// Point-biserial: correlation between a binary item and the total score (`docs/02` §B.2).
+/// 0, not NaN, when either side has no variance: it fails the `R_PBIS_MIN` screen instead
+/// of propagating NaN (T36).
 pub fn point_biserial(item: &[f64], total: &[f64]) -> f64 {
     let n = item.len() as f64;
     let mi = item.iter().sum::<f64>() / n;

@@ -1,8 +1,5 @@
-//! Exact outcomes for the combinatorial protocol pieces (T41). The existing suites check
-//! sizes, determinism and orderings; cargo-mutants showed they stay green when the
-//! stratum boundaries of a draw move, the largest-remainder order is inverted, an empty
-//! honeypot queue is returned, or the lottery stops mixing in the epoch. These pin the
-//! actual results.
+//! Exact outcomes of the combinatorial protocol pieces: results that the size,
+//! determinism and ordering suites do not pin.
 
 use identity::nym::Nym;
 use network::consortium::Checkpoint;
@@ -34,8 +31,7 @@ fn line(n: usize) -> Vec<Candidate<usize>> {
         .collect()
 }
 
-/// Every stratum gets exactly its apportioned seats: 10 seats over 4 strata of 25 are
-/// 2, 3, 2, 3 — for every seed.
+/// Every stratum gets exactly its apportioned seats, for every seed.
 #[test]
 fn sortition_seats_each_stratum_exactly() {
     for seed in 0..20 {
@@ -47,8 +43,7 @@ fn sortition_seats_each_stratum_exactly() {
     }
 }
 
-/// With 8 candidates, 7 seats and 5 strata, the middle stratum holds one candidate but
-/// is apportioned two seats. The deficit is filled from the rest: still 7 distinct seats.
+/// A stratum short of its apportioned seats has the deficit filled from the rest.
 #[test]
 fn sortition_fills_a_stratum_that_is_short_of_its_seats() {
     for seed in 0..20 {
@@ -61,15 +56,14 @@ fn sortition_fills_a_stratum_that_is_short_of_its_seats() {
 
 // ------------------------------- blueprint -------------------------------
 
-/// Hamilton apportionment gives the leftover seat to the largest *fractional* part, not
-/// the largest share: 6.1 / 3.9 → 6 / 4, and 1.4 / 5.6 → 1 / 6.
+/// The leftover seat goes to the largest fractional part, not the largest share.
 #[test]
 fn blueprint_gives_leftover_seats_by_largest_remainder() {
     let b = Blueprint::new(vec![("a", 0.61), ("b", 0.39)]);
     assert_eq!(b.quotas(10), vec![("a", 6), ("b", 4)]);
     let b = Blueprint::new(vec![("a", 1.4), ("b", 5.6)]);
     assert_eq!(b.quotas(7), vec![("a", 1), ("b", 6)]);
-    // Ties go to the earlier domain: 4.5 / 3.5 / 2.0 → 5 / 3 / 2.
+    // Ties go to the earlier domain.
     let b = Blueprint::new(vec![("a", 0.45), ("b", 0.35), ("c", 0.20)]);
     assert_eq!(b.quotas(10), vec![("a", 5), ("b", 3), ("c", 2)]);
 }
@@ -81,8 +75,7 @@ fn blueprint_without_shares_seats_nobody() {
     assert_eq!(b.quotas(5), vec![("a", 0), ("b", 0)]);
 }
 
-/// `actual − target`: a pool of 3×a and 1×b against 50/50 is +0.25 / −0.25; with no
-/// positive share every target is 0, not NaN.
+/// `actual − target` per domain; with no positive share every target is 0, not NaN.
 #[test]
 fn coverage_deviation_is_actual_minus_target_share() {
     let b = Blueprint::new(vec![("a", 1.0), ("b", 1.0)]);
@@ -94,7 +87,6 @@ fn coverage_deviation_is_actual_minus_target_share() {
     assert_eq!(zero.coverage_deviation(&["a", "a"]), vec![("a", 1.0)]);
 }
 
-/// Exactly as many items as a domain needs is enough — no shortfall.
 #[test]
 fn assemble_test_accepts_exactly_enough_items() {
     let b = Blueprint::new(vec![("a", 1.0), ("b", 1.0)]);
@@ -119,8 +111,7 @@ fn beacon_placed_honeypots_are_actually_inserted() {
 
 // -------------------------------- lottery --------------------------------
 
-/// The epoch is mixed into the seed for any base seed, including the degenerate all-0
-/// and all-1 bit patterns (where `&` or `|` in place of `^` would erase it).
+/// The epoch is mixed into the seed even for the all-0 and all-1 base seeds.
 #[test]
 fn lottery_draws_differ_across_epochs_for_any_base_seed() {
     let deposited: Vec<u32> = (0..200).collect();
@@ -192,8 +183,7 @@ fn founder_set_emptiness() {
     assert_eq!(f.len(), 2);
 }
 
-/// One reviewer per stratum: with 90 reviewers at positions 0..90 and k = 9, the s-th
-/// pick comes from positions [10s, 10s + 10), for every seed.
+/// One reviewer per stratum: the s-th pick comes from the s-th position range, for every seed.
 #[test]
 fn reviewer_assignment_draws_one_per_stratum() {
     let reviewers: Vec<Reviewer> = (0..90)

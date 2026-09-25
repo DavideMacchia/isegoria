@@ -1,10 +1,5 @@
-//! The epoch orchestrator (`protocol::orchestrator`): the two audit gaps whose core
-//! already existed but were not wired at the epoch boundary.
-//!
-//! - **T5 / BRIDGE-007:** reviewer weights derived from prior-epoch standing flow into
-//!   `bridging::fit`, so lower reputation means less influence on `b_j`.
-//! - **T12 / §9.1:** an item's stage-to-stage fate is decided by `lifecycle::step`,
-//!   driven by the epoch's gate and pilot verdicts, not by ad-hoc caller logic.
+//! The epoch orchestrator (`protocol::orchestrator`): reviewer weights from prior-epoch
+//! standing (`docs/08` BRIDGE-007) and item fates decided by `lifecycle::step` (§9.1).
 
 use identity::nym::Nym;
 use network::cid::{cid, Cid};
@@ -17,7 +12,7 @@ use protocol::orchestrator::{
 use protocol::probation::N_PROBATION;
 use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
 
-// ------------------------------- T5: weights from standing -------------------------------
+// ------------------------------- weights from standing -------------------------------
 
 /// The bridging weight is the review vote weight: 0 on probation, 1 for a bootstrap
 /// founder, the capped odds weight of the skill once established (D33).
@@ -28,14 +23,13 @@ fn bridging_weights_map_probation_founder_established() {
         ReviewerStanding::founder(),
         ReviewerStanding::established(-0.05), // below the crowd: less than 1
         ReviewerStanding::established(0.5),   // far above the crowd: capped
-        // a fresh node with no track record: on probation, weight 0
         ReviewerStanding {
             is_founder: false,
             judgments_with_outcome: 0,
             reviews: 0,
             skill: 0.9,
         },
-        // a founder that has crossed the probation threshold is established, not seeded
+        // a founder past the probation threshold is established, not seeded
         ReviewerStanding {
             is_founder: true,
             judgments_with_outcome: N_PROBATION,
@@ -84,17 +78,13 @@ fn the_epoch_cap_is_three_times_the_median_of_the_counted_weights() {
     assert_eq!(epoch_weight_cap(&fresh), f64::INFINITY);
 }
 
-/// The load-bearing T5 claim at the protocol boundary: a coordinated bloc pushing an
-/// item up moves its bridge score LESS when its prior-epoch reputation is low. Same
-/// reviewer count in both fits (so the fit's seeded init is identical) — only the
-/// standing differs — which isolates the weight as the cause.
+/// A bloc pushing an item up moves its bridge score less when its prior-epoch reputation
+/// is low (BRIDGE-007): same reviewer count in both fits, only the standing differs.
 #[test]
 fn lower_reputation_moves_the_bridge_score_less() {
     let (m, t) = (5usize, 4usize);
     let (honest, bloc) = (30usize, 30usize);
 
-    // Honest reviewers hover near 0.5 with a little spread; the bloc all shove item t to
-    // 1.0. Every other cell is ~0.5 so the difference is concentrated on item t.
     let mut rows: Vec<Vec<f64>> = Vec::new();
     for u in 0..honest {
         rows.push(
@@ -118,11 +108,8 @@ fn lower_reputation_moves_the_bridge_score_less() {
         side_balanced(&f).score[t]
     };
 
-    // Case A: the bloc are founders (full weight 1).
     let mut trusted = vec![ReviewerStanding::founder(); honest];
     trusted.extend(std::iter::repeat_n(ReviewerStanding::founder(), bloc));
-    // Case B: the bloc are established with a skill well below the crowd's (S_u = −0.5,
-    // an odds weight ≈ 0.02 just past probation).
     let mut discounted = vec![ReviewerStanding::founder(); honest];
     discounted.extend(std::iter::repeat_n(
         ReviewerStanding::established(-0.5),
@@ -137,7 +124,7 @@ fn lower_reputation_moves_the_bridge_score_less() {
     );
 }
 
-// ------------------------------- T12: the machine decides -------------------------------
+// ------------------------------- the machine decides -------------------------------
 
 /// Verdicts for a plain (non-band, non-appeal) item that clears both pilot stages.
 fn passing() -> ItemVerdicts {
@@ -193,8 +180,7 @@ fn reviewed() -> State {
     review_round(admitted(), item(), panel(), &judgments(&panel())).unwrap()
 }
 
-/// `run_item` scores the round the machine walked: a panelist who never judged blocks
-/// the epoch, and a repeated nym never forms a panel (T33).
+/// A panelist who never judged blocks the epoch, and a repeated nym never forms a panel.
 #[test]
 fn run_item_refuses_an_incomplete_or_forged_review_round() {
     let p = panel();
@@ -259,7 +245,6 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
         gate: GateOutcome::AppealEligible,
         ..passing()
     };
-    // No appeal: the window closes and it is rejected for polarization.
     assert_eq!(
         run(
             reviewed(),
@@ -271,7 +256,6 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
         .unwrap(),
         State::Rejected(RejectReason::Polarized)
     );
-    // Appeal, then the evidence vindicates it.
     assert_eq!(
         run(
             reviewed(),
@@ -285,8 +269,7 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
     );
 }
 
-/// The band's extra round (D26, T60): four reviewers outside the first panel, judging
-/// at `prob`.
+/// The band's extra round (D26): four reviewers outside the first panel, judging at `prob`.
 fn extra(prob: f64) -> ExtraRound {
     let panel: Vec<Nym> = (20..24).map(|i| Nym([i; 32])).collect();
     let judgments = panel
@@ -306,13 +289,11 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         gate: GateOutcome::SupplementaryReview,
         ..passing()
     };
-    // The D26 re-decision reads the extra round's reveals (T60): it passes (a re-fit
-    // S_j ≥ τ over the expanded ratings), and the item enters the pilot and the pool.
     assert_eq!(
         run_item(reviewed(), &base, Some(&extra(0.9)), |_| GateOutcome::Pass).unwrap(),
         State::ActivePool
     );
-    // The re-decision fails as a defect: a defined borderline reject (no dead end, T10/T30).
+    // A defect failure is a borderline reject.
     assert_eq!(
         run_item(reviewed(), &base, Some(&extra(0.2)), |_| {
             GateOutcome::Reject
@@ -320,8 +301,7 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
     );
-    // The re-decision fails as a polarized item (T59): the appeal channel stays open — an
-    // appeal carries it to the pilot and the pool, no appeal is a polarization reject.
+    // A polarized failure keeps the appeal channel open.
     assert_eq!(
         run_item(
             reviewed(),
@@ -357,8 +337,7 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
     );
 }
 
-/// The re-decision is computed on the extra round the machine walked — exactly its
-/// reveals — and never without one (T60).
+/// The re-decision reads exactly the extra round's reveals, and never runs without one.
 #[test]
 fn the_re_decision_reads_the_extra_round_the_machine_walked() {
     let base = ItemVerdicts {
@@ -376,7 +355,7 @@ fn the_re_decision_reads_the_extra_round_the_machine_walked() {
     let expected: Vec<(Nym, f64)> = round.judgments.iter().map(|j| (j.nym, j.prob)).collect();
     assert_eq!(seen, expected);
 
-    // No extra round: the band cannot be resolved, and the re-decision is never asked.
+    // No extra round: the re-decision is never asked.
     assert_eq!(
         run_item(reviewed(), &base, None, |_| unreachable!(
             "resolved without a round"
@@ -407,8 +386,6 @@ fn the_re_decision_reads_the_extra_round_the_machine_walked() {
 
 #[test]
 fn a_standing_short_of_the_rows_is_refused_before_the_fit() {
-    // T62: the weights come from the standings, one per reviewer row; a mismatch is a
-    // `RatingsError`, not a panic inside the fit.
     let rows = vec![vec![0.5; 3]; 4];
     let mask = vec![vec![true; 3]; 4];
     let short = vec![ReviewerStanding::founder(); 3];

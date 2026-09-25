@@ -1,22 +1,6 @@
-//! Model-based test of the §9.1 item lifecycle (`lifecycle::{deposit, step}`, T43).
-//!
-//! A reference model, written here from the §9.1 table (`docs/08`) and the documented
-//! `Invalid` cases rather than from `step`, predicts for every event of a random walk
-//! whether the transition is legal and which state results, or the exact `Invalid` (§9.1
-//! lists the invalid cases, not which one is reported when several hold at once: the model
-//! pins that down, see `guard`). The walks interleave the event the protocol expects next
-//! with arbitrary ones: out of order, from outsiders, repeated, with copied, lifted or
-//! opaque commitments, with out-of-range or NaN probabilities. Independently of the model,
-//! every walk is checked against the lifecycle invariants:
-//!
-//! - a `Score` succeeds only once every panelist has revealed, and a `Resolve` only once
-//!   every extra panelist of the band's second round has (T60);
-//! - no nym commits twice or reveals twice, and only a committer reveals;
-//! - the panel is distinct, of odd size in `[7, 11]`; the extra panel is distinct, of
-//!   size in `[1, 11]`, and outside the first panel;
-//! - a rejected event leaves the state as it was: the accepted events alone replay the walk;
-//! - `Rejected` and `Retired` are never left;
-//! - `ActivePool` is entered only from `Pilot2`, and `Pilot2` only from `Pilot1`.
+//! Model-based test of the §9.1 item lifecycle (`lifecycle::{deposit, step}`, T43, `docs/08`).
+//! A reference model built from the §9.1 table predicts each random walk's exact transition
+//! or `Invalid`, checked alongside the lifecycle invariants below.
 
 use identity::nym::Nym;
 use network::cid::{cid, Cid};
@@ -343,9 +327,7 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             Ok(Band(b))
         }
 
-        // The D26 re-decision, amended by T59, once the extra round is complete (T60):
-        // pass → pilot; below the threshold, the below-band rule — polarized →
-        // appealable, defect → borderline reject; a second band is not an outcome.
+        // D26 re-decision once the extra round is complete (T60).
         (Band(b), Event::Resolve { outcome }) => {
             guard(&[
                 (b.extra.is_none(), NoExtraPanel),
@@ -559,7 +541,7 @@ enum Disclosure {
 #[derive(Clone, Copy, Debug)]
 struct Knob {
     /// A detour that can leave the round unscorable for good: an early close, a commitment
-    /// its committer cannot open. Rare, so that most walks go on.
+    /// its committer cannot open. Rare.
     derail: bool,
     /// A detour the machine refuses and the walk survives: a bad seed, panel, appeal or
     /// batch, an early score, a wrong opening, an outsider.

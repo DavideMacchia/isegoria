@@ -1,13 +1,6 @@
-//! Level B — Differential Item Functioning. See `docs/02`, §B.3.
-//!
-//! Variant 1: logistic regression on a group axis (`|β₂| > 0.40` → reject), plus
-//! Mantel–Haenszel with ETS A/B/C classification. Calibration-only: it needs a
-//! per-respondent `group` (`docs/01` D20), so it is gated behind the `calibration` feature.
-//! Variant 2: latent-class mixture IRT, the anonymity-compatible detector
-//! (`DIF = max|b_g − b_h| > MIXTURE_DIF_MAX` → reject), run per batch, never per single
-//! item — the only variant on the production path. The number of classes and uniform vs
-//! non-uniform DIF are chosen by BIC, from seeded multi-starts (T40). Reference
-//! prototype: `sim/latent_dif_and_capacity.py`.
+//! Level B — Differential Item Functioning (`docs/02` §B.3). Variant 1 (logistic and
+//! Mantel–Haenszel on a per-respondent `group`) is calibration-only (`docs/01` D20); Variant
+//! 2 (latent-class mixture IRT, batch-only) is the anonymity-compatible detector in production.
 
 use crate::fmath::{cos, exp, ln, ln_1p};
 
@@ -22,11 +15,7 @@ use std::cell::RefCell;
 /// Variant-1 rejection threshold; calibration-only (see `mantel_haenszel`).
 #[cfg(feature = "calibration")]
 pub const BETA2_MAX: f64 = 0.40;
-/// Variant-2 rejection threshold on `DIF_j = |b_j⁺ − b_j⁻|` (the b-gap). Provisional:
-/// `docs/02` §B.3 cites 0.5 from the literature, but on this estimator 0.5 flags every
-/// item of the one-biased-item fixture; 1.0 is the value the code has applied since the
-/// start (it thresholded the half-gap `|δ|` at 0.5), now stated on the specified
-/// quantity until T24/T25 calibrate it (`docs/08` DIF-006).
+/// Variant-2 rejection threshold on the b-gap `DIF_j`; provisional until T24/T25 (DIF-006).
 pub const MIXTURE_DIF_MAX: f64 = 1.0;
 #[cfg(feature = "calibration")]
 pub const MH_DELTA_B: f64 = 1.0;
@@ -75,25 +64,19 @@ pub enum EtsClass {
 #[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug)]
 pub struct MhResult {
-    /// common odds ratio α_MH
     pub alpha: f64,
-    /// `Δ_MH = −2.35 · ln(α_MH)`
     pub delta: f64,
     pub class: EtsClass,
 }
 
-/// Mantel–Haenszel DIF (Variant 1): matches respondents on ability (θ split into
-/// `n_strata` equal-frequency strata) and compares the two `group` values (−1 reference,
-/// +1 focal) within each stratum. Calibration-only (`docs/01` D20).
+/// Mantel–Haenszel DIF (Variant 1): respondents matched on θ in `n_strata` equal-frequency
+/// strata, group −1 (reference) vs +1 (focal) per stratum. Calibration-only (`docs/01` D20).
 #[cfg(feature = "calibration")]
 pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usize) -> MhResult {
     let n = item.len();
     let mut order: Vec<usize> = (0..n).collect();
-    // NaN policy (docs/08 IQ-2): sort with `total_cmp`, a total order that places
-    // NaN after every number. `partial_cmp().unwrap()` panics on NaN, and a comparator
-    // that treats NaN as *equal to everything* is not a total order, which Rust's sort
-    // is allowed to detect and panic on (since 1.81). A NaN θ therefore lands in the
-    // top stratum deterministically instead of crashing scoring.
+    // NaN policy (docs/08 IQ-2): `total_cmp` places NaN last (never panics, unlike
+    // `partial_cmp().unwrap()`), so a NaN θ lands in the top stratum deterministically.
     order.sort_by(|&a, &b| theta[a].total_cmp(&theta[b]));
 
     let mut num = 0.0; // Σ A_s D_s / N_s
@@ -155,8 +138,7 @@ impl Default for MixtureParams {
 }
 
 /// A class with a smaller share than this is not a population whose difficulties can be
-/// estimated (150 of 3000 respondents): its `b_jg` are unidentified, so it does not
-/// define `DIF_j` (T40).
+/// estimated: its `b_jg` are unidentified, so it does not define `DIF_j` (T40).
 pub const MIN_CLASS_SHARE: f64 = 0.05;
 
 const MIXTURE_MAX_ITERS: usize = 1000;
@@ -166,23 +148,18 @@ const MIXTURE_MAX_ITERS: usize = 1000;
 pub struct MixtureDif {
     /// Number of latent classes of the selected model; 1 means no mixture was found.
     pub classes: usize,
-    /// Whether the selected model lets the discrimination differ by class (non-uniform
-    /// DIF) or shares `a_j` across classes (uniform DIF).
+    /// Whether the selected model lets `a_j` differ by class (non-uniform DIF) or not (uniform).
     pub non_uniform: bool,
     /// Mixing proportion of each class.
     pub pi: Vec<f64>,
-    /// Per-item `DIF_j = max_{g,h} |b_jg − b_jh|` over classes with share ≥
-    /// [`MIN_CLASS_SHARE`] — the quantity `docs/02` §B.3 thresholds. 0 with one class.
+    /// Per-item `DIF_j = max_{g,h} |b_jg − b_jh|` over classes with share ≥ [`MIN_CLASS_SHARE`]
+    /// (the quantity `docs/02` §B.3 thresholds); 0 with one class.
     pub dif: Vec<f64>,
     /// Per-item `max_{g,h} |a_jg − a_jh|` (non-uniform DIF); 0 when `a_j` is shared.
     pub a_gap: Vec<f64>,
-    /// **Diagnostic only** (`docs/01` D37, T53): each item's class shift relative to the
-    /// batch's common shift, `|s_j − median_k s_k|`, where `s_j = b_{j,g₁} − b_{j,g₀}` is
-    /// the signed difficulty shift between the two most populous counted classes
-    /// (`g₀ < g₁`). It removes the shift that error in the θ proxy puts on every item
-    /// (paper §4.5), but it inverts in a campaign — with most of the batch shifted the
-    /// same way the common shift *is* the campaign and the clean items stand out (paper
-    /// §7.3) — so it is never the verdict: the verdict reads `dif`. 0 with one class.
+    /// **Diagnostic only** (`docs/01` D37, T53): each item's shift `s_j = b_{j,g₁} − b_{j,g₀}`
+    /// between the two most populous classes, less the batch's median shift. Inverts under
+    /// a coordinated campaign, so the verdict reads `dif`, never this; 0 with one class.
     pub differential: Vec<f64>,
     /// `posterior[i][g]`: probability that respondent `i` belongs to class `g`.
     pub posterior: Vec<Vec<f64>>,
@@ -194,7 +171,6 @@ pub struct MixtureDif {
     pub status: Convergence,
 }
 
-/// One candidate model: `G` classes, with a shared or a per-class discrimination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Model {
     g: usize,
@@ -202,7 +178,7 @@ struct Model {
     per_class_a: bool,
 }
 
-// Parameter layout: [ η (G−1, class logits vs class 0) | a (K, or K·G) | b (K·G) ],
+// Parameter layout: [ η (G−1, logits vs class 0) | a (K, or K·G) | b (K·G) ];
 // class-major within `a` and `b`: index `g·K + j`.
 impl Model {
     fn len(&self) -> usize {
@@ -235,8 +211,8 @@ impl Model {
     }
 }
 
-/// Per-respondent class log-likelihoods `ℓ_ig = Σ_j x_ij·lo − softplus(lo)` with
-/// `lo = a_jg(θ_i − b_jg)`, and their log mixing weights.
+/// Per-respondent class log-likelihoods `ℓ_ig = Σ_j x_ij·lo − softplus(lo)`,
+/// `lo = a_jg(θ_i − b_jg)`, and the log mixing weights.
 fn class_loglik(model: &Model, p: &[f64], theta: &[f64], row: &[f64], i: usize) -> Vec<f64> {
     (0..model.g)
         .map(|g| {
@@ -250,8 +226,7 @@ fn class_loglik(model: &Model, p: &[f64], theta: &[f64], row: &[f64], i: usize) 
         .collect()
 }
 
-/// Negative marginal log-likelihood of the mixture: the straightforward form, kept as
-/// the reference the fused [`nll_and_grad`] is tested against.
+/// Negative marginal log-likelihood of the mixture; the reference for [`nll_and_grad`].
 #[cfg(test)]
 fn nll(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> f64 {
     let ln_pi: Vec<f64> = model.pi(p).iter().map(|v| ln(*v)).collect();
@@ -264,17 +239,13 @@ fn nll(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> f64 {
     -total
 }
 
-/// Analytic gradient of [`nll`] (T40; pinned against central differences in the tests).
-/// With `r_ig` the class posterior and `e_ijg = x_ij − σ(lo_ijg)`:
-/// `∂/∂η_g = −Σ_i (r_ig − π_g)`, `∂/∂a_jg = −Σ_i r_ig e_ijg (θ_i − b_jg)`,
-/// `∂/∂b_jg = Σ_i r_ig e_ijg a_jg` (summed over `g` when `a_j` is shared).
+/// Analytic gradient of [`nll`] (T40), pinned against central differences in the tests.
 #[cfg(test)]
 fn nll_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> Vec<f64> {
     nll_and_grad(model, p, theta, x).1
 }
 
-/// [`nll`] and [`nll_grad`] in one pass over the data: per cell, one `exp` gives both
-/// `softplus(lo)` and `σ(lo)`.
+/// [`nll`] and [`nll_grad`] in one pass: one `exp` per cell gives both `softplus(lo)` and `σ(lo)`.
 fn nll_and_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> (f64, Vec<f64>) {
     let (gn, k) = (model.g, model.k);
     let pi = model.pi(p);
@@ -318,7 +289,6 @@ fn nll_and_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> (f64
     (-total, grad)
 }
 
-/// A parameter vector with its NLL and gradient.
 type Evaluated = (Vec<f64>, f64, Vec<f64>);
 
 /// Minimizes the NLL of `model` from `p0`.
@@ -328,8 +298,8 @@ fn fit_from(
     theta: &[f64],
     x: &[Vec<f64>],
 ) -> (f64, Vec<f64>, Convergence) {
-    // The line search asks for the cost and the gradient at the same point: one fused
-    // pass serves both (a cache of the last point; the values are the same bits).
+    // The line search asks for cost and gradient at the same point; one fused pass serves
+    // both (a cache of the last point).
     let cache: RefCell<Option<Evaluated>> = RefCell::new(None);
     let eval = |p: &[f64]| -> (f64, Vec<f64>) {
         if let Some((cp, f, g)) = cache.borrow().as_ref() {
@@ -352,10 +322,9 @@ fn fit_from(
     (eval(&m.x).0, m.x, m.status)
 }
 
-/// Variant 2 (`docs/02` §B.3): a latent-class IRT mixture
-/// `P(x_ij = 1 | θ_i, g) = σ(a_jg(θ_i − b_jg))` on a batch of `k` items, with the number
-/// of classes (1..=4) and uniform vs non-uniform DIF chosen by BIC, each candidate from
-/// several seeded starts (T40). `theta` is the anchor ability; `x` is respondents × items.
+/// Variant 2 (`docs/02` §B.3): a latent-class IRT mixture on a batch of `k` items, the
+/// number of classes and uniform vs non-uniform DIF chosen by BIC from seeded starts (T40).
+/// `theta` is the anchor ability; `x` is respondents × items.
 pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> MixtureDif {
     mixture_dif_with(
         theta,
@@ -368,7 +337,6 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
     )
 }
 
-/// [`mixture_dif`] with explicit settings.
 pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixtureParams) -> MixtureDif {
     let nt = x.len();
     let ln_n = ln(nt.max(1) as f64);
@@ -391,8 +359,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
     let mut best = (bic1, one, p1.clone(), st1);
     let mut rng = ChaCha8Rng::seed_from_u64(mp.seed);
     for g in 2..=mp.max_classes.max(1) {
-        // Staged search: once adding a class no longer lowers the BIC, larger mixtures
-        // (slower, and increasingly unidentified) are not tried.
+        // Staged search: once adding a class no longer lowers the BIC, larger ones are not tried.
         let best_before = best.0;
         for per_class_a in [false, true] {
             let model = Model { g, k, per_class_a };
@@ -479,9 +446,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
     }
 }
 
-/// The diagnostic of [`MixtureDif::differential`]: the signed shift between the two most
-/// populous counted classes (ties by class index; `g₀ < g₁` fixes the sign), less its
-/// median over the batch, in absolute value. Zeros unless two classes are counted.
+/// Computes [`MixtureDif::differential`] (ties broken by class index, `g₀ < g₁`).
 fn differential_gap(model: &Model, p: &[f64], pi: &[f64], counted: &[usize], k: usize) -> Vec<f64> {
     if counted.len() < 2 {
         return vec![0.0; k];
@@ -530,8 +495,7 @@ mod tests {
     use super::*;
     use crate::optim::numerical_gradient;
 
-    /// The BIC penalty counts the free parameters: `G − 1` proportions, `K` (shared) or
-    /// `K·G` (per-class) discriminations, and `K·G` difficulties.
+    /// Free parameters for the BIC: `G − 1` proportions, `K` or `K·G` slopes, `K·G` difficulties.
     #[test]
     fn free_parameters_are_counted_as_specified() {
         let k = 8;
@@ -555,8 +519,7 @@ mod tests {
         }
     }
 
-    /// The analytic mixture gradient matches central differences for every model shape:
-    /// 1–3 classes, shared or per-class discrimination (T40).
+    /// The analytic mixture gradient matches central differences for every model shape (T40).
     #[test]
     fn mixture_gradient_matches_central_differences() {
         let mut rng = ChaCha8Rng::seed_from_u64(3);

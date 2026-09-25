@@ -1,18 +1,6 @@
-//! [6]/[7] Two-stage pilot (`docs/05`, `docs/01` D11). Respondents are the scarce
-//! resource: a cheap first stage kills broken and non-discriminating items; only
-//! survivors reach the large second stage, which runs DIF in batches (`docs/02` §B).
-//!
-//! Two floors are load-bearing (`docs/08` INV-8, PROTO-006, G-15): a DIF stage is never
-//! run on a single item — one item cannot reveal latent bias, and isolating an item is
-//! how an adversary would probe it — and each stage needs enough distinct respondents to
-//! estimate its statistic (`docs/02` §B.6). The per-item math below stays pure; the
-//! **batch-admission gates** [`screen`] / [`dif_batch`] enforce the floors and are what a
-//! caller uses. `K_MIN` is shared with [`crate::lifecycle`].
-//!
-//! "Distinct respondents" is enforced on persons, not rows (INV-9, T65): a respondent
-//! enters a batch through [`submit_response`], proving a `Respond` nullifier bound to
-//! the batch and the epoch, and the floors count the admitted [`NullifierSet`] — so 300
-//! answer sheets from one person are one respondent, not three hundred.
+//! Two-stage pilot (`docs/05` [6]/[7], `docs/01` D11): a cheap stage 1 screen, then DIF
+//! in batches at stage 2 (`docs/02` §B). `screen`/`dif_batch` enforce the floors (INV-8,
+//! PROTO-006); "distinct respondents" counts persons via [`NullifierSet`] (INV-9, T65).
 
 use crate::admission::{admit, DuplicateNullifier, NullifierSet, Unproven};
 use crate::lifecycle::K_MIN;
@@ -33,21 +21,12 @@ pub const N2_MIN: usize = 1500;
 /// Why a pilot batch is not admissible (`docs/08` INV-8, §B.6 sample sizes, D37).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PilotError {
-    /// Fewer distinct respondents than the stage requires.
     NotEnoughRespondents { have: usize, need: usize },
-    /// A DIF batch below `K_MIN` items — a single item cannot reveal latent bias (INV-8).
     BatchTooSmall { items: usize },
-    /// The anchors' KR-20 on the batch's respondents is below `KR20_MIN` (or undefined):
-    /// the θ proxy is too noisy for the latent-class re-check, which would mistake its
-    /// error for a latent class (`docs/01` D37, DIF-010, T53).
     UnreliableAnchors { kr20: f64, need: f64 },
-    /// The answer rows are not the admitted respondents one to one (T65): a row without a
-    /// respondent, or an item column of another length, is refused.
     RowCountMismatch { rows: usize, respondents: usize },
 }
 
-/// Names a pilot batch by its content: the id of its item cids in canonical (sorted,
-/// deduplicated) order, so the same set of items is the same batch however it is listed.
 pub fn batch_id(items: &[Cid]) -> Cid {
     let mut sorted: Vec<[u8; 32]> = items.iter().map(|c| c.0).collect();
     sorted.sort_unstable();
@@ -61,9 +40,7 @@ pub fn batch_id(items: &[Cid]) -> Cid {
     cid(&buf)
 }
 
-/// The action context a `Respond` proof is bound to: this batch and epoch (AT-ID-05,
-/// T65), as `review::review_context` and `deposit::deposit_context` do for the other
-/// roles. A proof made for batch A does not verify on batch B, nor in another epoch.
+/// The action context a `Respond` proof is bound to: this batch and epoch (T65).
 pub fn response_context(batch: Cid, epoch: u64) -> Vec<u8> {
     let mut ctx = Vec::with_capacity(40);
     ctx.extend_from_slice(&batch.0);
@@ -74,9 +51,7 @@ pub fn response_context(batch: Cid, epoch: u64) -> Vec<u8> {
 /// Why an answer sheet was refused at the identity-gated respondent entry point.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResponseRejected {
-    /// No valid `Respond` nullifier proof for this batch and epoch.
     Unproven(Unproven),
-    /// This role-nullifier already answered this batch.
     Duplicate,
 }
 
@@ -93,11 +68,7 @@ impl From<DuplicateNullifier> for ResponseRejected {
 }
 
 /// The identity-gated respondent entry point (`docs/08` §9.1 `Pilot1` row, INV-9, T65):
-/// the respondent presents a `NullifierProof(Respond)` bound to this batch and epoch, and
-/// the proven id is recorded in `respondents`, rejecting a second answer sheet by the same
-/// person on this batch (AT-PRO-09). That set is what the floors of [`screen`],
-/// [`dif_batch`] and [`crate::revalidation::revalidate_batch_latent`] count. Returns the
-/// respondent's proven, non-rotatable id.
+/// records the proven `Respond` id in `respondents`, rejecting a repeat sheet (AT-PRO-09).
 pub fn submit_response(
     proof: &NullifierProof,
     issuer: &IssuerPublic,
@@ -115,8 +86,6 @@ pub fn submit_response(
     Ok(id)
 }
 
-/// The rows of a sample must be the admitted respondents one to one (T65): `theta` and
-/// every column in `columns` hold exactly one entry per respondent.
 pub(crate) fn respondent_rows(
     respondents: &NullifierSet,
     theta: &[f64],
@@ -138,9 +107,7 @@ pub(crate) fn respondent_rows(
     Ok(())
 }
 
-/// INV-8 batch admission for a DIF stage: never a single item, and enough respondents.
-/// `n_min` is the stage's respondent floor (`N2_MIN` here, `N_LATENT_MIN` for the
-/// production latent re-check).
+/// INV-8 batch admission: never a single item, and enough respondents (`n_min`).
 pub fn admit_dif_batch(
     n_items: usize,
     n_respondents: usize,
@@ -158,12 +125,8 @@ pub fn admit_dif_batch(
     Ok(())
 }
 
-/// Anchor-reliability precondition of the latent re-check (`docs/01` D37, T53), the
-/// third floor next to the items (`K_MIN`) and the respondents (`N_LATENT_MIN`): the
-/// standardized anchor total stands in for θ only when the anchors' KR-20 on the batch's
-/// own respondents is at least `KR20_MIN`. Returns the KR-20 when acceptable; refused
-/// below the floor and whenever it is undefined (fewer than two anchors, no spread, a
-/// non-finite value). `anchors` is respondents × anchors, 0/1.
+/// Anchor-reliability precondition of the latent re-check (`docs/01` D37, T53): refused
+/// below `KR20_MIN` or when undefined. `anchors` is respondents × anchors, 0/1.
 pub fn admit_anchors(anchors: &[Vec<f64>]) -> Result<f64, PilotError> {
     let r = kr20(anchors);
     if r.is_nan() || r < KR20_MIN {
@@ -179,18 +142,13 @@ pub fn admit_anchors(anchors: &[Vec<f64>]) -> Result<f64, PilotError> {
 #[cfg(feature = "calibration")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DifVerdict {
-    /// No uniform DIF beyond the threshold.
     Pass,
-    /// Uniform DIF beyond the threshold.
     Reject,
-    /// The fit is separated, so `β₂` is undetermined (docs/08 AT-DIF-06).
     Undetermined,
 }
 
-/// Stage-1 admission gate: runs [`stage1_screen`] only if the batch's admitted
-/// `respondents` meet the distinct-respondent floor `N1_MIN` (`docs/02` §B.6) — persons,
-/// counted from the [`NullifierSet`] that [`submit_response`] filled, never rows (T65) —
-/// and the rows (`theta`, each item column) are those respondents one to one.
+/// Stage-1 admission gate: runs [`stage1_screen`] once admitted `respondents` meet the
+/// floor `N1_MIN`, and the rows (`theta`, each item column) match them one to one.
 pub fn screen(
     respondents: &NullifierSet,
     theta: &[f64],
@@ -206,9 +164,7 @@ pub fn screen(
     Ok(stage1_screen(theta, item_responses))
 }
 
-/// Stage-2 admission gate: runs [`stage2_dif`] only on a batch of at least `K_MIN` items
-/// (INV-8) with at least `N2_MIN` admitted respondents (persons, T65), whose rows match
-/// them one to one. A batch of one is rejected (AT-PRO-02).
+/// Stage-2 admission gate: runs [`stage2_dif`] on ≥ `K_MIN` items with ≥ `N2_MIN` respondents.
 #[cfg(feature = "calibration")]
 pub fn dif_batch(
     respondents: &NullifierSet,
@@ -225,9 +181,8 @@ pub fn dif_batch(
     Ok(stage2_dif(theta, group, item_responses))
 }
 
-/// Stage 1 screen (~300 respondents): keep items that discriminate. A negative
-/// point-biserial signals a wrong answer key. A 2PL fit that did not converge (e.g. a
-/// separated item, whose slope diverges) says nothing about `a`, so it fails (T34).
+/// Stage 1 screen: keep items that discriminate. A negative point-biserial signals a
+/// wrong answer key; a non-converged 2PL fit says nothing about `a` (T34).
 pub fn stage1_screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
     item_responses
         .iter()
@@ -239,9 +194,8 @@ pub fn stage1_screen(theta: &[f64], item_responses: &[Vec<f64>]) -> Vec<bool> {
         .collect()
 }
 
-/// Stage 2 (~1500 respondents), run on the surviving batch: reject items with uniform
-/// DIF against the axis. Variant 1, calibration-only (`docs/01` D20); production uses
-/// [`crate::revalidation::revalidate_pool_latent`] (Variant 2).
+/// Stage 2, run on the surviving batch: rejects items with uniform DIF against the axis
+/// (Variant 1, calibration-only, D20; production uses `revalidate_pool_latent`, Variant 2).
 #[cfg(feature = "calibration")]
 pub fn stage2_dif(theta: &[f64], group: &[f64], item_responses: &[Vec<f64>]) -> Vec<DifVerdict> {
     item_responses

@@ -1,8 +1,6 @@
-//! Nullifier proofs from untrusted bytes (`docs/03` §M3; T44). There is no wire format
-//! yet, so the target decodes the canonical test encoding (compressed nullifier,
-//! commitment and BBS+ proof): arbitrary bytes, or a genuine proof with bytes spliced in.
-//! Decoding and verifying never panic, and only the untouched genuine proof verifies,
-//! for its own role and context.
+//! Nullifier proofs from untrusted bytes (`docs/03` §M3): the canonical test encoding
+//! (compressed nullifier, commitment, BBS+ proof), not a wire format — arbitrary bytes,
+//! or a genuine proof with bytes spliced in. Only the untouched genuine proof verifies.
 #![no_main]
 
 use identity::credential::{Credential, Issuer, IssuerPublic};

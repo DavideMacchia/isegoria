@@ -1,8 +1,5 @@
-//! Role nullifiers (M3). See `docs/03`, §M3.
-//!
-//! `nym = H(secret, context)`: always equal for the same role (no second identity
-//! per role → no whitewashing), not reversible to the secret, and different across
-//! roles (the three role pseudonyms are unlinkable).
+//! Role nullifiers (`docs/03` §M3): `nym = H(secret, context)`, deterministic and
+//! non-reversible, giving each role exactly one unlinkable pseudonym.
 
 use crate::hash::tagged;
 

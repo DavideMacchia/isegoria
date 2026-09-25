@@ -1,11 +1,6 @@
-//! Batch and sample-size gating (docs/08 INV-8 / PROTO-006 / G-15, T9): a DIF stage is
-//! never run on a single item, and each stage needs enough distinct respondents. The
-//! per-item DIF math stays available; the `pilot`/`revalidation` batch gates enforce the
-//! floors (AT-PRO-02: a batch of one is rejected).
-//!
-//! The attribute-DIF stage (`dif_batch`) is calibration-only (Variant 1, D20); the
-//! production INV-8 gate is on the latent re-check (`revalidate_batch_latent`), tested
-//! unconditionally below.
+//! Batch and sample-size gating (`docs/08` INV-8/PROTO-006/G-15, T9): no DIF stage runs
+//! on a single item or below its respondent floor. `dif_batch` is calibration-only (D20);
+//! the production gate is the latent re-check (`revalidate_batch_latent`).
 
 use identity::nym::Nym;
 use protocol::admission::NullifierSet;
@@ -32,9 +27,8 @@ fn theta(n: usize) -> Vec<f64> {
     (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect()
 }
 
-/// `n` respondents' answers to 60 clean anchors, a Guttman pattern on evenly spaced
-/// difficulties: a reliable θ proxy (KR-20 ≈ 0.98, above `KR20_MIN`), as the latent
-/// re-check's anchor precondition requires (D37, T53).
+/// `n` respondents' answers to 60 clean anchors, a Guttman pattern reliable enough for
+/// the latent re-check's anchor precondition (D37, T53).
 fn anchors(n: usize) -> Vec<Vec<f64>> {
     (0..n)
         .map(|i| {
@@ -46,8 +40,7 @@ fn anchors(n: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// `n` admitted respondents (T65): the floors count this set, not the rows. The gate that
-/// fills it from `Respond` proofs is tested in `proto013_respondent_gate.rs`.
+/// `n` admitted respondents (T65); the floors count this set, not the rows.
 fn respondents(n: usize) -> NullifierSet {
     let mut set = NullifierSet::new();
     for i in 0..n {
@@ -62,14 +55,12 @@ fn respondents(n: usize) -> NullifierSet {
 
 #[test]
 fn at_pro_02_the_production_latent_recheck_refuses_one_item() {
-    // Enough respondents, but a single item: the production DIF re-check must refuse it.
     let a = anchors(N_LATENT_MIN);
     let people = respondents(N_LATENT_MIN);
     assert_eq!(
         revalidate_batch_latent(&people, &a, &responses(N_LATENT_MIN, 1), 0),
         Err(PilotError::BatchTooSmall { items: 1 })
     );
-    // A batch of two is admissible.
     assert!(revalidate_batch_latent(&people, &a, &responses(N_LATENT_MIN, 2), 0).is_ok());
 }
 
@@ -77,7 +68,6 @@ fn at_pro_02_the_production_latent_recheck_refuses_one_item() {
 #[test]
 fn at_pro_02_the_attribute_dif_stage_refuses_one_item() {
     use protocol::pilot::dif_batch;
-    // `dif_batch` is item-major: one Vec per item, each of length = respondents.
     let items = |n_items: usize| -> Vec<Vec<f64>> {
         (0..n_items)
             .map(|k| (0..N2_MIN).map(|i| ((i + k) % 2) as f64).collect())
@@ -97,7 +87,6 @@ fn at_pro_02_the_attribute_dif_stage_refuses_one_item() {
 
 #[test]
 fn a_stage_below_its_respondent_floor_is_rejected() {
-    // Stage 1: one fewer admitted respondent than the screen floor.
     let n = N1_MIN - 1;
     assert_eq!(
         screen(&respondents(n), &theta(n), &columns(n, 3)),
@@ -108,7 +97,7 @@ fn a_stage_below_its_respondent_floor_is_rejected() {
     );
     assert!(screen(&respondents(N1_MIN), &theta(N1_MIN), &columns(N1_MIN, 3)).is_ok());
 
-    // The latent re-check needs the largest sample (§B.6): enough items, too few people.
+    // The latent re-check's floor is the largest of the three (`docs/08` §B.6).
     let n = N_LATENT_MIN - 1;
     assert_eq!(
         revalidate_batch_latent(&respondents(n), &anchors(n), &responses(n, 8), 0),
@@ -121,8 +110,7 @@ fn a_stage_below_its_respondent_floor_is_rejected() {
 
 #[test]
 fn admit_dif_batch_checks_items_before_respondents() {
-    // The item floor is the load-bearing INV-8 rule; it is reported even when the sample
-    // is also short, so a batch of one is always a BatchTooSmall.
+    // The item floor takes priority over the respondent floor (INV-8).
     assert_eq!(
         admit_dif_batch(1, 0, N2_MIN),
         Err(PilotError::BatchTooSmall { items: 1 })

@@ -1,7 +1,6 @@
-//! Enrollment of arbitrary codice-fiscale strings through every oracle (M1, T44): no
-//! panic (a > u16::MAX-byte anchor used to panic the VOPRF), and the same person via
-//! another source is always a duplicate. Run with `-max_len` above 65535 to reach the
-//! long-anchor path.
+//! Enrollment of arbitrary codice-fiscale strings through every oracle (`docs/03` §M1):
+//! no panic, and the same person via another source is always a duplicate. Run with
+//! `-max_len` above 65535 to reach the long-anchor path.
 #![no_main]
 
 use identity::enrollment::{

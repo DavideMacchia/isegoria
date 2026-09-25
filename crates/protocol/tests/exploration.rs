@@ -1,10 +1,6 @@
-//! Randomized exploration of gate rejections (`docs/01` D35, T52): a random 5% of the
-//! items the gate rejects, drawn from the public beacon, are piloted for measurement only
-//! — `Rejected → Explored → the two pilot batches → Measured`, never `ActivePool` — and
-//! their outcomes enter the evaluator score at weight `1/ε`, so the score stays proper
-//! (AT-REP-06, `scoring/tests/exploration_weights.rs`) and the gate's false-negative rate
-//! is measured for the first time. AT-PRO-07: the draw is reproducible from the beacon
-//! and cannot be chosen.
+//! Randomized exploration of gate rejections (`docs/01` D35): a beacon-drawn 5% of the
+//! items the gate rejects is piloted for measurement only and scored at weight `1/ε`
+//! (AT-PRO-07, AT-REP-06).
 
 use identity::nym::Nym;
 use network::cid::Cid;
@@ -25,9 +21,7 @@ fn beacon(head: u8) -> Beacon {
     Beacon::from_checkpoint(&Checkpoint::new([1; 32], [2; 32], 5, [head; 32]))
 }
 
-/// AT-PRO-07: the same beacon and slot always give the same decision; over 20,000 slots
-/// about 5% are explored; another beacon draws an unrelated set; and the machine refuses
-/// an exploration whose seed is not the signed checkpoint's.
+/// AT-PRO-07: the draw is reproducible from the beacon, about 5% of slots, and not choosable.
 #[test]
 fn at_pro_07_the_draw_is_reproducible_from_the_beacon_and_not_choosable() {
     const SLOTS: u64 = 20_000;
@@ -65,8 +59,7 @@ fn at_pro_07_the_draw_is_reproducible_from_the_beacon_and_not_choosable() {
         both < 0.01,
         "the two draws are not independent: {both:.4} under both"
     );
-    // Not choosable: a rate of zero explores nothing, of one everything — the rate is a
-    // protocol constant, the seed the beacon's.
+    // Not choosable: the rate is a protocol constant, the seed the beacon's.
     assert!((0..100).all(|s| !explore_from_beacon(&a, s, 0.0)));
     assert!((0..100).all(|s| explore_from_beacon(&a, s, 1.0)));
     assert_eq!(
@@ -123,9 +116,8 @@ fn verdicts(gate: GateOutcome, explored: bool) -> ItemVerdicts {
     }
 }
 
-/// The machine's rows: a gate rejection drawn for exploration walks the two pilot batches
-/// under the pilot's own floors and ends `Measured`, never in the pool; a pilot rejection
-/// cannot be explored (its outcome is already measured); `Measured` is terminal.
+/// An explored rejection walks the two pilot batches to `Measured`, never the pool; a
+/// pilot rejection cannot be explored; `Measured` is terminal.
 #[test]
 fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
     let explore = Event::Explore {
@@ -267,8 +259,7 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
         Err(Invalid::UnexpectedEvent)
     );
 
-    // Through the orchestrator: the verdicts' draw takes a rejected item to `Measured` on
-    // the same pilot verdicts, and leaves it `Rejected` when it was not drawn.
+    // Through the orchestrator, on the same pilot verdicts.
     assert_eq!(
         run_item(
             reviewed(),
@@ -317,7 +308,7 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
         ),
         Err(Invalid::BatchTooSmall)
     );
-    // An item that passes the gate is unaffected by the draw: the pool, not `Measured`.
+    // An item that passes the gate is unaffected by the draw.
     assert_eq!(
         run_item(
             reviewed(),
@@ -329,10 +320,8 @@ fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
     );
 }
 
-/// The reviewer's track (D33–D36 with D35): an observed outcome enters the mean at
-/// `1/π`, a reviewed item whose outcome was not observed enters the denominator only, the
-/// count that decides probation is the observed one, and the change detector reads the
-/// unweighted stream against its own mean — one explored item never fires it by weight.
+/// D35 on the reviewer's track: an observed outcome enters the mean at `1/π`, an
+/// unobserved one the denominator only, and the detector reads the unweighted stream.
 #[test]
 fn the_track_weighs_an_explored_outcome_by_the_inverse_rate() {
     let params = CusumParams::default();
@@ -353,8 +342,7 @@ fn the_track_weighs_an_explored_outcome_by_the_inverse_rate() {
     assert_eq!(track.status(false), Status::Probation);
     assert_eq!(track.standing(false).judgments_with_outcome, 4);
 
-    // Out of probation on a steady 0.1, an explored item scored −0.5 weighs −10 in the
-    // mean but reads −0.5 to the detector: no alarm, the statistic well under `h`.
+    // An explored −0.5 weighs −10 in the mean but reads −0.5 to the detector: no alarm.
     let mut track = SkillTrack::new();
     for _ in 0..N_PROBATION {
         track.record(0.1, &params);

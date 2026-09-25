@@ -1,10 +1,6 @@
-//! Monte-Carlo power check for the sample-size claim in `docs/02` §B.6: the
-//! latent-class mixture detects planted bias more reliably at N≈3000 than at N≈1500.
-//! Slow; ignored by default. Run with:
-//!
-//!   cargo test -p scoring --test power -- --ignored --nocapture
-//!
-//! This is a Rust port of the experiment in `sim/latent_dif_and_capacity.py`.
+//! Monte-Carlo power check for the sample-size claim in `docs/02` §B.6 (a Rust port of
+//! `sim/latent_dif_and_capacity.py`). Slow; ignored by default: `cargo test -p scoring
+//! --test power -- --ignored --nocapture`.
 
 use rand::Rng;
 use rand::SeedableRng;

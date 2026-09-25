@@ -1,27 +1,6 @@
-//! Anchoring to a public chain (`docs/04`, §Anchoring). Periodically one root
-//! summarizing the whole state is published to Bitcoin, so rewriting the past would
-//! require rewriting the public chain too.
-//!
-//! This uses the real **OpenTimestamps** proof format (crate `opentimestamps`): a
-//! receipt carries a serialized `.ots` timestamp, and verification runs the actual
-//! OTS algorithm — parse the proof, execute its operation tree from the root, and
-//! check the result against a Bitcoin block's Merkle root.
-//!
-//! **What is real:** the OTS proof format (built, serialized, and parsed by the
-//! library) and the verification walk (`Op::execute` over the step tree, compared to
-//! the block Merkle root).
-//!
-//! **What is modeled (`docs/04`, future work):** the live network parts. A real
-//! submission POSTs the digest to a calendar server and, once the aggregated commit
-//! confirms, upgrades the proof with a Bitcoin attestation; a real verifier reads the
-//! block's Merkle root from a Bitcoin node or SPV client. Here [`OtsAnchor`] holds an
-//! injected block source (`height -> Merkle root`) and [`OtsAnchor::upgrade`] stands in
-//! for the calendar's aggregation with a single hashing step. No network is contacted.
-//!
-//! **Hostile proofs (T44, AT-NET-07).** A receipt's bytes are untrusted and the library
-//! parser is not safe on them, so [`Anchor::verify`] first walks the same grammar
-//! without executing anything (`within_bounds`) and refuses a proof beyond the bounds
-//! (`docs/12-panic-audit.md` §3).
+//! Anchoring to a public chain (`docs/04` §Anchoring): real OpenTimestamps proof format
+//! and verification; the calendar/Bitcoin network is an injected block source
+//! (`OtsAnchor`); untrusted receipts are bounds-checked first (AT-NET-07, `docs/12` §3).
 
 use opentimestamps::attestation::Attestation;
 use opentimestamps::op::Op;
@@ -51,24 +30,17 @@ pub enum AnchorState {
 
 /// External anchoring service.
 pub trait Anchor {
-    /// Timestamp `root`, returning a (still pending) OTS receipt.
     fn submit(&mut self, root: [u8; 32]) -> Receipt;
-    /// Verify a receipt against the current known chain state.
     fn verify(&self, receipt: &Receipt) -> AnchorState;
 }
 
-/// An OpenTimestamps-backed anchor. Real proof format and verification; the calendar
-/// and Bitcoin network are represented by an injected block source so the flow runs
-/// offline and deterministically in tests.
 pub struct OtsAnchor {
     calendar_uri: String,
-    /// Stand-in for a Bitcoin node/SPV client: block height -> block Merkle root.
     blocks: HashMap<usize, [u8; 32]>,
     next_height: usize,
 }
 
 impl OtsAnchor {
-    /// A fresh anchor targeting `calendar_uri`, with no confirmed blocks yet.
     pub fn new(calendar_uri: impl Into<String>) -> Self {
         OtsAnchor {
             calendar_uri: calendar_uri.into(),
@@ -77,11 +49,9 @@ impl OtsAnchor {
         }
     }
 
-    /// Simulate the calendar upgrading a pending receipt to a Bitcoin attestation
-    /// once its aggregated commitment has confirmed. Production fetches the real
-    /// upgraded `.ots` from the calendar; here we apply one hashing step (standing in
-    /// for the aggregation Merkle path) and record the resulting digest as the Merkle
-    /// root of a new block, exactly what a verifier would later read from the chain.
+    /// Simulates the calendar upgrading a pending receipt to a Bitcoin attestation.
+    /// Production fetches the real upgraded `.ots`; here one hashing step stands in for
+    /// the aggregation path, recorded as a new block's Merkle root.
     pub fn upgrade(&mut self, receipt: &Receipt) -> Receipt {
         let step_op = Op::Sha256;
         let digest = step_op.execute(&receipt.root);
@@ -133,7 +103,6 @@ impl OtsAnchor {
 
 impl Anchor for OtsAnchor {
     fn submit(&mut self, root: [u8; 32]) -> Receipt {
-        // A freshly submitted timestamp: committed to a calendar, not yet on-chain.
         let timestamp = Timestamp {
             start_digest: root.to_vec(),
             first_step: Step {
@@ -151,7 +120,7 @@ impl Anchor for OtsAnchor {
     }
 
     fn verify(&self, receipt: &Receipt) -> AnchorState {
-        // Untrusted bytes reach the library parser only within bounds (T44, AT-NET-07).
+        // Untrusted bytes reach the library parser only within bounds (AT-NET-07).
         if !within_bounds(&receipt.proof) {
             return AnchorState::Invalid;
         }
@@ -194,19 +163,16 @@ fn serialize(timestamp: &Timestamp) -> Vec<u8> {
     buf
 }
 
-// Bounds on an untrusted `.ots` proof, checked before the library parses it. On hostile
-// bytes `opentimestamps` 0.2.0 panics on an overlong varint, allocates any declared
-// length, and grows the message without limit (`docs/12-panic-audit.md` F1–F4).
+// Bounds on an untrusted `.ots` proof, checked before the library parses it
+// (`docs/12-panic-audit.md` §3, F1–F4).
 
-/// Larger than any real proof (a Bitcoin-attested one is a few KiB).
 const MAX_PROOF_LEN: usize = 64 * 1024;
-/// Longest message an operation may produce: the limit python-opentimestamps (the
-/// reference implementation) enforces and the Rust crate does not.
+/// Longest operation message: python-opentimestamps' limit (the Rust crate has none).
 const MAX_MSG_LEN: usize = 4096;
-/// Bytes of messages the library may build while parsing (every fork clone and every
-/// operation's result, stored and cloned); a real proof uses well under 64 KiB.
+/// Bytes of messages the library may build while parsing: every fork clone and every
+/// operation's result, stored and cloned.
 const MAX_WORK: usize = 1 << 20;
-/// The library's own recursion limit, so the scan and the parser agree on depth.
+/// The library's own recursion limit: scan and parser must agree on depth.
 const MAX_DEPTH: usize = 256;
 /// The library's limits on an operation argument and a pending-attestation URI.
 const MAX_OP_ARG: usize = 4096;
@@ -219,10 +185,8 @@ const BITCOIN_TAG: &[u8] = b"\x05\x88\x96\x0d\x73\xd7\x19\x01";
 const PENDING_TAG: &[u8] = b"\x83\xdf\xe3\x0d\x2e\xf9\x0c\x8e";
 
 /// Whether `proof` is safe to hand to the library parser: it follows the `.ots` grammar
-/// (header, digest, step tree, no trailing bytes) and stays within every bound above.
-/// Rejecting here is always safe — such a proof is `Invalid` — while a proof accepted
-/// here makes the library read exactly the same bytes, with bounded depth, lengths and
-/// memory.
+/// within every bound above. Rejecting is always safe (the proof is `Invalid`); accepting
+/// guarantees the library reads the same bytes with bounded depth, length and memory.
 fn within_bounds(proof: &[u8]) -> bool {
     proof.len() <= MAX_PROOF_LEN
         && Scan {
@@ -305,8 +269,7 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// An attestation, read as the library does: an 8-byte tag and a declared length, then
-    /// a Bitcoin height (a varint), a pending URI (length-prefixed), or `len` opaque bytes.
+    /// An attestation as read: 8-byte tag, declared length, then a height, a URI or `len` bytes.
     fn attestation(&mut self) -> Option<()> {
         let tag = self.take(8)?;
         let len = self.varint()?;
@@ -368,7 +331,6 @@ mod tests {
         let root = [3u8; 32];
         let receipt = anchor.submit(root);
 
-        // The bytes are a real `.ots` file that parses and commits to our root.
         let file = DetachedTimestampFile::from_reader(receipt.proof.as_slice()).unwrap();
         assert_eq!(file.timestamp.start_digest, root.to_vec());
         assert_eq!(anchor.verify(&receipt), AnchorState::Pending);
@@ -376,9 +338,6 @@ mod tests {
 
     #[test]
     fn a_bitcoin_attestation_against_the_wrong_block_root_is_rejected() {
-        // Two anchors confirm *different* roots, both landing at height 0. Verifying
-        // one's proof against the other hits a Bitcoin attestation whose height is
-        // known but whose Merkle root does not match — the mismatch branch.
         let mut a = OtsAnchor::new("https://a.example");
         let mut b = OtsAnchor::new("https://b.example");
         let pending_a = a.submit([1u8; 32]);
@@ -393,7 +352,7 @@ mod tests {
         assert_eq!(b.verify(&confirmed_a), AnchorState::Invalid);
     }
 
-    // --- Hostile proofs (T44, AT-NET-07) ---------------------------------------------
+    // --- Hostile proofs (AT-NET-07) ---------------------------------------------
 
     const SMALL: &[u8] = include_bytes!("../tests/fixtures/ots/pending-two-calendars.ots");
     const LARGE: &[u8] = include_bytes!("../tests/fixtures/ots/bitcoin-attested.ots");
@@ -438,19 +397,14 @@ mod tests {
 
     #[test]
     fn genuine_proofs_are_within_bounds() {
-        // Real proofs from the library's own test vectors: two pending calendars, and a
-        // full path to a Bitcoin block. The bounds must not reject either.
         assert!(within_bounds(SMALL));
         assert!(within_bounds(LARGE));
-        // The digest sits right after the header; the small proof then verifies as
-        // pending, parsed by the library.
         let root: [u8; 32] = SMALL[OTS_MAGIC.len() + 2..][..32].try_into().unwrap();
         let receipt = Receipt {
             root,
             proof: SMALL.to_vec(),
         };
         assert_eq!(OtsAnchor::new("x").verify(&receipt), AnchorState::Pending);
-        // So are the proofs this module builds.
         let mut anchor = OtsAnchor::new("https://calendar.example");
         let pending = anchor.submit([5u8; 32]);
         assert!(within_bounds(&pending.proof));
@@ -459,8 +413,7 @@ mod tests {
 
     #[test]
     fn an_overlong_varint_is_refused() {
-        // Twelve continuation bytes as the version: the library's shift overflows (a
-        // panic in debug builds).
+        // Twelve continuation bytes as the version overflow the library's shift.
         let mut proof = OTS_MAGIC.to_vec();
         proof.extend_from_slice(&[0x80; 12]);
         proof.push(0x00);
@@ -469,8 +422,7 @@ mod tests {
 
     #[test]
     fn an_attestation_longer_than_the_proof_is_refused() {
-        // An unknown attestation declaring 2^62 bytes: the library allocates that much
-        // before reading, and the process aborts.
+        // Declares 2^62 bytes: the library allocates that much before reading.
         let mut proof = header([0u8; 32]);
         proof.push(0x00);
         proof.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
@@ -480,8 +432,7 @@ mod tests {
 
     #[test]
     fn a_message_longer_than_4096_bytes_is_refused() {
-        // Seven Hexlify reach exactly 4096 bytes and are accepted; the eighth doubles past
-        // the limit. Unchecked, `k` of them build a 32·2^k-byte message.
+        // Seven Hexlify reach exactly 4096 bytes; unchecked, `k` of them build 32·2^k bytes.
         for (ops, ok) in [(7, true), (8, false), (40, false)] {
             let mut proof = header([0u8; 32]);
             proof.extend(std::iter::repeat_n(0xf3, ops));
@@ -504,8 +455,7 @@ mod tests {
 
     #[test]
     fn fork_amplification_is_bounded() {
-        // Grow the message to 4096 bytes, then fork: every branch clones it. A handful
-        // of branches is fine; hundreds exceed the work budget.
+        // Growing to 4096 bytes then forking clones the message per branch.
         for (branches, ok) in [(4, true), (300, false)] {
             let mut proof = header([0u8; 32]);
             proof.extend(std::iter::repeat_n(0xf3, 7));

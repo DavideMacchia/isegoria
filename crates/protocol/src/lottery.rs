@@ -1,7 +1,6 @@
-//! [3] Admission by lottery (`docs/05`, `docs/01` D10). The bottleneck is pilot
-//! respondents, so a quota would explode the queue. Anyone may deposit; each epoch
-//! a random subset enters the pipeline, giving equal expected access with a bounded
-//! queue. Deterministic given the epoch seed.
+//! Admission by lottery (`docs/05` [3], `docs/01` D10): each epoch a random subset of
+//! deposits enters the pipeline, bounding the queue with equal expected access.
+//! Deterministic given the epoch seed.
 
 use crate::randomness::{Beacon, LOTTERY};
 use rand::seq::SliceRandom;

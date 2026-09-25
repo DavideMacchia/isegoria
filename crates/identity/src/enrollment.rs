@@ -1,11 +1,5 @@
-//! Enrollment pipeline (M1, M2). See `docs/03`, §M1–M2.
-//!
-//! Every source converges on one canonical anchor (the codice fiscale in Italy),
-//! which an oblivious PRF turns into a uniqueness label: a second enrollment yields
-//! the same label and is rejected as a duplicate, regardless of the source. The real
-//! backend is a single-server VOPRF ([`VoprfOracle`], RFC 9497); the spec's target is
-//! the *threshold* OPRF split across the committee — see [`VoprfOracle`] for exactly
-//! what is real today and what that leaves to future work.
+//! Enrollment pipeline (`docs/03` §M1–M2): every source converges on one anchor, turned
+//! into a uniqueness label ([`VoprfOracle`], single-server; threshold is the target).
 
 use crate::hash::tagged;
 use rand_core::OsRng;
@@ -14,7 +8,6 @@ use std::collections::HashSet;
 use std::fmt;
 use voprf::{Ristretto255, VoprfClient, VoprfServer};
 
-/// Canonical per-person anchor. In Italy both CIE and SPID bind to the codice fiscale.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Anchor(pub String);
 
@@ -25,8 +18,6 @@ impl fmt::Debug for Anchor {
     }
 }
 
-/// An enrollment source. Each real verifier (CIE via NFC, SPID IdP, e-passport)
-/// is an adapter that extracts the same canonical anchor.
 pub trait IdentityDocument {
     fn canonical_anchor(&self) -> Anchor;
 }
@@ -63,18 +54,13 @@ impl fmt::Debug for Label {
     }
 }
 
-/// Oblivious PRF over the anchor (`docs/03`, §M1). The anchor space is small and
-/// brute-forceable, so the label is computed obliviously: the server never sees the
-/// anchor in the clear. The spec's target is a *threshold* OPRF, so that no single
-/// issuer can evaluate it alone; [`VoprfOracle`] is the real single-server step, and
-/// [`ReferenceOracle`] is a bare keyed hash kept only for cheap tests.
+/// Oblivious PRF over the anchor (`docs/03` §M1): the server never sees it in the
+/// clear. [`VoprfOracle`] is real; [`ReferenceOracle`] is test-only.
 pub trait UniquenessOracle {
     fn label(&self, anchor: &Anchor) -> Label;
 }
 
-/// Test-only oracle: a bare keyed hash, with no oblivious protocol at all. It exists
-/// only to exercise the registry cheaply; it is NOT secure and NOT a stand-in for the
-/// real thing. The real backend is [`VoprfOracle`]; prefer it everywhere.
+/// Test-only bare keyed hash — NOT secure; prefer [`VoprfOracle`] everywhere else.
 pub struct ReferenceOracle {
     key: [u8; 32],
 }
@@ -97,31 +83,14 @@ const VOPRF_INFO: &[u8] = b"isegoria/uniqueness/v1";
 /// Longest input RFC 9497 accepts: its length is encoded in two bytes.
 const VOPRF_MAX_INPUT: usize = u16::MAX as usize;
 
-/// Real uniqueness-label backend: a single-server **VOPRF** (RFC 9497, verifiable
-/// mode, Ristretto255-SHA512). `label` runs the full oblivious round-trip in-process
-/// — the client blinds the anchor, the server evaluates under its committed key and
-/// proves it, the client verifies the proof and unblinds — so the returned label is
-/// the genuine PRF output `F(k, anchor)`, independent of the random blind.
-///
-/// **What is real here.** The oblivious protocol (the server never sees the anchor
-/// in the clear) and verifiability (the client checks, against the server's public
-/// key, that the committed key was used). This is a real cryptographic primitive,
-/// not a placeholder.
-///
-/// **What is still modeled (`docs/03` §M1, future work).** The key lives with a
-/// *single* server. The spec calls for a **threshold** key split t-of-n across the
-/// issuing committee, so that no single party can evaluate the OPRF alone. Until
-/// then, a lone key-holder can still brute-force the small, enumerable codice-fiscale
-/// space by evaluating `F(k, ·)` on candidates. Single-server VOPRF does not close
-/// that gap — it does not regress on the keyed hash and it does not overclaim it.
+/// Single-server VOPRF (RFC 9497, Ristretto255-SHA512): `label` returns `F(k, anchor)`,
+/// independent of the blind. Threshold across the committee is the spec's target (`docs/03` §M1).
 pub struct VoprfOracle {
     server: VoprfServer<Ristretto255>,
 }
 
 impl VoprfOracle {
-    /// Derives the server key deterministically from `seed` (RFC 9497 DeriveKeyPair):
-    /// the same seed yields the same key, hence the same labels across processes —
-    /// which is what makes the dedup registry and its tests reproducible.
+    /// Derives the server key deterministically from `seed`, so labels are reproducible.
     pub fn new(seed: [u8; 32]) -> Self {
         let server = VoprfServer::<Ristretto255>::new_from_seed(&seed, VOPRF_INFO)
             .expect("32-byte seed derives a valid Ristretto255 VOPRF key");
@@ -132,10 +101,8 @@ impl VoprfOracle {
 impl UniquenessOracle for VoprfOracle {
     fn label(&self, anchor: &Anchor) -> Label {
         let anchor = anchor.0.as_bytes();
-        // RFC 9497 caps an input at `u16::MAX` bytes. A longer anchor (never a codice
-        // fiscale, but the bytes come from the adapter) is first hashed to 64 bytes, and
-        // its label gets a tag of its own, so the oracle is total and a long anchor's
-        // label cannot equal a short one's (T44: this used to panic).
+        // Longer than the RFC 9497 cap: hash to 64 bytes first, with its own tag, so a
+        // long anchor's label cannot equal a short one's.
         let digest;
         let (input, tag) = if anchor.len() <= VOPRF_MAX_INPUT {
             (anchor, "isegoria/uniqueness/voprf/v1")
@@ -178,8 +145,7 @@ impl EnrollmentRegistry {
         Self::default()
     }
 
-    /// Enrolls a document via the oracle. Returns the fresh label, or a duplicate
-    /// error if this person (any source) already enrolled.
+    /// Enrolls via the oracle; errs with `DuplicateEnrollment` if already enrolled.
     pub fn enroll(
         &mut self,
         doc: &dyn IdentityDocument,

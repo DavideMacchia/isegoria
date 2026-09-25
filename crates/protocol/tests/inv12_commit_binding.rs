@@ -1,7 +1,6 @@
-//! Commit–reveal binding (docs/08 CRYPTO-007 / INV-12, T7): a blind review commitment
-//! binds *who* cast it and *which* item, so only that committer can open it, for that
-//! item. This blocks the commitment-copying attack (AT-BR-06): a panelist cannot lift a
-//! peer's commitment and pass it off as their own to ride the peer's judgment.
+//! Commit–reveal binding (`docs/08` CRYPTO-007/INV-12, T7): a blind review commitment
+//! binds who cast it and which item, so only that committer can open it, for that item
+//! (AT-BR-06).
 
 use identity::nym::Nym;
 use network::cid::cid;
@@ -26,8 +25,7 @@ fn at_br_06_a_copied_commitment_cannot_be_opened_by_someone_else() {
         "the committer can open it"
     );
 
-    // Mallory copies Alice's commitment bytes verbatim. Even knowing the opening, she
-    // cannot reveal it as her own: it is bound to Alice, so the recomputation differs.
+    // Bound to Alice: knowing the opening does not let Mallory recompute it as her own.
     assert!(
         !reveal(c, prob, &nonce, mallory(), item),
         "a copied commitment must not open under another committer (AT-BR-06)"

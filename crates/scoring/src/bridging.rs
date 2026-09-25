@@ -1,12 +1,6 @@
-//! Level A — bridging. See `docs/02-scoring-engine.md`, §A.
-//!
-//! Matrix factorization `r̂_uj = μ + b_u + b_j + ⟨f_u, f_j⟩` with asymmetric
-//! regularization (`λ_b ≫ λ_f`). The bridge score is the *side-balanced predicted
-//! approval* (`docs/01` D32, T49): reviewers split into two sides on `f_u`, the model's
-//! predictions averaged within each side, the two sides averaged with equal weight
-//! ([`side_balanced`]). The item intercept `b_j` is still reported, but the gate no longer
-//! reads it: it is relative to the batch and partly majoritarian (`docs/08` BRIDGE-008/009).
-//! This module covers the `d = 1` case. Reference prototype: `sim/bridging_irt_dif.py`.
+//! Level A — bridging (`docs/02-scoring-engine.md` §A): matrix factorization `r̂_uj = μ +
+//! b_u + b_j + ⟨f_u, f_j⟩` (`λ_b ≫ λ_f`). The bridge score is the side-balanced predicted
+//! approval ([`side_balanced`], D32), never the majoritarian `b_j` (`docs/08` BRIDGE-008/009).
 
 use crate::fmath::{cos, ln};
 use crate::optim::{lbfgs, Convergence};
@@ -26,22 +20,17 @@ pub struct Ratings {
     pub n: usize,
     pub m: usize,
     pub obs: Vec<Obs>,
-    /// Per-reviewer weight `w_u`, length `n`; uniform (1.0) by default. The fit
-    /// minimizes `Σ w_u (r_uj − r̂_uj)²` (docs/08 BRIDGE-007, G-03): `w_u` is the
-    /// reviewer's `discount(cap(E_u))` (probation = 0) from the *previous* epoch.
+    /// Per-reviewer weight `w_u`, length `n`; uniform (1.0) by default (docs/08 BRIDGE-007,
+    /// G-03): the reviewer's `discount(cap(E_u))` (probation = 0) from the previous epoch.
     pub weights: Vec<f64>,
     /// Per-reviewer flag, length `n`: whether the reviewer defines the latent axis
-    /// (`docs/02` §A.4, T39). A reviewer below the review floor `n_min` is absent from
-    /// the core fit — it shapes neither `f_j` nor `b_j` — and is then placed on the fixed
-    /// axis by projection: a position of its own (`f_u`, `b_u`) and no influence on
-    /// anyone else; it enters no side of the side-balanced score. All `true` by default
-    /// (call [`Ratings::with_axis`] to set it).
+    /// (`docs/02` §A.4, T39). One below the review floor is absent from the core fit and
+    /// placed on it afterwards by projection, entering no side of the side-balanced score.
     pub axis: Vec<bool>,
 }
 
 impl Ratings {
-    /// Builds observations in canonical `(u, j)` order (see [`Ratings::canonical`]),
-    /// with uniform reviewer weights (call [`Ratings::with_weights`] to set them).
+    /// Observations in canonical `(u, j)` order ([`Ratings::canonical`]), uniform weights.
     pub fn from_dense(r: &[Vec<f64>], mask: &[Vec<bool>]) -> Self {
         let n = r.len();
         let m = if n > 0 { r[0].len() } else { 0 };
@@ -62,28 +51,24 @@ impl Ratings {
         }
     }
 
-    /// Sets which reviewers define the latent axis (`docs/02` §A.4, T39): `false` keeps
-    /// the reviewer out of the core fit and places it on the fixed axis afterwards. One
-    /// flag per reviewer: a vector of another length is refused by [`Ratings::validate`]
-    /// at the fit (`RatingsError::AxisCount`).
+    /// Sets which reviewers define the latent axis (`docs/02` §A.4, T39): `false` keeps the
+    /// reviewer out of the core fit, placing it on the fixed axis afterwards. A vector of
+    /// another length is refused by [`Ratings::validate`] (`RatingsError::AxisCount`).
     pub fn with_axis(mut self, axis: Vec<bool>) -> Self {
         self.axis = axis;
         self
     }
 
-    /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007). One weight per reviewer:
-    /// a vector of another length is refused by [`Ratings::validate`] at the fit
-    /// (`RatingsError::WeightCount`), not asserted here (T62).
+    /// Sets the per-reviewer weights `w_u` (docs/08 BRIDGE-007); a vector of another length
+    /// is refused by [`Ratings::validate`] at the fit (`RatingsError::WeightCount`), not here.
     pub fn with_weights(mut self, weights: Vec<f64>) -> Self {
         self.weights = weights;
         self
     }
 
-    /// Checks the input the fit relies on (T62, `docs/12` §2.3): one finite, non-negative
-    /// weight per reviewer; every observation inside `[0, n) × [0, m)` with a finite
-    /// rating; no `(u, j)` pair observed twice (it would count twice in the objective).
-    /// [`fit`] and [`bridge_scores`] run it first, so malformed input is an error, never
-    /// a panic inside the objective. The first problem found is reported, in this order.
+    /// Checks the input the fit relies on (T62, `docs/12` §2.3): finite non-negative weights,
+    /// observations inside `[0, n) × [0, m)` with finite ratings, no `(u, j)` pair observed
+    /// twice. [`fit`] and [`bridge_scores`] run it first; the first problem found is reported.
     pub fn validate(&self) -> Result<(), RatingsError> {
         if self.weights.len() != self.n {
             return Err(RatingsError::WeightCount {
@@ -124,9 +109,8 @@ impl Ratings {
         Ok(())
     }
 
-    /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so
-    /// the fit is invariant to input order (docs/08 INV-13, REPRO-002). Weights are
-    /// indexed by reviewer, so they are unaffected by the observation order.
+    /// A copy with `obs` in canonical order (sorted by `(u, j)`, then rating bits), so the
+    /// fit is invariant to input order (docs/08 INV-13, REPRO-002); weights are unaffected.
     pub fn canonical(&self) -> Ratings {
         let mut obs = self.obs.clone();
         obs.sort_by(|a, b| (a.u, a.j, a.r.to_bits()).cmp(&(b.u, b.j, b.r.to_bits())));
@@ -140,11 +124,9 @@ impl Ratings {
     }
 }
 
-/// Why a [`Ratings`] cannot be fitted (T62): the engine refuses malformed input with an
-/// error instead of panicking inside the objective.
+/// Why a [`Ratings`] cannot be fitted (T62): an error, never a panic inside the objective.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RatingsError {
-    /// An observation names a reviewer or item outside `[0, n) × [0, m)`.
     IndexOutOfRange {
         u: usize,
         j: usize,
@@ -205,8 +187,7 @@ pub struct BridgingParams {
     pub max_iters: usize,
     pub g_tol: f64,
     pub seed: u64,
-    /// Independent starts of the non-convex fit (T48); the lowest objective wins. Start
-    /// `k` is seeded `seed + k`, so `n_starts = 1` is the single seeded fit.
+    /// Seeded starts of the non-convex fit (T48); the lowest objective wins (1 = a single fit).
     pub n_starts: usize,
 }
 
@@ -231,8 +212,7 @@ pub struct Fit {
     pub b_j: Vec<f64>,
     pub f_u: Vec<f64>,
     pub f_j: Vec<f64>,
-    /// Which reviewers defined the axis (`Ratings::axis`, T39): the others were placed on
-    /// it by projection and enter no side of the side-balanced score.
+    /// Which reviewers defined the axis (`Ratings::axis`); the others enter no side of the score.
     pub axis: Vec<bool>,
     /// Convergence of the L-BFGS fit (docs/08 OPT-001).
     pub status: Convergence,
@@ -269,12 +249,9 @@ impl Layout {
 /// Default number of starts (T48): see `docs/08` BRIDGE-001 for the measurements.
 pub const DEFAULT_STARTS: usize = 8;
 
-/// The bridging fit. The objective is non-convex and has distinct local minima on real
-/// data, which a single seeded start reaches depending on the seed — sometimes on
-/// either side of `τ` (`docs/08` BRIDGE-001, T48). So the fit runs `n_starts` seeded
-/// starts and keeps the lowest objective (the earliest start on a tie): deterministic,
-/// and the verdict no longer hinges on one start's basin. Malformed input is refused with
-/// a [`RatingsError`] before anything is computed (T62).
+/// The bridging fit: non-convex, with distinct local minima that a single seeded start can
+/// land in on either side of `τ` (`docs/08` BRIDGE-001, T48). Runs `n_starts` seeded starts
+/// and keeps the lowest objective (earliest on a tie). Malformed input errors (T62).
 pub fn fit(data: &Ratings, p: &BridgingParams) -> Result<Fit, RatingsError> {
     data.validate()?;
     Ok(fit_validated(data, p))
@@ -284,10 +261,8 @@ pub fn fit(data: &Ratings, p: &BridgingParams) -> Result<Fit, RatingsError> {
 fn fit_validated(data: &Ratings, p: &BridgingParams) -> Fit {
     // Canonicalize: the init mean and cost/grad sums are order-dependent (INV-13).
     let data = data.canonical();
-    // The core fit is the axis reviewers' (T39): a reviewer off the axis is absent from
-    // it — as a zero-weight reviewer is (T42) — so it shapes neither the axis nor the
-    // item levels; it is placed on the fixed axis afterwards. With everyone on the axis
-    // the core is the data itself.
+    // The core fit uses only the axis reviewers (T39, as a zero-weight reviewer is
+    // absent, T42); with everyone on the axis, the core is the data itself.
     let off_axis: Vec<usize> = (0..data.n).filter(|&u| !data.axis[u]).collect();
     let core = if off_axis.is_empty() {
         data.clone()
@@ -321,9 +296,8 @@ fn fit_validated(data: &Ratings, p: &BridgingParams) -> Fit {
 }
 
 /// The position of a reviewer off the axis (T39): its `(b_u, f_u)` on the fixed axis
-/// `(μ, b_j, f_j)` of the core fit, by ridge least squares over its own ratings at unit
-/// weight — the same `λ_b`, `λ_f` as the fit. A placement in the space, with no
-/// influence on anyone else; without ratings it is the origin.
+/// `(μ, b_j, f_j)` of the core fit, by ridge least squares over its own ratings (same
+/// `λ_b`, `λ_f` as the fit); no influence on anyone else, the origin without ratings.
 fn project(data: &Ratings, p: &BridgingParams, f: &Fit, u: usize) -> (f64, f64) {
     let (mut s1, mut sx, mut sxx, mut sy, mut sxy) = (0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64, 0.0_f64);
     for o in data.obs.iter().filter(|o| o.u == u) {
@@ -344,9 +318,8 @@ fn project(data: &Ratings, p: &BridgingParams, f: &Fit, u: usize) -> (f64, f64) 
 }
 
 /// `f` is identified only up to sign (the objective is unchanged by `(f_u, f_j) →
-/// (−f_u, −f_j)`), so the start that wins can return either twin. Downstream draws order
-/// reviewers by `f_u`, so the sign is fixed: the largest `|f_j|` (earliest on a tie) is
-/// made non-negative. Exact negation: `b_j` and the objective are untouched (T48).
+/// (−f_u, −f_j)`); the sign is fixed by making the largest `|f_j|` (earliest on a tie)
+/// non-negative. Exact negation: `b_j` and the objective are untouched (T48).
 fn canonical_sign(f: &mut Fit) {
     let lead = f.f_j.iter().copied().fold(
         0.0_f64,
@@ -362,10 +335,8 @@ fn canonical_sign(f: &mut Fit) {
 // RNG consumption order is part of the reproducibility contract.
 fn random_init(data: &Ratings, seed: u64) -> Vec<f64> {
     let (n, m) = (data.n, data.m);
-    // Weighted like the objective, so a zero-weight (probation) reviewer's ratings do not
-    // move the start point either: on this non-convex objective a different start can
-    // land in a different minimum, and "weight 0" must mean "absent" (T42). With uniform
-    // weights this is bit-identical to the plain mean.
+    // Weighted like the objective, so a zero-weight (probation) reviewer cannot move the
+    // start point either (T42); bit-identical to the plain mean when weights are uniform.
     let (sum_wr, sum_w) = data.obs.iter().fold((0.0, 0.0), |(swr, sw), o| {
         let w = data.weights[o.u];
         (swr + w * o.r, sw + w)
@@ -469,42 +440,31 @@ fn fit_with_init(data: &Ratings, p: &BridgingParams, x0: Vec<f64>) -> Fit {
     }
 }
 
-/// Which of the two sides a reviewer falls on (D32): a deterministic one-dimensional
-/// 2-means on `f_u`, initialized at its minimum (side A) and maximum (side B). The
-/// orientation follows the canonical sign of `f` (T48); the score is symmetric in it.
+/// Which of the two sides a reviewer falls on (D32): deterministic 1-D 2-means on `f_u`,
+/// its orientation following the canonical sign of `f` (T48); the score is symmetric in it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     A,
     B,
 }
 
-/// The side-balanced bridge score (`docs/02` §A.3, D32, T49). The reviewers who define
-/// the axis (`Fit::axis`, T39) are split into two sides by [`two_means`] on `f_u`; the
-/// model's predicted ratings `r̂_uj` — every such reviewer's, rated or not — are averaged
-/// within each side; the score is the mean of the two side averages, so each side counts
-/// once whatever its size, and the gap between them is the item's polarization
-/// (`docs/05` [5b]). A reviewer off the axis carries the nominal side of the nearer
-/// centre and enters no average. With one side only (every reviewer at one position)
-/// both side means are the mean over all axis reviewers; with none they are `μ + b_j`,
-/// the prediction for a neutral reviewer.
+/// The side-balanced bridge score (`docs/02` §A.3, D32, T49): axis reviewers split into
+/// two sides by [`two_means`] on `f_u`, predicted ratings averaged within each side, the
+/// score is the mean of the two — each side counts once regardless of size (`docs/05` [5b]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SideScores {
-    /// Each reviewer's side, in reviewer order.
     pub side: Vec<Side>,
     /// Mean predicted rating over side A, per item.
     pub side_a: Vec<f64>,
     /// Mean predicted rating over side B, per item.
     pub side_b: Vec<f64>,
-    /// The bridge score `S_j = (side_a + side_b) / 2`.
     pub score: Vec<f64>,
-    /// The polarization `|side_a − side_b|`.
     pub gap: Vec<f64>,
 }
 
-/// Deterministic 1-D 2-means on `f_u`, initialized at its extremes (D32). A tie goes to
+/// Deterministic 1-D 2-means on `f_u`, initialized at its extremes (D32): a tie goes to
 /// side A, an empty side keeps its centre, and the loop stops when both centres are
-/// unchanged (to the tolerance NumPy's `allclose` uses, as in the paper's script) or after
-/// 100 rounds. Reviewer order is the only order used, so the result is reproducible.
+/// unchanged or after 100 rounds. Reviewer order is the only order used (reproducible).
 pub fn two_means(f_u: &[f64]) -> Vec<Side> {
     if f_u.is_empty() {
         return Vec::new();
@@ -557,8 +517,7 @@ pub fn side_balanced(fit: &Fit) -> SideScores {
     let side = if on_axis.len() == n {
         two_means(&fit.f_u)
     } else {
-        // The sides are formed by the axis reviewers; an off-axis reviewer is labelled by
-        // the nearer side centre (a tie to A) and counts in no average (T39).
+        // Off-axis reviewers take the nearer side's label (a tie to A) and count in no average.
         let f_axis: Vec<f64> = on_axis.iter().map(|&u| fit.f_u[u]).collect();
         let axis_sides = two_means(&f_axis);
         let (mut sum, mut count) = ([0.0_f64; 2], [0usize; 2]);
@@ -628,20 +587,18 @@ pub fn side_balanced(fit: &Fit) -> SideScores {
     out
 }
 
-/// The gate's inputs for every item (`docs/02` §A.3–A.4, D32): `robust`, the bootstrap-min
-/// of the side-balanced score — the pessimistic estimate the gate compares with `τ` — and
-/// `full`, the side scores of the full fit, whose `gap` is the polarization the appeal
-/// rule reads.
+/// The gate's inputs for every item (`docs/02` §A.3–A.4, D32): `robust`, the pessimistic
+/// bootstrap-min of the side-balanced score compared with `τ`; `full`, the full fit's side
+/// scores, whose `gap` is the polarization the appeal rule reads.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BridgeScores {
     pub robust: Vec<f64>,
     pub full: SideScores,
 }
 
-/// Robust bridge score (`docs/02`, §A.4): the bootstrap-min of the side-balanced score
-/// over `n_bootstrap` subsamples (each observation kept with probability `keep_frac`),
-/// with the full fit's side scores (see [`BridgeScores`]). Malformed input is refused
-/// with a [`RatingsError`] (T62).
+/// Robust bridge score (`docs/02` §A.4): the bootstrap-min of the side-balanced score over
+/// `n_bootstrap` subsamples (each observation kept with probability `keep_frac`), with the
+/// full fit's side scores (see [`BridgeScores`]). Malformed input errors (T62).
 pub fn bridge_scores(
     data: &Ratings,
     p: &BridgingParams,
@@ -652,9 +609,8 @@ pub fn bridge_scores(
     // Canonicalize: the bootstrap subsampling walks `obs` in order (INV-13, REPRO-002).
     let data = data.canonical();
 
-    // Warm-start each subsample from the full fit: the bilinear term makes the
-    // objective non-convex, so independent random inits would let some subsamples
-    // land in a different minimum, polluting the min with optimizer noise.
+    // Warm-start each subsample from the full fit: the bilinear term makes the objective
+    // non-convex, so independent random inits could land in a different minimum.
     let full = fit_validated(&data, p);
     let anchor = pack(&full);
     let full_sides = side_balanced(&full);
@@ -703,8 +659,6 @@ fn normal(rng: &mut ChaCha8Rng) -> f64 {
 mod tests {
     use super::*;
 
-    /// A small ratings set with every kind of term active: missing cells, non-uniform
-    /// weights (one zero), and both regularizers.
     fn sample() -> (Ratings, BridgingParams) {
         let mut rng = ChaCha8Rng::seed_from_u64(7);
         let (n, m) = (6, 5);
@@ -718,9 +672,7 @@ mod tests {
         (data, BridgingParams::default())
     }
 
-    /// The analytic gradient must match central differences of the objective in every
-    /// component: a wrong term still lets L-BFGS report `Converged` near the true
-    /// minimum and shifts `b_j` by less than the oracle tolerance (T41).
+    /// The analytic gradient matches central differences in every component (T41).
     #[test]
     fn gradient_matches_central_differences() {
         let (data, p) = sample();
@@ -746,7 +698,6 @@ mod tests {
 
     use proptest::prelude::*;
 
-    /// Random data and a random point in the parameter space.
     fn data_and_point() -> impl Strategy<Value = (Ratings, Vec<f64>)> {
         (2usize..7, 2usize..5).prop_flat_map(|(n, m)| {
             (
@@ -760,9 +711,7 @@ mod tests {
     }
 
     proptest! {
-        /// `f` is identified only up to sign: `(f_u, f_j) → (−f_u, −f_j)` leaves the
-        /// objective unchanged bit for bit, so `b_j` — the bridge score — cannot depend
-        /// on which sign the fit picks (T42).
+        /// `(f_u, f_j) → (−f_u, −f_j)` leaves the objective unchanged bit for bit (T42).
         #[test]
         fn the_objective_is_symmetric_in_the_sign_of_f((data, x) in data_and_point()) {
             let p = BridgingParams::default();
@@ -776,7 +725,6 @@ mod tests {
             );
         }
 
-        /// The analytic gradient matches central differences on any data and point.
         #[test]
         fn the_gradient_matches_central_differences_anywhere((data, x) in data_and_point()) {
             let p = BridgingParams::default();
@@ -792,8 +740,7 @@ mod tests {
         }
     }
 
-    /// The objective itself: the weighted squared error plus both penalties, on a point
-    /// small enough to compute by hand.
+    /// The objective is the weighted squared error plus both penalties, checked by hand.
     #[test]
     fn objective_is_weighted_error_plus_penalties() {
         // One reviewer, one item, weight 2: x = [μ, b_u, b_j, f_u, f_j].

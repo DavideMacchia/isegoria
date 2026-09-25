@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Comment budget
+        run: python3 scripts/comment_budget.py
       # Reads the pinned channel from rust-toolchain.toml and caches the build.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:

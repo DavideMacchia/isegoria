@@ -1,9 +1,6 @@
-//! The engine rejects malformed ratings instead of panicking (T62, `docs/12` §2.3): an
-//! out-of-range index, a wrong weight count, a non-finite rating, a non-finite or
-//! negative weight and a duplicate `(u, j)` pair each return a `RatingsError` from `fit`
-//! and `bridge_scores` — and no `Ratings` at all makes them panic (a property test over
-//! arbitrary values; the `fuzz/bridging` target explores the same entry points for
-//! longer on a nightly toolchain).
+//! The engine rejects malformed ratings instead of panicking (`docs/12` §2.3): a bad
+//! index, weight count, rating, weight or a duplicate `(u, j)` pair returns a
+//! `RatingsError` from `fit` and `bridge_scores`, never a panic (see also `fuzz/bridging`).
 
 use proptest::prelude::*;
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Obs, Ratings, RatingsError};

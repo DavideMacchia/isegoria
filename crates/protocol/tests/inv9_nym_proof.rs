@@ -1,11 +1,6 @@
-//! The Sybil-resistant admission boundary (docs/08 PROTO-007 / G-04 / INV-9, T6).
-//!
-//! - **AT-PRO-01:** an action carries a verified role nullifier proof or it is refused;
-//!   a `Nym` alone cannot act, and a proof from anyone but the issuing committee, or for
-//!   the wrong role, is rejected.
-//! - **AT-ID-05:** a proof is bound to its action context, so it cannot be lifted from
-//!   one action onto another.
-//! - INV-9 rate-limit keying: one judgment per role-nullifier per item.
+//! The Sybil-resistant admission boundary (`docs/08` PROTO-007/G-04/INV-9, T6): a role
+//! nullifier proof, bound to its action context, gates every action and rate-limits it
+//! per item (AT-PRO-01, AT-ID-05).
 
 use identity::credential::{AnonymousCredential, Credential, Issuer};
 use identity::enrollment::Label;
@@ -26,7 +21,7 @@ fn issued(secret: [u8; 32]) -> (Issuer, AnonymousCredential) {
     (issuer, cred)
 }
 
-/// A `Judge` proof bound to `item` at `EPOCH`, the way a real reviewer client builds it.
+/// A `Judge` proof bound to `item` at `EPOCH`.
 fn judge_proof(
     issuer: &Issuer,
     cred: &AnonymousCredential,
@@ -53,9 +48,8 @@ fn a_valid_role_proof_is_admitted() {
 
 #[test]
 fn a_self_issued_credential_cannot_act() {
-    // The Sybil attempt: an attacker runs its OWN committee, issues itself a credential,
-    // and proves against its own key. Presented to the real committee's verifier the proof
-    // fails, so a self-minted identity carries no weight (AT-PRO-01).
+    // An attacker runs its own committee and proves against its own key; presented to
+    // the real committee's verifier, the proof is rejected (AT-PRO-01).
     let real = Issuer::new([1u8; 32]);
     let attacker = Issuer::new([2u8; 32]);
     let holder = Credential::from_secret([9u8; 32]);
@@ -80,7 +74,6 @@ fn a_self_issued_credential_cannot_act() {
 fn a_proof_for_the_wrong_role_is_rejected() {
     let (issuer, cred) = issued([9u8; 32]);
     let item = cid(b"item-A");
-    // A Propose proof cannot stand in for a Judge action.
     let propose = prove(
         &cred,
         &issuer.public(),
@@ -120,7 +113,6 @@ fn deposit_requires_a_propose_proof_bound_to_the_draft() {
     )
     .unwrap();
     assert_eq!(deposited, draft.content_id());
-    // The proposer id is the proven nullifier id, stable and non-rotatable.
     assert_eq!(proposer, proof.id());
 }
 
@@ -132,11 +124,9 @@ fn a_review_proof_cannot_be_replayed_onto_another_item() {
     let (item_a, item_b) = (cid(b"item-A"), cid(b"item-B"));
     let proof = judge_proof(&issuer, &cred, item_a);
 
-    // It works for the item it was made for …
     let mut panel_a = NullifierSet::new();
     assert!(submit_review(&proof, &issuer.public(), item_a, EPOCH, &mut panel_a).is_ok());
 
-    // … but the same proof presented for a different item does not verify (AT-ID-05).
     let mut panel_b = NullifierSet::new();
     assert_eq!(
         submit_review(&proof, &issuer.public(), item_b, EPOCH, &mut panel_b),
@@ -156,7 +146,6 @@ fn a_deposit_proof_cannot_be_replayed_onto_another_draft() {
         item: b"draft B".to_vec(),
         primary_source: b"src".to_vec(),
     };
-    // A proof bound to draft A, presented for draft B, is refused.
     let proof = prove(
         &cred,
         &issuer.public(),
@@ -186,8 +175,7 @@ fn one_person_cannot_review_an_item_twice() {
     let item = cid(b"item-A");
     let mut panel = NullifierSet::new();
 
-    // Two independent proofs (fresh randomness) by the same person-role share the
-    // nullifier id, so the panel accepts the first and rejects the second.
+    // Two independent proofs by the same person-role share the nullifier id.
     let p1 = judge_proof(&issuer, &cred, item);
     let p2 = judge_proof(&issuer, &cred, item);
     let id1 = submit_review(&p1, &issuer.public(), item, EPOCH, &mut panel).unwrap();
@@ -195,7 +183,6 @@ fn one_person_cannot_review_an_item_twice() {
         submit_review(&p2, &issuer.public(), item, EPOCH, &mut panel),
         Err(ReviewRejected::Duplicate)
     );
-    // Distinct people are admitted on the same item.
     let (issuer2, cred2) = issued([10u8; 32]);
     let _ = issuer2; // same committee key [1u8;32]
     let other = judge_proof(&issuer, &cred2, item);

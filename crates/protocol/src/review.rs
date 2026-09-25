@@ -1,12 +1,6 @@
-//! [4] Review (`docs/05`): reviewers are assigned RANDOMLY and stratified on the
-//! latent position f_u, so the panel mirrors every position of the axis and no one
-//! picks what to review (anti-brigading). Judgments are committed then revealed, so
-//! no one can copy others or ride an information cascade.
-//!
-//! A detected coordination cluster (`scoring::collusion::coordination_clusters`, D39)
-//! constrains the assignment, not the weights (`docs/01` D40, T57): a panel holds at
-//! most one member of each cluster ([`assign_diverse`]), the band's extra round included,
-//! and nobody's weight changes — the protocol never applies the sublinear discount.
+//! Review (`docs/05` [4]): reviewers are assigned randomly, stratified on the latent
+//! position `f_u`, so no one picks what to review; judgments are committed then
+//! revealed, so no one can copy others (`docs/01` D39/D40, T57).
 
 use crate::admission::{admit, DuplicateNullifier, NullifierSet, Unproven};
 use identity::credential::IssuerPublic;
@@ -18,17 +12,15 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
 
-/// A candidate reviewer: role pseudonym and latent position from Level A.
 #[derive(Clone, Copy, Debug)]
 pub struct Reviewer {
     pub nym: Nym,
     pub f_u: f64,
 }
 
-/// Reviewer assignment seeded from the signed checkpoint (INV-10, D29, T8), keyed on the
-/// item's admitted `slot` — a byte-independent index, never the draft bytes — so an author
-/// cannot regenerate the draft to select a panel (AT-BR-05), and cannot predict the beacon
-/// to steer it. Sanctioned entry point; [`assign_reviewers`] takes a raw seed for testing.
+/// Reviewer assignment seeded from the signed checkpoint (INV-10), keyed on the item's
+/// admitted `slot` — never the draft bytes — so an author cannot steer the panel (AT-BR-05).
+/// Sanctioned entry point; [`assign_reviewers`] takes a raw seed for testing.
 pub fn assign_from_beacon(
     reviewers: &[Reviewer],
     k: usize,
@@ -42,10 +34,9 @@ pub fn assign_from_beacon(
     )
 }
 
-/// Extra reviewers of the band's second round (`docs/01` D26, T60): drawn from the
-/// beacon like the first panel, stratified on `f_u`, and never from the first panel —
-/// the re-decision must add evidence, not re-weigh the same. Provisional size
-/// [`K_EXTRA`] (T25); `slot` is the item's admitted slot, as for the first panel.
+/// Extra reviewers of the band's second round (D26): drawn from the beacon like the
+/// first panel, stratified on `f_u`, never from it. Provisional size [`K_EXTRA`] (T25);
+/// `slot` is the item's admitted slot, as for the first panel.
 pub fn assign_extra_from_beacon(
     reviewers: &[Reviewer],
     first_panel: &[Nym],
@@ -65,18 +56,12 @@ pub fn assign_extra_from_beacon(
     )
 }
 
-/// The provisional size of the band's extra panel (D26, T60): four more reviewers — a
-/// panel of nine grows by almost half — to be calibrated with the band width (T25).
+/// The provisional size of the band's extra panel (D26, T25).
 pub const K_EXTRA: usize = 4;
 
-/// Panel assignment under D40 (T57): stratified on `f_u` as [`assign_reviewers`], with at
-/// most one member of each coordination cluster on the panel. `clusters[i]` is the
-/// cluster id of `reviewers[i]` (`scoring::collusion::CoordinationReport::clusters`; a
-/// singleton's id is its own). `taken` are the nyms already on the panel — for the band's
-/// extra round (T60) the first panel — excluded with their clusters. A stratum whose
-/// every member is excluded is filled by the eligible reviewer nearest to it on the
-/// axis; with nobody eligible left the panel is shorter, and the lifecycle refuses it.
-/// Deterministic per `seed`.
+/// Panel assignment under D40 (T57): stratified on `f_u`, with at most one member of
+/// each coordination cluster (`clusters[i]` keys `reviewers[i]`); `taken` (with its
+/// clusters) is excluded. Deterministic per `seed`; short if too few are eligible.
 pub fn assign_diverse(
     reviewers: &[Reviewer],
     clusters: &[usize],
@@ -137,8 +122,6 @@ pub fn assign_diverse(
     chosen_idx.into_iter().map(|i| reviewers[i]).collect()
 }
 
-/// [`assign_diverse`] seeded from the beacon (INV-10) for an item's first panel: the
-/// sanctioned entry point under D40.
 pub fn assign_diverse_from_beacon(
     reviewers: &[Reviewer],
     clusters: &[usize],
@@ -155,8 +138,6 @@ pub fn assign_diverse_from_beacon(
     )
 }
 
-/// The band's extra panel under D40 (T57, T60): outside the first panel *and* outside
-/// its members' clusters, on the extra round's beacon domain.
 pub fn assign_extra_diverse_from_beacon(
     reviewers: &[Reviewer],
     clusters: &[usize],
@@ -174,8 +155,7 @@ pub fn assign_extra_diverse_from_beacon(
     )
 }
 
-/// Picks `k` reviewers stratified across f_u: sort by position, split into `k`
-/// strata, draw one per stratum. Deterministic per `(item_seed)`.
+/// Picks `k` reviewers stratified across f_u, one per stratum. Deterministic per `item_seed`.
 pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec<Reviewer> {
     let n = reviewers.len();
     if n == 0 || k == 0 {
@@ -197,15 +177,12 @@ pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec
     chosen
 }
 
-/// A hiding commitment to a judgment probability, bound to its committer and item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Commit(pub [u8; 32]);
 
-/// `commit = H(prob, nonce, committer, item)`. The reviewer declares a probability that
-/// the item passes Level B (`docs/02` C.2), not a yes/no. The commitment **binds the
-/// committer's nullifier id and the item cid** (`docs/08` CRYPTO-007 / INV-12, T7): a
-/// commitment copied from another reviewer, or lifted onto another item, cannot be opened
-/// — only the same `(committer, item)` recomputes it (AT-BR-06).
+/// `commit = H(prob, nonce, committer, item)` (`docs/02` C.2). Binds the committer's
+/// nullifier id and the item cid (INV-12): a commitment copied onto another reviewer
+/// or item cannot be opened (AT-BR-06).
 pub fn commit(prob: f64, nonce: &[u8; 32], committer: Nym, item: Cid) -> Commit {
     let mut h = Sha256::new();
     h.update(b"isegoria/commit/v2");
@@ -216,15 +193,11 @@ pub fn commit(prob: f64, nonce: &[u8; 32], committer: Nym, item: Cid) -> Commit 
     Commit(h.finalize().into())
 }
 
-/// Checks a revealed `(prob, nonce)` against a commitment, for the claimed committer and
-/// item. Fails if the opener is not the committer or the item differs (INV-12, AT-BR-06).
+/// Checks a reveal against its commitment; another committer or item fails (INV-12, AT-BR-06).
 pub fn reveal(commitment: Commit, prob: f64, nonce: &[u8; 32], committer: Nym, item: Cid) -> bool {
     commit(prob, nonce, committer, item) == commitment
 }
 
-/// The action context a review proof is bound to: this item and epoch (AT-ID-05). A
-/// reviewer proves against exactly this, so a proof made for one item cannot be replayed
-/// onto another.
 pub fn review_context(item: Cid, epoch: u64) -> Vec<u8> {
     let mut ctx = Vec::with_capacity(40);
     ctx.extend_from_slice(&item.0);
@@ -232,12 +205,9 @@ pub fn review_context(item: Cid, epoch: u64) -> Vec<u8> {
     ctx
 }
 
-/// The identity-gated review entry point (`docs/08` §9.1, INV-9, T6): the reviewer
-/// presents a `NullifierProof(Judge)` bound to this item and epoch, so it cannot be
-/// replayed onto another item (AT-ID-05). The proven id is recorded in `panel`, rejecting
-/// a second judgment by the same role-nullifier on this item. Returns the reviewer's
-/// proven, non-rotatable id — the id the panel and reputation key on, never
-/// `nym::derive_nym` (a bare `Nym` has no proof and is refused, AT-PRO-01).
+/// The identity-gated review entry point (`docs/08` §9.1, INV-9, T6): records the
+/// proven `Judge` id in `panel`, rejecting a second judgment by the same role-nullifier
+/// on this item. Returns the proven, non-rotatable id the panel and reputation key on.
 pub fn submit_review(
     proof: &NullifierProof,
     issuer: &IssuerPublic,
@@ -250,12 +220,9 @@ pub fn submit_review(
     Ok(id)
 }
 
-/// Why a submitted review was refused at the identity-gated entry point.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReviewRejected {
-    /// No valid `Judge` nullifier proof for this item and epoch.
     Unproven(Unproven),
-    /// This role-nullifier already reviewed this item.
     Duplicate,
 }
 

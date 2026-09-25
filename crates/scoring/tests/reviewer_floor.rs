@@ -1,8 +1,6 @@
-//! The reviewer floor of the latent axis (`docs/02` §A.4, `docs/08` BRIDGE-001, T39):
-//! a reviewer with fewer than `n_min = 30` reviews on record does not define the `f`
-//! space — its `f_u` is fixed at 0 — and only fills it: its ratings still support `μ`,
-//! `b_u` and `b_j`. With every reviewer on the axis the fit is the one it always was,
-//! bit for bit.
+//! The reviewer floor of the latent axis (`docs/02` §A.4, `docs/08` BRIDGE-001): a
+//! reviewer below `n_min` reviews does not define the `f` space — its `f_u` is fixed at
+//! 0 — and only fills it; its ratings still support `μ`, `b_u` and `b_j`.
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -48,10 +46,9 @@ fn dense(r: &[Vec<f64>]) -> Ratings {
     Ratings::from_dense(r, &mask)
 }
 
-/// A reviewer off the axis is placed on it without defining it: the axis and the item
-/// levels are bit for bit those of the fit without the reviewer, and its own position is
-/// what its ratings say. On the axis, the same three ratings — extreme on the leaning
-/// items — would move `f_j` and everyone's position.
+/// A reviewer off the axis is placed on it without defining it: the axis and item levels
+/// stay bit for bit those of the fit without the reviewer, and its own position is what
+/// its ratings say — on the axis, the same ratings would move `f_j` and everyone's position.
 #[test]
 fn a_reviewer_below_the_floor_is_placed_on_the_axis_it_does_not_define() {
     let (r, _) = two_camps(40, 39);
@@ -59,8 +56,6 @@ fn a_reviewer_below_the_floor_is_placed_on_the_axis_it_does_not_define() {
     let params = BridgingParams::default();
     let base = fit(&dense(&r), &params).unwrap();
 
-    // The sleeper: three ratings, 1.0 on two items leaning one way, 0.0 on one leaning
-    // the other — a position the fit would read as extreme.
     let mut obs = dense(&r).obs;
     obs.push(Obs { u: n, j: 0, r: 1.0 });
     obs.push(Obs { u: n, j: 1, r: 1.0 });
@@ -78,8 +73,7 @@ fn a_reviewer_below_the_floor_is_placed_on_the_axis_it_does_not_define() {
     };
     let on = fit(&with_sleeper(true), &params).unwrap();
     let off = fit(&with_sleeper(false), &params).unwrap();
-    // The same reviewers with the sleeper's ratings removed: the fit an absent sleeper
-    // gives (a zero-weight reviewer is the same as an absent one, T42).
+    // The same reviewers with the sleeper's ratings removed.
     let absent = fit(
         &Ratings {
             obs: obs.iter().copied().filter(|o| o.u != n).collect(),

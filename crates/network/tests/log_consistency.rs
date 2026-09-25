@@ -1,7 +1,6 @@
-//! Signed append-only log: consistency proofs and truncation detection (docs/08 NET-004 /
-//! DS-1, T14). A hash chain alone cannot catch a *consistent* suffix rewrite or a
-//! truncation; both are caught against a consortium-signed prior head via
-//! `TransparencyLog::verify_extends` (AT-NET-01).
+//! Signed append-only log: consistency proofs and truncation detection (`docs/08`
+//! NET-004/DS-1). A hash chain alone cannot catch a *consistent* suffix rewrite or a
+//! truncation; both are caught against a consortium-signed prior head (AT-NET-01).
 
 use network::cid::cid;
 use network::consortium::{Checkpoint, Consortium, Member};
@@ -15,8 +14,8 @@ fn log_of(payloads: &[&[u8]]) -> TransparencyLog {
     log
 }
 
-/// Stamp a head-only checkpoint; the T14 consistency check ignores the network binding
-/// (that is T15's concern), so fixed zero binding is fine here.
+/// Stamp a head-only checkpoint; the consistency check ignores the network binding, so
+/// fixed zero binding is fine here.
 fn checkpoint(log: &TransparencyLog) -> Checkpoint {
     log.checkpoint([0u8; 32], [0u8; 32])
 }

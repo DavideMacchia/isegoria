@@ -1,13 +1,6 @@
-//! Erasure coding (`docs/04`, §Durability). Data is split into shards spread across
-//! nodes; any `data_shards` of them reconstruct it. At equal storage it beats
-//! replication and, unlike replication, its durability lives on all nodes.
-//! Real Reed–Solomon via `reed-solomon-erasure`.
-//!
-//! Reed–Solomon with *erasures* assumes each shard is either missing or correct: a
-//! **wrong** shard silently corrupts the output. So each `Encoded` carries a `manifest`
-//! of per-shard hashes, and [`reconstruct_verified`] authenticates every present shard
-//! against it, dropping a tampered one as lost before decoding (NET-007 / DS-4, T16). The
-//! manifest is itself committed elsewhere (e.g. in the signed checkpoint).
+//! Erasure coding (`docs/04` §Durability, real Reed–Solomon via `reed-solomon-erasure`):
+//! any `data_shards` of the shards reconstruct the data. [`reconstruct_verified`]
+//! authenticates each present shard against `Encoded::manifest` first (NET-007, AT-NET-06).
 
 use crate::hash::tagged;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -23,31 +16,20 @@ pub struct Encoded {
     pub data_shards: usize,
     pub parity_shards: usize,
     pub orig_len: usize,
-    /// Per-shard hash, index-aligned to `shards`; commit this to authenticate shards on
-    /// recovery (`shard_hash`).
+    /// Per-shard hash, index-aligned to `shards` (`shard_hash`).
     pub manifest: Vec<[u8; 32]>,
 }
 
-/// Why authenticated reconstruction failed (T16).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecoverError {
-    /// The claimed layout is impossible: shard counts out of range (none, or more than
-    /// 256 in total), a shard list of another length, or an `orig_len` longer than the
-    /// shards can hold. The layout arrives with the shards, so it is untrusted (T44).
     InvalidLayout,
-    /// After dropping shards that fail their manifest hash, fewer than `data_shards`
-    /// authentic shards remain — recovery is impossible without trusting a corrupt shard.
     TooFewAuthenticShards { authentic: usize, need: usize },
-    /// Reed–Solomon reconstruction itself failed.
     Decode,
 }
 
-/// Encodes `data` into `data_shards` systematic shards plus `parity_shards`.
-///
-/// # Panics
-///
-/// If `data_shards` or `parity_shards` is zero, or their sum exceeds 256 (GF(2⁸)): the
-/// encoder chooses its own layout, so an invalid one is a configuration error.
+/// Encodes `data` into `data_shards` systematic shards plus `parity_shards`. Panics if
+/// either is zero or their sum exceeds 256 (GF(2⁸)): an invalid layout is a configuration
+/// error, not runtime input.
 pub fn encode(data: &[u8], data_shards: usize, parity_shards: usize) -> Encoded {
     let r = ReedSolomon::new(data_shards, parity_shards).expect("valid shard counts");
     let shard_len = data.len().div_ceil(data_shards).max(1);
@@ -75,9 +57,7 @@ pub fn encode(data: &[u8], data_shards: usize, parity_shards: usize) -> Encoded 
     }
 }
 
-/// Reconstructs the original bytes from surviving shards (`None` = lost). Returns
-/// `None` if fewer than `data_shards` survive or the layout is invalid (see
-/// [`RecoverError::InvalidLayout`]).
+/// Reconstructs from surviving shards (`None` = lost); `None` on failure or an invalid layout.
 pub fn reconstruct(
     shards: Vec<Option<Vec<u8>>>,
     data_shards: usize,
@@ -87,8 +67,6 @@ pub fn reconstruct(
     decode(shards, data_shards, parity_shards, orig_len).ok()
 }
 
-/// Checks the claimed counts before anything is sized from them: `ReedSolomon::new`
-/// sums them unchecked (an overflow panics in debug builds).
 fn check_layout(
     shards: usize,
     data_shards: usize,
@@ -119,7 +97,6 @@ fn decode(
         .take(data_shards)
         .map(|s| s.as_ref().ok_or(RecoverError::Decode))
         .collect::<Result<_, _>>()?;
-    // `orig_len` is claimed, not derived: size nothing from it until it is shown to fit.
     let capacity = data.iter().map(|s| s.len()).sum::<usize>();
     if orig_len > capacity {
         return Err(RecoverError::InvalidLayout);
@@ -132,11 +109,8 @@ fn decode(
     Ok(out)
 }
 
-/// Reconstructs, **authenticating every present shard against `manifest` first** (NET-007,
-/// AT-NET-06). A shard whose bytes do not match its committed hash is treated as lost —
-/// never fed to the decoder — so a corrupted shard cannot silently corrupt the output. If
-/// fewer than `data_shards` authentic shards remain, recovery fails rather than trusting a
-/// bad one. `shards` and `manifest` are index-aligned to the `data + parity` shards.
+/// Reconstructs, authenticating every present shard against `manifest` first (NET-007,
+/// AT-NET-06): `shards` and `manifest` must be index-aligned to the `data + parity` shards.
 pub fn reconstruct_verified(
     shards: Vec<Option<Vec<u8>>>,
     manifest: &[[u8; 32]],

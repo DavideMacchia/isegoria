@@ -1,7 +1,6 @@
-//! The evaluator score after D33 (T50): the leave-one-out difference score is strictly
-//! proper (AT-REP-05), a crowd copier scores exactly 0 (AT-REP-02), the odds-scale weight
-//! lets the `3 × median` cap bind (AT-REP-04), and the retired ratio-form skill score is
-//! shown improper on the paper's example (Prop. 12) — the reason for the change.
+//! The evaluator score after D33: the leave-one-out difference score is strictly proper
+//! (AT-REP-05), a crowd copier scores exactly 0 (AT-REP-02), the odds-scale weight lets
+//! the `3 × median` cap bind (AT-REP-04); the ratio-form skill score is not (Prop. 12).
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -10,8 +9,6 @@ use scoring::reputation::{
     odds_weight, weight_cap, EvaluatorParams,
 };
 
-/// Exact expected total difference score of the report `p` when the reviewer believes
-/// `q` and the baselines are `b`, enumerating all `2^m` outcomes.
 fn expected_difference_score(p: &[f64], q: &[f64], b: &[f64]) -> f64 {
     let m = p.len();
     let mut total = 0.0;
@@ -28,9 +25,8 @@ fn expected_difference_score(p: &[f64], q: &[f64], b: &[f64]) -> f64 {
     total
 }
 
-/// AT-REP-05: for random beliefs and baselines the exact expected score is maximized by
-/// the true belief — and by exactly `Σ_j (p_j − q_j)²` over any other report, so the
-/// optimum is unique: the score is strictly proper whatever the crowd says.
+/// AT-REP-05: for random beliefs and baselines, the exact expected score is maximized by
+/// the true belief, and by exactly the squared-error gap over any other report.
 #[test]
 fn at_rep_05_the_difference_score_is_strictly_proper() {
     let mut rng = ChaCha8Rng::seed_from_u64(33);
@@ -52,9 +48,8 @@ fn at_rep_05_the_difference_score_is_strictly_proper() {
     }
 }
 
-/// The reason for D33 (paper Prop. 12): under the ratio-form skill score a reviewer who
-/// believes 0.30 while the crowd says 0.65 is best off reporting about 0.60 — across to
-/// the crowd's side. The exact expectation over the two outcomes of one golden item.
+/// Paper Prop. 12: under the ratio-form skill score, a reviewer who believes 0.30 against
+/// a crowd at 0.65 is best off reporting about 0.60 — toward the crowd, not the truth.
 #[test]
 fn the_retired_skill_score_paid_the_dissenter_to_move_toward_the_crowd() {
     let (q, b) = (0.30, 0.65);
@@ -77,16 +72,14 @@ fn the_retired_skill_score_paid_the_dissenter_to_move_toward_the_crowd() {
     assert!(truthful > expected_difference_score(&[0.60], &[q], &[b]));
 }
 
-/// The leave-one-out baseline excludes the reviewer, weighs the others, and falls back
-/// to the reviewer's own forecast when nobody else carries weight (a score of 0).
+/// The leave-one-out baseline weighs the other reviewers, falling back to 0 when none
+/// carry weight.
 #[test]
 fn the_baseline_is_the_weighted_mean_of_the_others() {
     let preds = vec![vec![0.9, 0.2], vec![0.3, 0.8], vec![0.5, 0.5]];
     let base = loo_baseline(&preds, &[2.0, 1.0, 1.0]);
     assert!((base[0][0] - 0.4).abs() < 1e-12 && (base[0][1] - 0.65).abs() < 1e-12);
-    // Reviewer 1: (2·0.9 + 1·0.5) / 3 on item 0.
     assert!((base[1][0] - 2.3 / 3.0).abs() < 1e-12);
-    // Alone, or with weightless others: scored against oneself, i.e. 0.
     let alone = loo_scores(&[vec![0.9, 0.2]], &[1.0], &[1.0, 0.0]);
     assert_eq!(alone, vec![vec![0.0, 0.0]]);
     let weightless = loo_scores(&preds, &[1.0, 0.0, 0.0], &[1.0, 0.0]);
@@ -94,8 +87,7 @@ fn the_baseline_is_the_weighted_mean_of_the_others() {
     assert!(weightless[1][0] != 0.0);
 }
 
-/// AT-REP-04: on the odds scale the cap binds on an outlier — one reviewer reliably 0.1
-/// better than a crowd of nine crowd-level reviewers weighs 16 uncapped and 3 capped.
+/// AT-REP-04: on the odds scale, an outlier's weight is capped at `3 × median` of the crowd.
 #[test]
 fn at_rep_04_the_cap_binds_on_an_outlier() {
     let p = EvaluatorParams::default();
@@ -109,8 +101,8 @@ fn at_rep_04_the_cap_binds_on_an_outlier() {
     assert!((capped_weight(weights[0], cap) - 1.0).abs() < 1e-12);
 }
 
-/// D33's arithmetic: reliably 0.02 better weighs about double; one standard error of
-/// luck (0.025) after 16 scored items is worth ×2.4 without shrinkage and ×1.13 with it.
+/// D33's arithmetic: reliably scoring above the reference raises the odds weight;
+/// shrinkage tempers luck at low sample counts.
 #[test]
 fn shrinkage_stops_luck_from_buying_weight() {
     let p = EvaluatorParams::default();
