@@ -16,6 +16,9 @@ calibration = []
 [dependencies]
 rand = "0.8"
 rand_chacha = "0.3"
+# One pure-Rust implementation of the transcendental functions, so the engine's bits do
+# not depend on the platform's libm (CLAUDE.md #7, docs/08 INV-7 / AT-BR-04; `fmath`).
+libm = "0.2"
 
 [dev-dependencies]
 # Property tests over arbitrary rating matrices, weights and scores (T42).

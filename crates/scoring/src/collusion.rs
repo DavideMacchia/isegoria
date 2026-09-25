@@ -5,6 +5,8 @@
 //! coordinated nodes count as `√k` (500 ≈ 22). Independent nodes fall into
 //! singletons and, at unit weight, are left untouched.
 
+use crate::fmath::powf;
+
 pub const ALPHA: f64 = 0.5;
 
 /// Pearson correlation between every pair of node judgment vectors (dense rows).
@@ -43,7 +45,7 @@ pub fn cluster_by_correlation(corr: &[Vec<f64>], threshold: f64) -> Vec<usize> {
 /// power `(Σ w)^α` exceeds `Σ w` (e.g. `0.25^0.5 = 0.5`), so it is capped at `Σ w`.
 pub fn sublinear_group_weight(group_weights: &[f64], alpha: f64) -> f64 {
     let sum = group_weights.iter().sum::<f64>();
-    sum.powf(alpha).min(sum)
+    powf(sum, alpha).min(sum)
 }
 
 /// Per-node discounted weights: each cluster's total is shrunk to `(Σ w)^α` and
@@ -64,7 +66,7 @@ pub fn discount_weights(weights: &[f64], cluster_ids: &[usize], alpha: f64) -> V
             if s > 0.0 {
                 // s^{α−1} is the fraction of its raw weight each member keeps; capped
                 // at 1 so `s < 1` clusters are never inflated (INV-14).
-                weights[i] * (s.powf(alpha) / s).min(1.0)
+                weights[i] * (powf(s, alpha) / s).min(1.0)
             } else {
                 0.0
             }

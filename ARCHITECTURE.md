@@ -27,7 +27,8 @@ Four rules shape every crate:
    independently re-runnable to catch a dishonest signer.
 2. **Determinism is a security property, not an optimization.** Given identical
    input, the engine produces identical output, bit-for-bit (pinned toolchain,
-   seeded RNGs, fixed iteration order). See [Reproducibility](#reproducibility).
+   seeded RNGs, fixed iteration order, one pure-Rust implementation of the
+   transcendental functions). See [Reproducibility](#reproducibility).
 3. **Prefer mature crypto; roll our own only with a high bar.** Heavy primitives
    enter behind traits; production wires them to mature, audited libraries. Bespoke
    cryptography is allowed when it genuinely serves the design (no suitable library,
@@ -197,11 +198,17 @@ signer. Measures:
   `codegen-units = 1` and no fast-math.
 - Explicitly seeded RNGs (`rand_chacha::ChaCha8Rng`) with a fixed consumption order.
 - In-house L-BFGS with a fixed iteration/summation order.
+- The transcendental functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from the
+  pure-Rust `libm` crate through `scoring::fmath`, not from the platform's libm, whose
+  last bits differ between glibc, musl, Apple and Microsoft (AT-BR-04).
 - `crates/scoring/tests/reproducibility.rs` asserts `fit`, `bridge_scores`, and
-  `mixture_dif` are **bit-for-bit** identical across runs (`f64::to_bits`).
+  `mixture_dif` are **bit-for-bit** identical across runs (`f64::to_bits`), and CI
+  checks the golden bits (`golden.rs`) on linux-gnu (dev and release), linux-musl,
+  macOS-aarch64 and Windows-MSVC (`.github/workflows/ci.yml`, job `golden`).
 
-Note: bit-for-bit equality holds **within** the Rust engine, not between Python and
-Rust — SciPy and the in-house optimizer differ. The Python sims are an oracle of
+Note: bit-for-bit equality holds **within** the Rust engine — across platforms and
+build profiles since AT-BR-04 — not between Python and Rust: SciPy and the in-house
+optimizer differ. The Python sims are an oracle of
 *behaviour* (within tolerance), not of bits.
 
 ## Testing strategy

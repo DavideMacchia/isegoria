@@ -9,6 +9,8 @@
 //! non-uniform DIF are chosen by BIC, from seeded multi-starts (T40). Reference
 //! prototype: `sim/latent_dif_and_capacity.py`.
 
+use crate::fmath::{cos, exp, ln, ln_1p};
+
 #[cfg(feature = "calibration")]
 use crate::glm::{fit_logistic, LogisticFit};
 use crate::optim::{lbfgs, Convergence};
@@ -117,7 +119,7 @@ pub fn mantel_haenszel(item: &[f64], theta: &[f64], group: &[f64], n_strata: usi
     }
 
     let alpha = if den > 0.0 { num / den } else { f64::INFINITY };
-    let delta = -2.35 * alpha.ln();
+    let delta = -2.35 * ln(alpha);
     let class = if delta.abs() < MH_DELTA_B {
         EtsClass::A
     } else if delta.abs() < MH_DELTA_C {
@@ -219,7 +221,7 @@ impl Model {
         let mut eta = vec![0.0; self.g];
         eta[1..].copy_from_slice(&p[..self.g - 1]);
         let m = eta.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let e: Vec<f64> = eta.iter().map(|v| (v - m).exp()).collect();
+        let e: Vec<f64> = eta.iter().map(|v| exp(v - m)).collect();
         let s: f64 = e.iter().sum();
         e.iter().map(|v| v / s).collect()
     }
@@ -244,7 +246,7 @@ fn class_loglik(model: &Model, p: &[f64], theta: &[f64], row: &[f64], i: usize) 
 /// the reference the fused [`nll_and_grad`] is tested against.
 #[cfg(test)]
 fn nll(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> f64 {
-    let ln_pi: Vec<f64> = model.pi(p).iter().map(|v| v.ln()).collect();
+    let ln_pi: Vec<f64> = model.pi(p).iter().map(|v| ln(*v)).collect();
     let mut total = 0.0;
     for (i, row) in x.iter().enumerate() {
         let ll = class_loglik(model, p, theta, row, i);
@@ -268,7 +270,7 @@ fn nll_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> Vec<f64>
 fn nll_and_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> (f64, Vec<f64>) {
     let (gn, k) = (model.g, model.k);
     let pi = model.pi(p);
-    let ln_pi: Vec<f64> = pi.iter().map(|v| v.ln()).collect();
+    let ln_pi: Vec<f64> = pi.iter().map(|v| ln(*v)).collect();
     let mut grad = vec![0.0; p.len()];
     let mut total = 0.0;
     // Per respondent: class terms, and each cell's residual `x − σ(lo)`.
@@ -279,11 +281,11 @@ fn nll_and_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> (f64
             let mut s = ln_pi[g];
             for (j, &xij) in row.iter().enumerate().take(k) {
                 let lo = p[model.a_idx(g, j)] * (theta[i] - p[model.b_idx(g, j)]);
-                let e = (-lo.abs()).exp();
+                let e = exp(-lo.abs());
                 let (softplus, sig) = if lo > 0.0 {
-                    (lo + e.ln_1p(), 1.0 / (1.0 + e))
+                    (lo + ln_1p(e), 1.0 / (1.0 + e))
                 } else {
-                    (e.ln_1p(), e / (1.0 + e))
+                    (ln_1p(e), e / (1.0 + e))
                 };
                 s += xij * lo - softplus;
                 resid[g * k + j] = xij - sig;
@@ -293,7 +295,7 @@ fn nll_and_grad(model: &Model, p: &[f64], theta: &[f64], x: &[Vec<f64>]) -> (f64
         let lse = logsumexp(&terms);
         total += lse;
         for g in 0..gn {
-            let r = (terms[g] - lse).exp();
+            let r = exp(terms[g] - lse);
             if g > 0 {
                 grad[g - 1] -= r - pi[g];
             }
@@ -361,7 +363,7 @@ pub fn mixture_dif(theta: &[f64], x: &[Vec<f64>], k: usize, seed: u64) -> Mixtur
 /// [`mixture_dif`] with explicit settings.
 pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixtureParams) -> MixtureDif {
     let nt = x.len();
-    let ln_n = (nt.max(1) as f64).ln();
+    let ln_n = ln(nt.max(1) as f64);
     let bic = |model: &Model, nll: f64| 2.0 * nll + model.free_params() as f64 * ln_n;
 
     // One class: plain 2PL on fixed θ, convex; its solution seeds every mixture start.
@@ -442,7 +444,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
     let dif: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.b_idx(g, j), j)).collect();
     let a_gap: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.a_idx(g, j), j)).collect();
 
-    let ln_pi: Vec<f64> = pi.iter().map(|v| v.ln()).collect();
+    let ln_pi: Vec<f64> = pi.iter().map(|v| ln(*v)).collect();
     let posterior: Vec<Vec<f64>> = x
         .iter()
         .enumerate()
@@ -450,7 +452,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
             let ll = class_loglik(&model, &p, theta, row, i);
             let terms: Vec<f64> = ll.iter().zip(&ln_pi).map(|(l, lp)| l + lp).collect();
             let lse = logsumexp(&terms);
-            terms.iter().map(|t| (t - lse).exp()).collect()
+            terms.iter().map(|t| exp(t - lse)).collect()
         })
         .collect();
 
@@ -470,9 +472,9 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
 #[inline]
 fn softplus(z: f64) -> f64 {
     if z > 0.0 {
-        z + (-z).exp().ln_1p()
+        z + ln_1p(exp(-z))
     } else {
-        z.exp().ln_1p()
+        ln_1p(exp(z))
     }
 }
 
@@ -481,13 +483,13 @@ fn logsumexp(v: &[f64]) -> f64 {
     if m == f64::NEG_INFINITY {
         return m;
     }
-    m + v.iter().map(|x| (x - m).exp()).sum::<f64>().ln()
+    m + ln(v.iter().map(|x| exp(x - m)).sum::<f64>())
 }
 
 fn normal(rng: &mut ChaCha8Rng) -> f64 {
     let u1: f64 = 1.0 - rng.gen::<f64>();
     let u2: f64 = rng.gen::<f64>();
-    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    (-2.0 * ln(u1)).sqrt() * cos(2.0 * std::f64::consts::PI * u2)
 }
 
 #[cfg(test)]

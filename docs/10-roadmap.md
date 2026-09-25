@@ -53,9 +53,9 @@ reference implementation / testnet.
   gates into the protocol; signed-log consistency, checkpoint hardening and shard
   authentication; the second review's defects, mutation testing, property and
   model-based suites, and the fuzzing of `network` and `identity`; the deposit replay
-  (T64), the respondent gate (T65), the engine's input validation (T62) and the
-  side-balanced bridge score (T49). Details and evidence:
-  [Completed work](#completed-work).
+  (T64), the respondent gate (T65), the engine's input validation (T62), the
+  side-balanced bridge score (T49) and cross-platform reproducibility (AT-BR-04).
+  Details and evidence: [Completed work](#completed-work).
 - **Open:** the design revisions D33–D41 (D32 is done, T49); the defects found by the
   third review (2026-09-24), all but T64, T65 and T62; the network runtime (persistence,
   transport, live anchoring); distributed identity; privacy hardening; everything
@@ -111,7 +111,6 @@ the caller's word.
 |---|---|---|---|---|
 | T39 | Bridging: `n_min = 30` (reviewers below it do not define the `f` axis) and `d = 2`. *Recommended (2026-09-24):* descope `d = 2` — D31 already keeps `d = 1` — and record it in `docs/02` §A.4; only `n_min` remains, size S | BRIDGE-001, PROTO-003, `docs/02` §A.4, D31 | the new-reviewer path of PROTO-003 exists; `d = 2` implemented or descoped in the docs | M (S if descoped) |
 | T45 | **Wider differential oracles:** random datasets vs SciPy (not only the fixed fixture), analytic vs numerical gradient for the mixture, `lbfgs` on functions with known minima (Rosenbrock, ill-conditioned quadratics). Known from T41: Rosenbrock needed ~670 gradients vs SciPy's ~46 (fixed by the strong-Wolfe search of T48: ~51), and the relative-progress stall can report `Converged` with `‖g‖_∞ ≫ g_tol` near `f = 0` | OPT-001, REPRO-003 | the oracle suite runs under the pinned sim env | M |
-| — | **Cross-platform reproducibility** (`AT-BR-04`, RP-2): the same input gives bit-equal output on two platforms and in the release profile (INV-7) | REPRO-001 | `AT-BR-04` runs in CI | S |
 
 ### 1.4 · Characterize the parameters
 
@@ -134,8 +133,9 @@ order the work is done in. Sizes are the ones in the rows.
 2. T62 (S) — done (2026-09-24): `fit` and `bridge_scores` return a `Result`; T49 is
    written against that API.
 3. T49 (M) — done (2026-09-24): the side-balanced score; sim, fixtures, golden outputs
-   and the README warning changed in the same commit. Next: `AT-BR-04` (S), the new
-   golden bits on two platforms.
+   and the README warning changed in the same commit. `AT-BR-04` (S) — done
+   (2026-09-25): the golden bits checked on four platforms and in the release profile
+   in CI.
 4. The D26 amendment, then T59 (M).
 5. The D27 decision, then T61 (S).
 6. T53 (S) — the anchor-reliability gate.
@@ -268,7 +268,7 @@ Not a phase; done alongside every task.
 
 - **Phase 1.** T64 and T65, the two severe defects, are done, and so are T62 and T49
   (the side-balanced score, which changed the golden outputs, the fixtures and `sim/` on
-  purpose). Next `AT-BR-04`, right after T49. T59 and T60 follow T49 (T59 measures
+  purpose), and `AT-BR-04` right after it. T59 and T60 follow T49 (T59 measures
   polarization by T49's side gap; T60 changes the score anyway). T61 is independent and
   small, after the D27 decision. T50 before T51 and T52. T53 before T54. T55 needs its
   evidence procedure specified first and comes last. T57 needs T56. T24/T25 close the
@@ -308,6 +308,7 @@ other documents and commit messages refer to these ids and block names.
 | Task | What it means (plain) | Refs | Done when | Size |
 |---|---|---|---|---|
 | T62 | **The engine rejects malformed ratings instead of panicking. Done (2026-09-24):** `Ratings::validate() -> Result<(), RatingsError>` — an observation with `u ≥ n` or `j ≥ m` (`IndexOutOfRange`), `weights.len() ≠ n` (`WeightCount`), a non-finite rating (`NonFiniteRating`), a non-finite or negative weight (`BadWeight`), a duplicate `(u, j)` pair (`DuplicateObservation`) — runs first in `fit` and `bridge_scores`, which return `Result` (the direction of T46); `gate::supplementary_review` propagates it and refuses an item index past the batch (`ItemOutOfRange`); `orchestrator::weighted_ratings` returns `Result` (a standing count that differs from the rows is `WeightCount`; the `assert` in `with_weights` is gone). `scoring/tests/malformed_ratings.rs`: each case returns its error from both entry points, and a property over arbitrary `Ratings` (indices past `n`/`m`, NaN and infinite values, negative weights, any weight count, duplicates) never panics — `fit` and `bridge_scores` succeed exactly when `validate` accepts. `crates/scoring/fuzz/bridging` (cargo-fuzz; not yet run, no nightly in the session) explores the same entry points. *Was:* `Ratings` has public fields and an out-of-range observation panicked on a bounds check inside the objective; duplicates counted twice. *Left to T46* (`docs/12` §2.3): `Ratings::from_dense` on a ragged matrix, and the slice-taking entry points of `irt`, `dif`, `collusion` and `reputation`, which index out of bounds on mismatched lengths or ragged matrices — caller preconditions, probed and recorded | `docs/12` §2.3, T44, T46 | out-of-range index, wrong weight count, non-finite or negative value and duplicate pair each return an error, no panic; a property test: arbitrary `Ratings` never panics | S |
+| — | **Cross-platform reproducibility (`AT-BR-04`). Done (2026-09-25):** the engine's transcendental functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from the pure-Rust `libm` crate through `scoring::fmath`, not from the platform's libm, whose last bits differ between glibc, musl, Apple and Microsoft and which an iterative fit amplifies into a different stopping point; `golden_bits.txt` regenerated on purpose (last-bit changes only, every oracle test unchanged); `libm` optimized in the dev profile (`Cargo.toml`). CI job `golden` (`.github/workflows/ci.yml`) checks the golden bits on linux-gnu in the release profile, linux-musl, macOS-aarch64 and Windows-MSVC on every push, next to the main job's linux-gnu dev run. Verified locally on 2026-09-25: linux-gnu dev, linux-gnu release and linux-musl agree bit for bit — and the control shows why it was needed: the previous code, on the platform libm, matched its own golden bits in the release profile but moved 96 of the 118 values on musl (glibc vs musl `exp`/`log`/`cos`) | REPRO-001, INV-7 | `AT-BR-04` runs in CI | S |
 
 ### P1.1 · Quick fixes (audit block 1)
 

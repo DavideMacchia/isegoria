@@ -37,6 +37,42 @@ jobs:
       - name: Test (calibration)
         run: cargo test --workspace --features calibration
 
+  # AT-BR-04 (docs/08 INV-7, REPRO-001): every value the engine returns on the fixture
+  # datasets is pinned bit for bit in crates/scoring/tests/fixtures/golden_bits.txt by
+  # the `golden` test. The main job checks it on linux-gnu in the dev profile; this job
+  # checks the same bits on the other platforms and in the release profile, so a
+  # divergence between two signers' machines cannot go unnoticed.
+  golden:
+    name: golden bits (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gnu, release profile
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            args: --release
+          - name: linux-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            args: ""
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            args: ""
+          - name: windows-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+      - name: Golden bits
+        run: cargo test -p scoring --test golden --target ${{ matrix.target }} ${{ matrix.args }}
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest

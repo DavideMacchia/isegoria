@@ -120,7 +120,11 @@ inadequate at this scale, and the useful value on the intercept was around 0.08.
 
 L-BFGS-B with an analytic gradient. The gradient with respect to each parameter block
 is in the prototype (`sim/bridging_irt_dif.py`, function `fit`). Attention point for
-reproducibility: fix the initialization seed and the iteration order.
+reproducibility: fix the initialization seed and the iteration order. The transcendental
+functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from one pure-Rust implementation
+(the `libm` crate, `scoring::fmath`), not from the platform's libm, so the same input
+gives the same bits on every platform and in every build profile (INV-7, `docs/08`
+AT-BR-04).
 
 ---
 

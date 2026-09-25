@@ -296,7 +296,7 @@ The eight invariants of `docs/CLAUDE.md` are restated here as runtime invariants
 | INV-4 | `C_a` and `E_u` MUST live on different pseudonyms and MUST NOT be combined. | Separate functions; `Role::Propose` vs `Role::Judge`. No code combines them. No code *binds* a score to a role either (scores are bare `f64`s in tests). | Enforced by absence |
 | INV-5 | One deterministic, non-rotatable pseudonym per role. | `nym::derive_nym` and `nullifier::prove` are both deterministic in `(secret, role)`. Rotation is prevented only if a second credential is impossible (ID-001…ID-005). | Enforced for derivation; depends on identity layer |
 | INV-6 | The authenticator (state) MUST be distinct from the issuer (committee). | Distinct types (`IdentityDocument` vs `Issuer`). No protocol message separates them; see §3.2. | Asserted |
-| INV-7 | Same input ⇒ bit-identical output. | `tests/reproducibility.rs` (same process, same binary). "Input" has no canonical serialization; see REPRO-001/002. | Tested within a process |
+| INV-7 | Same input ⇒ bit-identical output. | `tests/reproducibility.rs` (same process, same binary); `tests/golden.rs` pins every output on the fixtures bit for bit, and CI checks it on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC (AT-BR-04); the transcendental functions come from the pure-Rust `libm` crate (`scoring::fmath`), not from the platform's libm. "Input" has no canonical serialization; see REPRO-001/002. | Tested within a process and across platforms and profiles (AT-BR-04) |
 | INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items and a sample below its §B.6 floor, counting admitted respondents (`NullifierSet::len`), never rows (T65); `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
 
 Additional invariants this specification introduces (not in `docs/CLAUDE.md`), each derived from a gap found in §10:
@@ -1060,7 +1060,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `S_j < τ` (T49; was `b_j < τ`) | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
 | AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `\|Δb_j\| < 1e-9` without | REPRO-002 |
-| AT-BR-04 | cross-platform determinism | same input on linux-gnu, linux-musl, macOS-aarch64 | bit-equal, or documented divergence with tolerance | REPRO-001 |
+| AT-BR-04 ✓ | cross-platform determinism | the golden bits (`golden.rs`) on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC — CI job `golden`, every push | bit-equal: linux-gnu dev and release and linux-musl verified on 2026-09-25 (`scoring::fmath`, the pure-Rust `libm`; on the platform libm the same golden bits moved in 96 of 118 values between glibc and musl); the CI job fails on any divergence on the five configurations | REPRO-001 |
 | AT-BR-05 | seed grinding | author regenerates draft whitespace 1000× to select a panel | panel independent of draft bytes | CRYPTO-008 |
 | AT-BR-06 | commitment copying | B copies A's commitment, reveals A's opening after A | B's reveal rejected | CRYPTO-007 |
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
@@ -1263,7 +1263,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 
 | ID | Claim | Evidence (files) | Current status | Missing evidence | Required action |
 |---|---|---|---|---|---|
-| REPRO-001 | bit-for-bit within platform | `scoring/tests/reproducibility.rs` | TESTED (one process) | cross-platform run; release-profile run | AT-BR-04 |
+| REPRO-001 | bit-for-bit across platforms and profiles | `scoring/tests/reproducibility.rs`, `golden.rs`, `scoring::fmath`, CI job `golden` | TESTED (AT-BR-04, 2026-09-25) — one process, and the golden bits equal on linux-gnu dev, linux-gnu release and linux-musl; macOS-aarch64 and Windows-MSVC checked in CI on every push | — | — |
 | REPRO-002 | order-independent input | `bridging.rs` (`Ratings::canonical`), `canonical_input.rs` | TESTED (T3) — canonical `(u,j)` order; a permutation gives bit-equal `b_j` (AT-BR-03) | — | INV-13 |
 | REPRO-003 | engine = sims | `level_{a,b,c}.rs`, fixtures; `fixture_drift.rs` **fails** under numpy 2.4.4/scipy 1.17.1 (§0-ter, `fixtures/PROVENANCE.md`) | TESTED (statistic level); REPRODUCED: NO (repository guard fails) | pinned-env regeneration; verdict agreement | G-10, T4 |
 | REPRO-004 | fixture provenance | `sim/export_fixtures.py` | IMPLEMENTED | versions recorded, CI regen | AT-PRO-06 |

@@ -44,7 +44,8 @@ them.
 7. **Score computation is deterministic and reproducible.** The scoring engine,
    given the same input (ratings + answers), produces the same output bit-for-bit.
    No unseeded sources of non-determinism (dictionary iteration order, uncontrolled
-   floating point, timestamps in the computation). Reproducibility is the defense
+   floating point, the platform's libm — transcendental functions go through
+   `scoring::fmath` — timestamps in the computation). Reproducibility is the defense
    that unmasks a dishonest signer.
 
 8. **Empirical validation happens in batches, never on a single question.** An

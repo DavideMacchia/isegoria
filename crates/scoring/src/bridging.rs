@@ -8,6 +8,7 @@
 //! reads it: it is relative to the batch and partly majoritarian (`docs/08` BRIDGE-008/009).
 //! This module covers the `d = 1` case. Reference prototype: `sim/bridging_irt_dif.py`.
 
+use crate::fmath::{cos, ln};
 use crate::optim::{lbfgs, Convergence};
 use rand::Rng;
 use rand::SeedableRng;
@@ -579,7 +580,7 @@ pub fn bridge_scores(
 fn normal(rng: &mut ChaCha8Rng) -> f64 {
     let u1: f64 = 1.0 - rng.gen::<f64>();
     let u2: f64 = rng.gen::<f64>();
-    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    (-2.0 * ln(u1)).sqrt() * cos(2.0 * std::f64::consts::PI * u2)
 }
 
 #[cfg(test)]

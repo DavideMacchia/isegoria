@@ -304,7 +304,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 
 | Layer | State |
 |---|---|
-| Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit, matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
+| Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit across platforms and build profiles (CI), matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
 | Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score is done (T49), the rest is roadmap Phase 1, the first priority |
 | Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64) and respondent gate (T65) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
