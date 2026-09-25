@@ -125,7 +125,8 @@ Requirements:
 Respondents are the scarce resource: they can be the same nodes under the third
 pseudonym (`nym_answer`), or a separate panel-style sample. Each respondent proves that
 pseudonym for the batch and the epoch before its answers count, and the sample floors
-count those pseudonyms, not answer sheets: one person cannot fill a sample.
+count those pseudonyms, not answer sheets: one person cannot fill a sample. The proof
+does not yet cover the sheet itself, so a forwarder could alter it (`10` T70).
 
 **Administration**: the question under pilot is mixed with already-validated ones and
 the answer does not count toward the respondent's score. Whoever answers does not know
