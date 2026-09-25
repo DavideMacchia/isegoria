@@ -32,7 +32,7 @@ use protocol::appeal::{appeal_floor, AuthorHistory};
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
-use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GAP, EPS, TAU};
+use protocol::gate::{bridging_gate, GateOutcome, APPEAL_GAP, EPS, TAU};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::{deposit, step, Event, State};
 #[cfg(feature = "calibration")]
@@ -211,26 +211,17 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     let gate: Vec<GateOutcome> = (0..m)
         .map(|j| bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP))
         .collect();
-    // A band item is re-decided (D26, amended by T59): pass, appeal-eligible if polarized,
-    // or a borderline reject. Its effective outcome is then gated like any other.
-    let band_outcome: Vec<GateOutcome> = (0..m)
-        .map(|j| {
-            if matches!(gate[j], GateOutcome::SupplementaryReview) {
-                supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap()
-            } else {
-                GateOutcome::Reject
-            }
-        })
-        .collect();
-    let effective: Vec<GateOutcome> = (0..m)
-        .map(|j| {
-            if matches!(gate[j], GateOutcome::SupplementaryReview) {
-                band_outcome[j]
-            } else {
-                gate[j]
-            }
-        })
-        .collect();
+    // A band item would be re-decided after its extra round (D26, T59, T60): a second
+    // panel drawn outside the first, whose reveals `run_item` folds into the ratings
+    // before `gate::supplementary_review`. On the provisional gate no fixture item is in
+    // the band (consensus 0.83–0.86, partisan ≤ 0.57), so the effective outcome is the
+    // gate's; the extra round is exercised in `supplementary_redecision.rs`.
+    assert!(
+        gate.iter()
+            .all(|g| !matches!(g, GateOutcome::SupplementaryReview)),
+        "no fixture item is borderline on the provisional gate"
+    );
+    let effective: Vec<GateOutcome> = gate.clone();
     let advancing: Vec<usize> = (0..m)
         .filter(|&j| {
             matches!(effective[j], GateOutcome::Pass)
@@ -350,13 +341,15 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
             appeal_within_window: true,
             author_reputation: reputation,
             appeal_floor: appeal_floor(&prior),
-            band_outcome: band_outcome[j],
             enough_respondents: respondents.len() >= N1_MIN,
             screen_passed: *screen_passed.get(&j).unwrap_or(&false),
             dif_passed: *dif_passed.get(&j).unwrap_or(&false),
             pilot2_batch_size,
         };
-        let terminal = run_item(reviewed(j), &verdicts).unwrap();
+        let terminal = run_item(reviewed(j), &verdicts, None, |_| {
+            unreachable!("no fixture item is in the band")
+        })
+        .unwrap();
         if let Some(escrow) = escrow {
             // The item's measured quality is its later pool record; 0.8 stands in for it.
             settle_appeal(&mut author, escrow, &terminal, 0.8);

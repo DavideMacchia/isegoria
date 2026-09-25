@@ -97,9 +97,11 @@ partisan one (0.30). It replaces `|f_j|`, which *falls* as the camps become uneq
 **Uncertainty band (correction from testing).** Scores cluster near the threshold:
 questions separated by thousandths end up one inside and one outside for pure noise.
 Do not use a hard cut: define a band `[τ−ε, τ+ε]` in which questions go to
-supplementary review instead of being decided by the exact value. `ε ≈ 0.02`
-provisional, about three times the bootstrap spread of `S_j` on the reference fixtures
-(≤ 0.006); to be tuned (T25).
+supplementary review instead of being decided by the exact value: an extra round of
+`k_extra` reviewers drawn outside the first panel (`k_extra = 4`, provisional), whose
+ratings are added to the first panel's before the score is re-decided against the plain
+`τ` (`01` D26, T60; `05` [5]). `ε ≈ 0.02` provisional, about three times the bootstrap
+spread of `S_j` on the reference fixtures (≤ 0.006); to be tuned with `k_extra` (T25).
 
 *History.* Until T49 the gate read the intercept `b_j` against `τ ≈ 0.08` with
 `ε ≈ 0.008`: the Community Notes reference value (0.40, on binary votes) proved
@@ -524,6 +526,7 @@ conservatively.
 | `λ_b / λ_f` | 0.15 / 0.03 | ratio ≈ 5:1, recalibrate |
 | `τ` (bridging threshold, on `S_j`) | ~0.80 (provisional, D32) | absolute, on the probability scale; **calibrate on the pilot**, not fixed |
 | `ε` (uncertainty band) | ~0.02 (provisional) | questions in the band → supplementary review; ≈ 3× the bootstrap spread of `S_j` |
+| `k_extra` (extra panel) | 4 (provisional) | reviewers drawn outside the first panel for a band item; their ratings join the first panel's before the re-decision (D26, T60) |
 | `γ_appeal` (side gap for appeal) | 0.25 (provisional) | a rejected question with a wider gap was rejected for polarization: appealable (`05` [5b]) |
 | `d` (factors) | 1 → 2 | start from 1 |
 | `k` (reviewers/item) | 7–11 | odd, random assignment stratified on `f_u` |

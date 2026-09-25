@@ -47,11 +47,24 @@ pub enum State {
         commits: Vec<(Nym, Commitment)>,
         reveals: Vec<(Nym, f64)>,
     },
-    /// Borderline band: awaiting the D26 re-decision (`Event::Resolve`), which re-runs
-    /// bridging over the expanded panel and re-decides the side-balanced score against
-    /// the plain threshold (PROTO-008/PROTO-012 closed, roadmap T10/T30); a polarized
-    /// item that fails it keeps the appeal channel (D26 amendment, T59).
-    SupplementaryReview,
+    /// Borderline band: the D26 extra round, then the re-decision (T10/T30/T59/T60).
+    /// `k_extra` reviewers drawn outside the first panel are assigned
+    /// (`Event::AssignExtraReviewers`), commit and reveal on the same item under the same
+    /// binding as the first round, and `Event::Resolve` — refused until every extra
+    /// panelist revealed — carries the re-decision computed over the first panel's
+    /// ratings *plus* theirs (`gate::supplementary_review`): pass, or the below-band rule
+    /// (a polarized item keeps the appeal channel, D26 amendment).
+    SupplementaryReview {
+        item: Cid,
+        /// The first panel: the extra panel is drawn outside it.
+        panel: Vec<Nym>,
+        /// The extra reviewers; empty until assigned.
+        extra_panel: Vec<Nym>,
+        commits: Vec<(Nym, Commitment)>,
+        /// The extra round's commit deadline has passed (`CloseCommits`).
+        commits_closed: bool,
+        reveals: Vec<(Nym, f64)>,
+    },
     AppealEligible,
     Pilot1 {
         appealed: bool,
@@ -90,8 +103,11 @@ pub enum Invalid {
     RevealMismatch,
     /// A revealed probability outside `[0, 1]`, or NaN.
     ProbabilityOutOfRange,
-    /// Scoring attempted before every panelist revealed (partial epoch).
+    /// Scoring attempted before every panelist revealed (partial epoch) — of the first
+    /// round (`Score`) or of the band's extra round (`Resolve`, T60).
     PartialEpoch,
+    /// The band re-decision was attempted before extra reviewers were assigned (D26, T60).
+    NoExtraPanel,
     /// Appeal filed after the window closed, or on a non-appealable reject.
     AppealWindowClosed,
     /// Author reputation does not cover the appeal stake.
@@ -106,6 +122,11 @@ pub enum Invalid {
 
 /// Smallest admissible DIF batch (`docs/08` §9.1 / INV-8: `K_min ≥ 2`).
 pub const K_MIN: usize = 2;
+
+/// Largest extra panel of the band's second round (D26, T60): at least one and at most
+/// as many reviewers as a first panel, all outside it. The default draw is
+/// `review::K_EXTRA`.
+pub const K_EXTRA_MAX: usize = 11;
 
 /// `— → Deposited` (§9.1 row 1). The three proof inputs gate the invalid cases that
 /// need primitives from T6/T11 and the log.
@@ -153,10 +174,15 @@ pub enum Event {
     /// Reveal deadline reached; the epoch is scored. Refused unless every panelist has
     /// revealed (checked against the state, not asserted by the caller).
     Score { outcome: GateOutcome },
-    /// The D26 supplementary re-decision of a band item: `outcome` is
-    /// `gate::supplementary_review` (a re-run bridging fit, the side-balanced score vs
-    /// the plain threshold) — `Pass`, or, below it, the below-band rule of the gate:
-    /// `AppealEligible` for a polarized item, `Reject` for a defect (D26 amendment,
+    /// The band's extra round (D26, T60): `panel` are `k_extra` judge nyms outside the
+    /// first panel, `1..=K_EXTRA_MAX`, distinct. They then `Commit`, `CloseCommits` and
+    /// `Reveal` on the same item, as the first panel did.
+    AssignExtraReviewers { panel: Vec<Nym> },
+    /// The D26 supplementary re-decision of a band item, refused until every extra
+    /// panelist revealed (T60): `outcome` is `gate::supplementary_review` over the first
+    /// panel's ratings plus the extra round's (a re-run bridging fit, the side-balanced
+    /// score vs the plain threshold) — `Pass`, or, below it, the below-band rule of the
+    /// gate: `AppealEligible` for a polarized item, `Reject` for a defect (D26 amendment,
     /// T59). `SupplementaryReview` is not an outcome of a re-decision and is refused.
     Resolve { outcome: GateOutcome },
     /// The author appeals a polarization rejection.
@@ -288,28 +314,176 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
 
         // Revealing → Gated outcome: never on a partial epoch. Reveals are unique and
         // come only from committed panelists, so "all in" is every panelist present.
-        (Revealing { panel, reveals, .. }, Score { outcome }) => {
+        (
+            Revealing {
+                item,
+                panel,
+                reveals,
+                ..
+            },
+            Score { outcome },
+        ) => {
             if !panel.iter().all(|p| reveals.iter().any(|(n, _)| n == p)) {
                 return Err(Invalid::PartialEpoch);
             }
             Ok(match outcome {
                 GateOutcome::Pass => Pilot1 { appealed: false },
-                GateOutcome::SupplementaryReview => SupplementaryReview,
+                GateOutcome::SupplementaryReview => SupplementaryReview {
+                    item,
+                    panel,
+                    extra_panel: Vec::new(),
+                    commits: Vec::new(),
+                    commits_closed: false,
+                    reveals: Vec::new(),
+                },
                 GateOutcome::AppealEligible => AppealEligible,
                 GateOutcome::Reject => Rejected(RejectReason::Defect),
             })
         }
 
-        // SupplementaryReview → the D26 re-decision (T10/T30, amended by T59): the re-run
-        // bridging fit lifts the score over the plain threshold (→ pilot) or it does not —
-        // then a polarized item keeps the appeal channel (→ AppealEligible) and a defect is
-        // a borderline reject. A second band is not an outcome of a re-decision.
-        (SupplementaryReview, Resolve { outcome }) => match outcome {
-            GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
-            GateOutcome::AppealEligible => Ok(AppealEligible),
-            GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
-            GateOutcome::SupplementaryReview => Err(Invalid::UnexpectedEvent),
-        },
+        // SupplementaryReview: the D26 extra round (T60). The extra panel is assigned once,
+        // outside the first panel; its members commit, the commits close, they reveal —
+        // the same rules and the same binding as the first round.
+        (
+            SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                commits,
+                commits_closed,
+                reveals,
+            },
+            AssignExtraReviewers { panel: extra },
+        ) => {
+            if !extra_panel.is_empty() {
+                return Err(Invalid::UnexpectedEvent);
+            }
+            let k = extra.len();
+            if k == 0 || k > K_EXTRA_MAX {
+                return Err(Invalid::PanelSizeInvalid);
+            }
+            if (1..k).any(|i| extra[..i].contains(&extra[i]))
+                || extra.iter().any(|n| panel.contains(n))
+            {
+                return Err(Invalid::DuplicatePanelist);
+            }
+            Ok(SupplementaryReview {
+                item,
+                panel,
+                extra_panel: extra,
+                commits,
+                commits_closed,
+                reveals,
+            })
+        }
+        (
+            SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                mut commits,
+                commits_closed: false,
+                reveals,
+            },
+            Commit { nym, commitment },
+        ) if !extra_panel.is_empty() => {
+            if !extra_panel.contains(&nym) {
+                return Err(Invalid::NotInPanel);
+            }
+            if commits.iter().any(|(n, _)| *n == nym) {
+                return Err(Invalid::AlreadyCommitted);
+            }
+            commits.push((nym, commitment));
+            Ok(SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                commits,
+                commits_closed: false,
+                reveals,
+            })
+        }
+        (
+            SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                commits,
+                commits_closed: false,
+                reveals,
+            },
+            CloseCommits,
+        ) if !extra_panel.is_empty() => Ok(SupplementaryReview {
+            item,
+            panel,
+            extra_panel,
+            commits,
+            commits_closed: true,
+            reveals,
+        }),
+        (
+            SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                commits,
+                commits_closed: true,
+                mut reveals,
+            },
+            Reveal { nym, prob, nonce },
+        ) => {
+            let Some((_, commitment)) = commits.iter().find(|(n, _)| *n == nym) else {
+                return Err(Invalid::NoCommit);
+            };
+            if reveals.iter().any(|(n, _)| *n == nym) {
+                return Err(Invalid::AlreadyRevealed);
+            }
+            if prob.is_nan() || !(0.0..=1.0).contains(&prob) {
+                return Err(Invalid::ProbabilityOutOfRange);
+            }
+            if !reveal(*commitment, prob, &nonce, nym, item) {
+                return Err(Invalid::RevealMismatch);
+            }
+            reveals.push((nym, prob));
+            Ok(SupplementaryReview {
+                item,
+                panel,
+                extra_panel,
+                commits,
+                commits_closed: true,
+                reveals,
+            })
+        }
+
+        // SupplementaryReview → the D26 re-decision (T10/T30, amended by T59, T60): only
+        // once the extra round is complete. The re-run bridging fit over the expanded
+        // ratings lifts the score over the plain threshold (→ pilot) or it does not — then
+        // a polarized item keeps the appeal channel (→ AppealEligible) and a defect is a
+        // borderline reject. A second band is not an outcome of a re-decision.
+        (
+            SupplementaryReview {
+                extra_panel,
+                reveals,
+                ..
+            },
+            Resolve { outcome },
+        ) => {
+            if extra_panel.is_empty() {
+                return Err(Invalid::NoExtraPanel);
+            }
+            if !extra_panel
+                .iter()
+                .all(|p| reveals.iter().any(|(n, _)| n == p))
+            {
+                return Err(Invalid::PartialEpoch);
+            }
+            match outcome {
+                GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
+                GateOutcome::AppealEligible => Ok(AppealEligible),
+                GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
+                GateOutcome::SupplementaryReview => Err(Invalid::UnexpectedEvent),
+            }
+        }
 
         // AppealEligible: appeal within the window with reputation to cover the stake.
         (

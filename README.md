@@ -317,9 +317,11 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    author's quota, T64; one person could fill a Level B sample, T65), the engine's input
    validation (T62), the side-balanced bridge score (D32, T49), the appeal for
    polarized band items (T59), the appeal stake as a pseudo-observation inside the
-   author's average (D27, T61) and the anchor-reliability gate of the latent re-check
-   (D37, T53); next, the rest of the mechanism (D33–D41) and the band re-decision with
-   extra reviewers (T60), then the characterization of the thresholds.
+   author's average (D27, T61), the anchor-reliability gate of the latent re-check
+   (D37, T53), the proper evaluator score with the change detector (D33/D34/D36,
+   T50/T51) and the band re-decision with real extra reviewers (D26, T60); next, the
+   rest of the mechanism (D35, D38–D41 and D37's target model), then the
+   characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

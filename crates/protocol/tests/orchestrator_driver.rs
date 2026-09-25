@@ -11,8 +11,8 @@ use network::cid::{cid, Cid};
 use protocol::gate::GateOutcome;
 use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State};
 use protocol::orchestrator::{
-    bridging_weights, epoch_weight_cap, review_round, run_item, weighted_ratings, ItemVerdicts,
-    Judgment, ReviewerStanding,
+    bridging_weights, epoch_weight_cap, review_round, run_item, weighted_ratings, ExtraRound,
+    ItemVerdicts, Judgment, ReviewerStanding,
 };
 use protocol::probation::N_PROBATION;
 use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
@@ -142,7 +142,6 @@ fn passing() -> ItemVerdicts {
         appeal_within_window: true,
         author_reputation: 0.6,
         appeal_floor: 0.4,
-        band_outcome: GateOutcome::Reject,
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
@@ -152,6 +151,11 @@ fn passing() -> ItemVerdicts {
 
 fn item() -> Cid {
     cid(b"item")
+}
+
+/// `run_item` for an item that is not in the band: no extra round, no re-decision.
+fn run(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
+    run_item(reviewed, v, None, |_| unreachable!("no band item here"))
 }
 
 fn panel() -> Vec<Nym> {
@@ -189,7 +193,7 @@ fn reviewed() -> State {
 fn run_item_refuses_an_incomplete_or_forged_review_round() {
     let p = panel();
     let partial = review_round(admitted(), item(), p.clone(), &judgments(&p[..8])).unwrap();
-    assert_eq!(run_item(partial, &passing()), Err(Invalid::PartialEpoch));
+    assert_eq!(run(partial, &passing()), Err(Invalid::PartialEpoch));
 
     let mut dup = p.clone();
     dup[8] = dup[0];
@@ -208,7 +212,7 @@ fn run_item_refuses_an_incomplete_or_forged_review_round() {
 
 #[test]
 fn a_clean_item_reaches_the_pool() {
-    assert_eq!(run_item(reviewed(), &passing()).unwrap(), State::ActivePool);
+    assert_eq!(run(reviewed(), &passing()).unwrap(), State::ActivePool);
 }
 
 #[test]
@@ -218,7 +222,7 @@ fn the_screen_and_the_dif_stage_each_stop_an_item() {
         ..passing()
     };
     assert_eq!(
-        run_item(reviewed(), &screened).unwrap(),
+        run(reviewed(), &screened).unwrap(),
         State::Rejected(RejectReason::Screen)
     );
     let dif = ItemVerdicts {
@@ -226,7 +230,7 @@ fn the_screen_and_the_dif_stage_each_stop_an_item() {
         ..passing()
     };
     assert_eq!(
-        run_item(reviewed(), &dif).unwrap(),
+        run(reviewed(), &dif).unwrap(),
         State::Rejected(RejectReason::Dif)
     );
 }
@@ -238,7 +242,7 @@ fn a_defect_reject_never_enters_the_pilot() {
         ..passing()
     };
     assert_eq!(
-        run_item(reviewed(), &defect).unwrap(),
+        run(reviewed(), &defect).unwrap(),
         State::Rejected(RejectReason::Defect)
     );
 }
@@ -251,7 +255,7 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
     };
     // No appeal: the window closes and it is rejected for polarization.
     assert_eq!(
-        run_item(
+        run(
             reviewed(),
             &ItemVerdicts {
                 appealed: false,
@@ -263,7 +267,7 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
     );
     // Appeal, then the evidence vindicates it.
     assert_eq!(
-        run_item(
+        run(
             reviewed(),
             &ItemVerdicts {
                 appealed: true,
@@ -275,33 +279,38 @@ fn a_polarized_item_is_recovered_only_by_appeal() {
     );
 }
 
+/// The band's extra round (D26, T60): four reviewers outside the first panel, judging
+/// at `prob`.
+fn extra(prob: f64) -> ExtraRound {
+    let panel: Vec<Nym> = (20..24).map(|i| Nym([i; 32])).collect();
+    let judgments = panel
+        .iter()
+        .map(|&nym| Judgment {
+            nym,
+            prob,
+            nonce: [nym.0[0]; 32],
+        })
+        .collect();
+    ExtraRound { panel, judgments }
+}
+
 #[test]
 fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
     let base = ItemVerdicts {
         gate: GateOutcome::SupplementaryReview,
         ..passing()
     };
-    // The D26 re-decision passes (re-fit S_j ≥ τ): it enters the pilot and reaches the pool.
+    // The D26 re-decision reads the extra round's reveals (T60): it passes (a re-fit
+    // S_j ≥ τ over the expanded ratings), and the item enters the pilot and the pool.
     assert_eq!(
-        run_item(
-            reviewed(),
-            &ItemVerdicts {
-                band_outcome: GateOutcome::Pass,
-                ..base
-            }
-        )
-        .unwrap(),
+        run_item(reviewed(), &base, Some(&extra(0.9)), |_| GateOutcome::Pass).unwrap(),
         State::ActivePool
     );
     // The re-decision fails as a defect: a defined borderline reject (no dead end, T10/T30).
     assert_eq!(
-        run_item(
-            reviewed(),
-            &ItemVerdicts {
-                band_outcome: GateOutcome::Reject,
-                ..base
-            }
-        )
+        run_item(reviewed(), &base, Some(&extra(0.2)), |_| {
+            GateOutcome::Reject
+        })
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
     );
@@ -311,10 +320,11 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         run_item(
             reviewed(),
             &ItemVerdicts {
-                band_outcome: GateOutcome::AppealEligible,
                 appealed: true,
                 ..base
-            }
+            },
+            Some(&extra(0.5)),
+            |_| GateOutcome::AppealEligible
         )
         .unwrap(),
         State::ActivePool
@@ -323,24 +333,69 @@ fn a_band_item_advances_only_when_the_d26_re_decision_passes() {
         run_item(
             reviewed(),
             &ItemVerdicts {
-                band_outcome: GateOutcome::AppealEligible,
                 appealed: false,
                 ..base
-            }
+            },
+            Some(&extra(0.5)),
+            |_| GateOutcome::AppealEligible
         )
         .unwrap(),
         State::Rejected(RejectReason::Polarized)
     );
     // A second band is not an outcome of a re-decision.
     assert_eq!(
-        run_item(
-            reviewed(),
-            &ItemVerdicts {
-                band_outcome: GateOutcome::SupplementaryReview,
-                ..base
-            }
-        ),
+        run_item(reviewed(), &base, Some(&extra(0.5)), |_| {
+            GateOutcome::SupplementaryReview
+        }),
         Err(Invalid::UnexpectedEvent)
+    );
+}
+
+/// The re-decision is computed on the extra round the machine walked — exactly its
+/// reveals — and never without one (T60).
+#[test]
+fn the_re_decision_reads_the_extra_round_the_machine_walked() {
+    let base = ItemVerdicts {
+        gate: GateOutcome::SupplementaryReview,
+        ..passing()
+    };
+    let round = extra(0.35);
+    let mut seen: Vec<(Nym, f64)> = Vec::new();
+    let terminal = run_item(reviewed(), &base, Some(&round), |reveals| {
+        seen = reveals.to_vec();
+        GateOutcome::Reject
+    })
+    .unwrap();
+    assert_eq!(terminal, State::Rejected(RejectReason::Borderline));
+    let expected: Vec<(Nym, f64)> = round.judgments.iter().map(|j| (j.nym, j.prob)).collect();
+    assert_eq!(seen, expected);
+
+    // No extra round: the band cannot be resolved, and the re-decision is never asked.
+    assert_eq!(
+        run_item(reviewed(), &base, None, |_| unreachable!(
+            "resolved without a round"
+        )),
+        Err(Invalid::NoExtraPanel)
+    );
+    // An extra panel that repeats a first-round reviewer is not extra evidence.
+    let mut overlapping = extra(0.9);
+    overlapping.panel[0] = panel()[0];
+    overlapping.judgments[0].nym = panel()[0];
+    assert_eq!(
+        run_item(reviewed(), &base, Some(&overlapping), |_| GateOutcome::Pass),
+        Err(Invalid::DuplicatePanelist)
+    );
+    // A partial extra round is not re-decided.
+    let mut partial = extra(0.9);
+    partial.judgments.pop();
+    assert_eq!(
+        run_item(reviewed(), &base, Some(&partial), |_| GateOutcome::Pass),
+        Err(Invalid::PartialEpoch)
+    );
+    // An item not in the band never asks for a re-decision, with or without a round.
+    assert_eq!(
+        run_item(reviewed(), &passing(), Some(&round), |_| unreachable!()).unwrap(),
+        State::ActivePool
     );
 }
 

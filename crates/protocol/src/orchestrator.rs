@@ -24,7 +24,7 @@ use crate::probation::{effective_review_weight, status, Status};
 use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
-use scoring::bridging::{Ratings, RatingsError};
+use scoring::bridging::{Obs, Ratings, RatingsError};
 use scoring::reputation::weight_cap;
 
 /// A reviewer's standing carried from the previous epoch, in the same order as the
@@ -123,10 +123,6 @@ pub struct ItemVerdicts {
     /// `reputation_covers_stake` from the two, it is never asserted by the caller (T61).
     pub author_reputation: f64,
     pub appeal_floor: f64,
-    /// D26 supplementary re-decision outcome (`gate::supplementary_review`, T10/T30/T59):
-    /// `Pass`, `AppealEligible` or `Reject`; consulted only when
-    /// `gate == SupplementaryReview`.
-    pub band_outcome: GateOutcome,
     /// Pilot stage 1 (discrimination screen) had enough distinct respondents (INV-8).
     pub enough_respondents: bool,
     /// Pilot stage 1 verdict.
@@ -181,6 +177,80 @@ pub fn review_round(
     Ok(s)
 }
 
+/// The band's extra round (D26, T60): `k_extra` reviewers outside the first panel and
+/// their blind judgments on the same item.
+#[derive(Clone, Debug)]
+pub struct ExtraRound {
+    pub panel: Vec<Nym>,
+    pub judgments: Vec<Judgment>,
+}
+
+/// Walks the band's extra round through `lifecycle::step` from `SupplementaryReview`:
+/// assign the extra panel, every judgment commits, commits close, every judgment reveals
+/// — as [`review_round`] does for the first panel. Returns the state to resolve; any
+/// invalid move (a panelist of the first round, a repeated nym, an outsider, a double
+/// commit or reveal) is the machine's rejection.
+pub fn extra_round(band: State, extra: &ExtraRound) -> Result<State, Invalid> {
+    let item = match &band {
+        State::SupplementaryReview { item, .. } => *item,
+        _ => return Err(Invalid::UnexpectedEvent),
+    };
+    let mut s = step(
+        band,
+        Event::AssignExtraReviewers {
+            panel: extra.panel.clone(),
+        },
+    )?;
+    for j in &extra.judgments {
+        let commitment = commit(j.prob, &j.nonce, j.nym, item);
+        s = step(
+            s,
+            Event::Commit {
+                nym: j.nym,
+                commitment,
+            },
+        )?;
+    }
+    s = step(s, Event::CloseCommits)?;
+    for j in &extra.judgments {
+        s = step(
+            s,
+            Event::Reveal {
+                nym: j.nym,
+                prob: j.prob,
+                nonce: j.nonce,
+            },
+        )?;
+    }
+    Ok(s)
+}
+
+/// The ratings the band re-decision fits (D26, T60): `base` — the epoch's ratings, one
+/// row per reviewer in `rows` — plus one observation of `item` per extra reveal. An extra
+/// reviewer with a row rates the item from it (their position on the axis is what they
+/// rated elsewhere); one without a row gets a new row, weighted by `weight_of_new`.
+pub fn expanded_ratings(
+    base: &Ratings,
+    rows: &[Nym],
+    item: usize,
+    reveals: &[(Nym, f64)],
+    weight_of_new: impl Fn(&Nym) -> f64,
+) -> Ratings {
+    let mut expanded = base.clone();
+    for &(nym, r) in reveals {
+        let u = match rows.iter().position(|n| *n == nym) {
+            Some(u) => u,
+            None => {
+                expanded.n += 1;
+                expanded.weights.push(weight_of_new(&nym));
+                expanded.n - 1
+            }
+        };
+        expanded.obs.push(Obs { u, j: item, r });
+    }
+    expanded
+}
+
 /// Drives one item from a scored review round to its terminal `State` via
 /// `lifecycle::step` (T12). `reviewed` is the state [`review_round`] left; scoring it is
 /// refused unless every panelist revealed. `ActivePool` means it reached the pool.
@@ -190,22 +260,43 @@ pub fn review_round(
 /// the filing left in the author's history is settled by [`settle_appeal`] on the
 /// terminal state (D27, T61).
 ///
-/// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
-/// (T10/T30, amended by T59): `band_outcome` is the outcome of
-/// `gate::supplementary_review` — a re-run bridging fit re-deciding the side-balanced
-/// score against the plain threshold — so a passing band item advances to the pilot, a
-/// polarized failing one keeps the appeal channel, and a defect is a `Borderline`
-/// reject, never a dead end.
-pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
+/// A band item is scored to `SupplementaryReview`, walks the D26 extra round `extra`
+/// ([`extra_round`]; a band item without one is refused, `NoExtraPanel`), and is resolved
+/// by `redecide`, called on the extra round's reveals as the machine recorded them, once
+/// the round is complete: the caller folds them into the epoch's ratings
+/// ([`expanded_ratings`]) and re-runs `gate::supplementary_review` — a re-run bridging
+/// fit re-deciding the side-balanced score against the plain threshold (T10/T30, amended
+/// by T59, T60) — so a passing band item advances to the pilot, a polarized failing one
+/// keeps the appeal channel, and a defect is a `Borderline` reject, never a dead end.
+pub fn run_item(
+    reviewed: State,
+    v: &ItemVerdicts,
+    extra: Option<&ExtraRound>,
+    redecide: impl FnOnce(&[(Nym, f64)]) -> GateOutcome,
+) -> Result<State, Invalid> {
     let mut s = step(reviewed, Event::Score { outcome: v.gate })?;
 
-    if matches!(s, State::SupplementaryReview) {
-        s = step(
-            s,
-            Event::Resolve {
-                outcome: v.band_outcome,
-            },
-        )?;
+    if matches!(s, State::SupplementaryReview { .. }) {
+        if let Some(extra) = extra {
+            s = extra_round(s, extra)?;
+        }
+        // The re-decision reads the round's reveals; a round the machine would refuse
+        // (no extra panel, a panelist missing) is not re-decided at all.
+        let outcome = match &s {
+            State::SupplementaryReview {
+                extra_panel,
+                reveals,
+                ..
+            } if !extra_panel.is_empty()
+                && extra_panel
+                    .iter()
+                    .all(|p| reveals.iter().any(|(n, _)| n == p)) =>
+            {
+                redecide(reveals)
+            }
+            _ => GateOutcome::Reject,
+        };
+        s = step(s, Event::Resolve { outcome })?;
     }
 
     if matches!(s, State::AppealEligible) {
