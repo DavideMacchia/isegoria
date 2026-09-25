@@ -1077,7 +1077,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-01 ✓ | own-camp boost | 40 own-camp boosters | `S_j < τ` (T49; was `b_j < τ`) | BRIDGE-003 |
 | AT-BR-02 | crossing curve | boosters 0..80 in steps of 5, ≥ 50 random selections each | crossing distribution reported with CI; docs updated | BRIDGE-005 |
 | AT-BR-03 | permutation invariance | shuffle `obs` | bit-equal after canonicalization; `\|Δb_j\| < 1e-9` without | REPRO-002 |
-| AT-BR-04 ✓ | cross-platform determinism | the golden bits (`golden.rs`) on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC — CI job `golden`, every push | bit-equal: linux-gnu dev and release and linux-musl verified on 2026-09-25 (`scoring::fmath`, the pure-Rust `libm`; on the platform libm the same golden bits moved in 96 of 118 values between glibc and musl); the CI job fails on any divergence on the five configurations | REPRO-001 |
+| AT-BR-04 ✓ | cross-platform determinism | the golden bits (`golden.rs`) on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC — CI job `golden`, every push | bit-equal on all five configurations — linux-gnu dev, release and linux-musl verified locally on 2026-09-25, macOS-aarch64 and Windows-MSVC by the CI job the same day (run 38 on master, `c6ac1fa`) (`scoring::fmath`, the pure-Rust `libm`; on the platform libm the same golden bits moved in 96 of 118 values between glibc and musl); the CI job fails on any divergence on the five configurations | REPRO-001 |
 | AT-BR-05 | seed grinding | author regenerates draft whitespace 1000× to select a panel | panel independent of draft bytes | CRYPTO-008 |
 | AT-BR-06 | commitment copying | B copies A's commitment, reveals A's opening after A | B's reveal rejected | CRYPTO-007 |
 | AT-BR-07 | faction impersonation | adversary builds `f_u` on the opposite side over `n_min` sincere ratings, then boosts | cost curve reported (this cannot be prevented; must be quantified) | §11.3 |
@@ -1281,7 +1281,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 
 | ID | Claim | Evidence (files) | Current status | Missing evidence | Required action |
 |---|---|---|---|---|---|
-| REPRO-001 | bit-for-bit across platforms and profiles | `scoring/tests/reproducibility.rs`, `golden.rs`, `scoring::fmath`, CI job `golden` | TESTED (AT-BR-04, 2026-09-25) — one process, and the golden bits equal on linux-gnu dev, linux-gnu release and linux-musl; macOS-aarch64 and Windows-MSVC checked in CI on every push | — | — |
+| REPRO-001 | bit-for-bit across platforms and profiles | `scoring/tests/reproducibility.rs`, `golden.rs`, `scoring::fmath`, CI job `golden` | TESTED (AT-BR-04, 2026-09-25) — one process, and the golden bits equal on linux-gnu dev, linux-gnu release and linux-musl; macOS-aarch64 and Windows-MSVC equal in the CI job (run 38 on master, 2026-09-25), checked on every push | — | — |
 | REPRO-002 | order-independent input | `bridging.rs` (`Ratings::canonical`), `canonical_input.rs` | TESTED (T3) — canonical `(u,j)` order; a permutation gives bit-equal `b_j` (AT-BR-03) | — | INV-13 |
 | REPRO-003 | engine = sims | `level_{a,b,c}.rs`, fixtures; `fixture_drift.rs` **fails** under numpy 2.4.4/scipy 1.17.1 (§0-ter, `fixtures/PROVENANCE.md`) | TESTED (statistic level); REPRODUCED: NO (repository guard fails) | pinned-env regeneration; verdict agreement | G-10, T4 |
 | REPRO-004 | fixture provenance | `sim/export_fixtures.py` | IMPLEMENTED | versions recorded, CI regen | AT-PRO-06 |
