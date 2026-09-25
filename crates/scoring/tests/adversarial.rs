@@ -5,7 +5,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use scoring::collusion::{cluster_by_correlation, correlation_matrix, discount_weights, ALPHA};
-use scoring::reputation::{asymmetric_ema, capped_weight, weight_cap};
+use scoring::reputation::{capped_weight, weight_cap, Cusum, CusumParams};
 
 #[test]
 fn a_cartel_cannot_outweigh_an_honest_majority() {
@@ -59,28 +59,19 @@ fn a_cartel_cannot_outweigh_an_honest_majority() {
 
 #[test]
 fn a_long_con_is_unprofitable() {
-    // Reputation rises slowly and falls fast, so accumulating trust to spend it later
-    // does not pay (docs/02 C.4).
-    let (up, down) = (0.05, 0.5);
-    let mut e = 0.5;
-    for _ in 0..15 {
-        e = asymmetric_ema(e, 1.0, up, down);
+    // A reviewer who hoards reputation and then spends it is caught by the change
+    // detector on their per-item scores (docs/01 D34, docs/02 C.4): a sustained drop of
+    // 0.1 below their own mean — what flipping a fifth of one's forecasts costs — trips
+    // the CUSUM within 22 items, and the reviewer is back on probation (weight 0).
+    let params = CusumParams::default();
+    let mut c = Cusum::new();
+    let mean = 0.01;
+    for i in 0..500 {
+        let honest = mean + if i % 2 == 0 { 0.08 } else { -0.08 };
+        assert!(!c.observe(mean, honest, &params), "false alarm at {i}");
     }
-    let peak = e;
-    assert!(
-        peak < 0.85,
-        "even 15 honest epochs should not saturate reputation: {peak:.3}"
-    );
-
-    // One betrayal erases far more than a single honest epoch ever added.
-    let after_betrayal = asymmetric_ema(peak, 0.0, up, down);
-    let one_step_gain = up * (1.0 - peak);
-    assert!(
-        (peak - after_betrayal) > 10.0 * one_step_gain,
-        "the fall ({:.3}) should dwarf a single gain ({:.4})",
-        peak - after_betrayal,
-        one_step_gain
-    );
+    let caught = (1..=100).find(|_| c.observe(mean, mean - 0.1, &params));
+    assert!(caught.is_some_and(|n| n <= 30), "caught at {caught:?}");
 
     // And even a maxed-out actor is capped at 3× the crowd median, so no single node
     // dominates the vote.

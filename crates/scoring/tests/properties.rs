@@ -12,8 +12,8 @@ use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, 
 use scoring::collusion::{correlation_matrix, discount_weights, sublinear_group_weight};
 use scoring::irt::{point_biserial, theta_from_anchors};
 use scoring::reputation::{
-    asymmetric_ema, author_score, brier_skill_score, crowd_baseline, loo_scores, odds_weight,
-    AuthorPrior, EvaluatorParams,
+    author_score, brier_skill_score, crowd_baseline, loo_scores, odds_weight, AuthorPrior, Cusum,
+    CusumParams, EvaluatorParams,
 };
 
 // ------------------------------ generators ------------------------------
@@ -222,13 +222,22 @@ proptest! {
         prop_assert_eq!(odds_weight(s, 0, &EvaluatorParams::default()), 1.0);
     }
 
-    /// The asymmetric update moves toward the new value without overshooting it.
+    /// The CUSUM statistic is never negative, never above `h` after an observation,
+    /// and a score at or above the reference never raises an alarm (D34).
     #[test]
-    fn asymmetric_ema_moves_between_old_and_new(
-        prev in 0.0f64..=1.0, new in 0.0f64..=1.0, up in 0.0f64..=1.0, down in 0.0f64..=1.0,
+    fn the_cusum_statistic_stays_in_range_and_ignores_good_scores(
+        scores in prop::collection::vec(-1.0f64..=1.0, 1..200),
+        reference in -0.2f64..=0.2,
     ) {
-        let next = asymmetric_ema(prev, new, up, down);
-        prop_assert!(next >= prev.min(new) - 1e-12 && next <= prev.max(new) + 1e-12);
+        let params = CusumParams::default();
+        let mut c = Cusum::new();
+        for &score in &scores {
+            let alarm = c.observe(reference, score, &params);
+            prop_assert!(c.statistic() >= 0.0 && c.statistic() <= params.h);
+            if score >= reference {
+                prop_assert!(!alarm, "a good score raised an alarm");
+            }
+        }
     }
 }
 

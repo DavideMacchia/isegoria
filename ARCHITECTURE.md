@@ -65,7 +65,7 @@ executable specification; the Rust implementation must reproduce their results.
 | `irt` | §B.1–B.2, B.4 | `theta_from_anchors`, `kr20` (anchor reliability, D37), `point_biserial`, `fit_2pl_item`, `A_MIN`, `R_PBIS_MIN`, `KR20_MIN` |
 | `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif::differential` is a diagnostic, D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
-| `reputation` | §C | `author_score`, `loo_scores`, `mean_score`, `odds_weight` (D33), `weight_cap`, `asymmetric_ema` (until T51), `brier_skill_score` (sim oracle only), `dasgupta_ghosh` |
+| `reputation` | §C | `author_score`, `loo_scores`, `mean_score`, `odds_weight` (D33), `Cusum` (D34), `weight_cap`, `brier_skill_score` (sim oracle only), `dasgupta_ghosh` |
 | `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
 | `glm` (private) | — | shared maximum-likelihood logistic regression |
 | `optim` (private) | §A.5 | in-house L-BFGS + numerical gradient |
@@ -166,7 +166,7 @@ steps are seeded for reproducibility.
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch`, `admit_anchors` (KR-20 floor, D37/T53) (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
-| `probation` | Cold start / P2 | `status`, `review_weight`, `effective_review_weight` (the capped odds weight, D33), `FounderSet`, `N_PROBATION` (30, D36) | `identity::nym`, `scoring::reputation` |
+| `probation` | Cold start / P2 | `status`, `review_weight`, `effective_review_weight` (the capped odds weight, D33), `SkillTrack` (the mean, the count and the CUSUM; an alarm → probation, D34), `FounderSet`, `N_PROBATION` (30, D36) | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `revalidate_batch_latent` (the gated entry: items, respondents, anchor reliability — T9/T65/T53), `items_to_retire` | `scoring::dif`, `scoring::irt`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
 | `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `epoch_weight_cap` (`3 × median` over the weights that count, D33), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
@@ -249,7 +249,8 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    (`anti_collusion.rs`) and in the T5 bridging weights.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
-   majority; a long-con's reputation rises slowly, falls fast, and is capped;
+   majority; a long con is caught by the change detector on its per-item scores and
+   sent back to probation, and any weight is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.
 6. **Golden outputs** (`scoring/tests/golden.rs`): every value `fit`, `bridge_scores`

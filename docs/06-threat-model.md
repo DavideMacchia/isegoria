@@ -12,7 +12,7 @@
 | Herding / information cascades | Commit-reveal, blind judgments, no visibility of others' votes | `05` [4] |
 | Majority capture | Bridging: the majority alone is not enough, cross-cutting approval is needed (on master the score still keeps part of the camp-size effect; corrected by the side-balanced score, D32/T49) | `02` A |
 | Coordinated cartel | Sublinear √k discount for correlated clusters (revised: residual-correlation detection and panel diversification, D39/D40) | `02` anti-collusion |
-| Long-con (reputation accumulated and spent) | `w_max` cap on the odds scale (D33, T50), continuous honeypots, asymmetric decay until the CUSUM change detector replaces it (D34, T51) | `02` C.4, `05` |
+| Long-con (reputation accumulated and spent) | the CUSUM change detector on the per-item scores sends the reviewer back to probation (D34, T51); `w_max` cap on the odds scale (D33, T50); continuous honeypots | `02` C.4, `05` |
 | Biased item passing peer review | Field-data DIF (does not depend on opinions) | `02` B.3 |
 | Vote-buying | Random assignment + no verifiable receipt | `05` [4] |
 | Author drawn onto their own item's panel | Accepted residual risk: the author's judge pseudonym is unlinkable by design, so it cannot be excluded; random assignment makes it one vote in 7–11, bridging needs agreement across camps, and honeypots measure reviewers | `05` [4], `08` §9.1 |

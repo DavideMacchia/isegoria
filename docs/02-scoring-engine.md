@@ -460,19 +460,35 @@ from the informed minority.
 
 ### C.4 Temporal dynamics and cap
 
-> **Revised by D33, D34 and D36 (T50 done; T51 next).** The cap applies on the odds
-> scale, where it binds, and probation lasts 30 scored outcomes (T50). The asymmetric
-> update below rewards copying the crowd (paper §5.5): T51 replaces it with the
-> symmetric mean of §C.2 plus a one-sided CUSUM change detector on the per-item scores
-> (alarm → probation).
+> **Revised by D33, D34 and D36 (T50, T51 — done).** The cap applies on the odds scale,
+> where it binds, probation lasts 30 scored outcomes, and the asymmetric update of the
+> first design is replaced by the symmetric mean of §C.2 plus a change detector.
 
-- *Until T51:* `E_u` rises slowly (average over a long window), falls quickly (immediate
-  reaction to failures) — meant to make the long-con attack unprofitable, but it holds
-  a cautious reviewer who beats the crowd below one who copies it.
+- **Change detector (`01` D34).** The weight reads `S_u`, the mean of the reviewer's
+  per-item scores (`probation::SkillTrack`). Against that mean, a one-sided CUSUM on the
+  per-item scores watches for a sustained *drop* — a reviewer who has built a reputation
+  and starts spending it:
+
+  ```
+  s ← max(0, s + (S_u − S_uj) − k)        alarm when s > h;   k = 0.03, h = 1.5 (provisional, T25)
+  ```
+
+  It runs only once the reviewer is out of probation (a mean over few items is no
+  reference). On an alarm the reviewer returns to probation: the mean, the count and the
+  statistic restart, so the weight is 0 until 30 new scored outcomes and shrunk again
+  afterwards. It reacts to a change, not to variance: a cautious reviewer with noisy
+  scores around a good mean raises nothing. In the paper's simulation, `k = 0.03`,
+  `h = 1.5` give 0.07 false alarms per 1,000 scored items and catch a reviewer who starts
+  flipping 20% of forecasts after a median of 36 items (`08` AT-REP-07).
 - `w_max = 3 × median(w)`, a hard cap recomputed each epoch over the reviewers who
   carry weight (founders at 1 and established reviewers at their odds weight, not
   probationers at 0; `orchestrator::epoch_weight_cap`). Limits the damage of a single
   event.
+
+*History.* Until T51 `E_u` rose slowly and fell fast (an asymmetric moving average),
+meant to make the long-con attack unprofitable. It penalized variance, not error: its
+stationary level sat far below the true mean, and a cautious reviewer who beat the crowd
+(true +0.009) was held at −0.061 while a crowd copier stayed at 0 (paper §5.5).
 
 ---
 

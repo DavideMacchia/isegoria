@@ -2,9 +2,9 @@
 //! oracle of `sim/bridging_irt_dif.py`; the author score against the docs examples.
 
 use scoring::reputation::{
-    asymmetric_ema, author_score, base_rate_baseline, brier_skill_score, capped_weight,
-    crowd_baseline, dasgupta_ghosh, loo_scores, mean_score, odds_weight, proposal_rate, weight_cap,
-    AuthorPrior, EvaluatorParams,
+    author_score, base_rate_baseline, brier_skill_score, capped_weight, crowd_baseline,
+    dasgupta_ghosh, loo_scores, mean_score, odds_weight, proposal_rate, weight_cap, AuthorPrior,
+    Cusum, CusumParams, EvaluatorParams,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -145,11 +145,24 @@ fn proposal_rate_scales_with_author_score() {
 }
 
 #[test]
-fn reputation_rises_slowly_and_falls_fast() {
-    let up = asymmetric_ema(0.5, 0.9, 0.1, 0.8);
-    let down = asymmetric_ema(0.5, 0.1, 0.1, 0.8);
-    assert!((up - 0.54).abs() < 1e-9, "slow rise: {up}");
-    assert!((down - 0.18).abs() < 1e-9, "fast fall: {down}");
+fn the_cusum_reacts_to_a_sustained_drop_not_to_variance() {
+    // D34: scores alternating ±0.3 around the reference never accumulate (each drop of
+    // 0.3 − k is undone by the rise), while a run of scores 0.1 below the reference
+    // crosses h = 1.5 after ⌈1.5 / (0.1 − 0.03)⌉ = 22 items.
+    let params = CusumParams::default();
+    let mut noisy = Cusum::new();
+    for i in 0..1000 {
+        let score = if i % 2 == 0 { 0.3 } else { -0.3 };
+        assert!(!noisy.observe(0.0, score, &params), "item {i}");
+    }
+    let mut dropped = Cusum::new();
+    let caught = (1..=100).find(|_| dropped.observe(0.0, -0.1, &params));
+    assert_eq!(caught, Some(22));
+    assert_eq!(
+        dropped.statistic(),
+        0.0,
+        "the statistic restarts after an alarm"
+    );
 }
 
 #[test]

@@ -194,13 +194,55 @@ pub fn crowd_baseline(predictions: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-// -------------------- C.4 temporal asymmetry & cap --------------------
+// -------------------- C.4 change detection & cap --------------------
 
-/// Asymmetric update: rises slowly, falls fast, so a long-con of hoarded reputation
-/// does not pay (`docs/02`, §C.4). `up` ≪ `down`.
-pub fn asymmetric_ema(prev: f64, new: f64, up: f64, down: f64) -> f64 {
-    let rate = if new >= prev { up } else { down };
-    prev + rate * (new - prev)
+/// Parameters of the one-sided CUSUM on a reviewer's per-item scores (`docs/01` D34,
+/// T51): the allowance `k` (a drop smaller than this per item is noise) and the alarm
+/// threshold `h`. At `k = 0.03`, `h = 1.5` the paper measures 0.07 false alarms per
+/// 1,000 scored items for an honest reviewer and a median delay of 36 items to catch a
+/// reviewer who starts flipping 20% of forecasts. Provisional (T25).
+#[derive(Clone, Copy, Debug)]
+pub struct CusumParams {
+    pub k: f64,
+    pub h: f64,
+}
+
+impl Default for CusumParams {
+    fn default() -> Self {
+        CusumParams { k: 0.03, h: 1.5 }
+    }
+}
+
+/// A one-sided CUSUM detecting a sustained *drop* of a reviewer's per-item scores below
+/// their own long-run mean (D34): `s ← max(0, s + (reference − score) − k)`, alarm when
+/// `s > h`, after which the statistic restarts from 0. It reacts to a change, not to
+/// variance: a cautious reviewer with noisy scores around a good mean raises nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Cusum {
+    s: f64,
+}
+
+impl Cusum {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feeds one per-item `score` against the reviewer's `reference` mean; `true` on an
+    /// alarm (the statistic is reset).
+    pub fn observe(&mut self, reference: f64, score: f64, params: &CusumParams) -> bool {
+        self.s = (self.s + (reference - score) - params.k).max(0.0);
+        if self.s > params.h {
+            self.s = 0.0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The current statistic, for diagnostics.
+    pub fn statistic(&self) -> f64 {
+        self.s
+    }
 }
 
 /// Hard per-node weight cap `3 × median(weights)` (`docs/02`, §C.4), recomputed each

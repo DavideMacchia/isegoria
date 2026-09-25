@@ -551,6 +551,15 @@ the reviewer being scored.
 
 ## D34 — Reputation dynamics: long-window mean plus a change detector
 
+> **Implemented (2026-09-25, T51):** `reputation::{Cusum, CusumParams}` (`k = 0.03`,
+> `h = 1.5`, provisional) and `probation::SkillTrack` — the running mean of the per-item
+> scores is the weight's `S_u`, the CUSUM reads each score against that mean once the
+> reviewer is out of probation, and an alarm restarts the track (probation, weight 0).
+> `asymmetric_ema` is removed. AT-REP-07 passes (`change_detector.rs`): at most one alarm
+> on a seeded honest stream of 10,000 items; a reviewer who starts flipping 20% of
+> forecasts is caught within 100 items on nine of ten seeds (median 25; the tenth after
+> 356 — at `k = 0.03` the drift is small and the tail long, a T25 calibration item).
+
 **Choice.** The score used for the weights is a symmetric long-window mean of the
 per-item scores. The fast fall of the asymmetric update is replaced by a one-sided CUSUM
 on each reviewer's per-item scores, measured against the reviewer's own long-run mean.
