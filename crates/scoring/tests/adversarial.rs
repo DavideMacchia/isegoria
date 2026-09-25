@@ -7,11 +7,10 @@ use rand_chacha::ChaCha8Rng;
 use scoring::collusion::{cluster_by_correlation, correlation_matrix, discount_weights, ALPHA};
 use scoring::reputation::{capped_weight, weight_cap, Cusum, CusumParams};
 
+/// A cartel of 400 identical votes cannot outweigh 120 independent honest reviewers:
+/// correlation clustering finds the block and the √k discount collapses its influence.
 #[test]
 fn a_cartel_cannot_outweigh_an_honest_majority() {
-    // 120 honest reviewers with independent behavior, and a cartel of 400 that all
-    // vote identically to seize control. Behavior correlation detects the cartel as a
-    // single block and the √k discount collapses its influence.
     let m = 24;
     let mut rng = ChaCha8Rng::seed_from_u64(1);
     let mut judgments: Vec<Vec<f64>> = Vec::new();
@@ -57,12 +56,11 @@ fn a_cartel_cannot_outweigh_an_honest_majority() {
     );
 }
 
+/// A reviewer who hoards reputation and spends it is caught by the CUSUM change detector
+/// (`docs/01` D34, `docs/02` §C.4): a sustained drop trips it and the reviewer returns to
+/// probation.
 #[test]
 fn a_long_con_is_unprofitable() {
-    // A reviewer who hoards reputation and then spends it is caught by the change
-    // detector on their per-item scores (docs/01 D34, docs/02 C.4): a sustained drop of
-    // 0.1 below their own mean — what flipping a fifth of one's forecasts costs — trips
-    // the CUSUM within 22 items, and the reviewer is back on probation (weight 0).
     let params = CusumParams::default();
     let mut c = Cusum::new();
     let mean = 0.01;

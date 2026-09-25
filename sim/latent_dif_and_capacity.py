@@ -67,9 +67,7 @@ for nb in [1, 2, 3, 5, 8]:
     verdict = "DETECTED" if bic > 0 and dh > .35 else "invisible"
     print(f"{nb:>10}/{K}{dh:>26.2f}{dc:>12.2f}{bic:>10.0f}{corr:>13.2f}   {verdict}")
 
-# ----------------------------------------------------------------------
-# REVIEW CAPACITY: how many questions per month a node can propose
-# ----------------------------------------------------------------------
+# ---- REVIEW CAPACITY: how many questions per month a node can propose ----
 print("\n" + "="*76)
 print("SUSTAINABLE PROPOSAL QUOTA")
 print("="*76)

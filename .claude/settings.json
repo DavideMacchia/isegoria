@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/scripts/comment_budget.py\" --hook",
+            "timeout": 30,
+            "statusMessage": "Checking the comment budget"
+          }
+        ]
+      }
+    ]
+  }
+}

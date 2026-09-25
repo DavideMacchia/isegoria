@@ -273,8 +273,9 @@ cargo clippy --workspace --all-targets
 cargo llvm-cov --workspace --summary-only   # line coverage (~97%); needs cargo-llvm-cov
 ```
 
-CI runs fmt, clippy (`-D warnings`), the full test suite, and coverage on every push
-and pull request (`.github/workflows/ci.yml`).
+CI runs the comment budget (`scripts/comment_budget.py`, see `docs/CLAUDE.md`), fmt,
+clippy (`-D warnings`), the full test suite, and coverage on every push and pull request
+(`.github/workflows/ci.yml`).
 
 The scoring tests run against **fixtures exported from the Python simulations** in
 [`sim/`](sim/): the Rust engine must reproduce the simulations' results on the same

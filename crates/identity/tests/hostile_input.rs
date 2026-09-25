@@ -1,7 +1,6 @@
-//! No panic on hostile input (T44): enrollment of arbitrary codice-fiscale strings
-//! through every oracle, and the OPRF wire messages decoded from arbitrary bytes. The
-//! `fuzz/` targets explore the same entry points for longer on a nightly toolchain;
-//! these properties keep them covered on every push.
+//! No panic on hostile input: enrollment of arbitrary codice-fiscale strings through
+//! every oracle, and OPRF wire messages decoded from arbitrary bytes. The `fuzz/`
+//! targets explore the same entry points for longer, on a nightly toolchain.
 
 use identity::enrollment::{
     Cie, DuplicateEnrollment, EnrollmentRegistry, ReferenceOracle, Spid, UniquenessOracle,

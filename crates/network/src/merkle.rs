@@ -12,10 +12,9 @@ fn node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     tagged("isegoria/merkle/node", &[left, right])
 }
 
-/// Hashes one level into the next, RFC 6962 style: pairs are hashed, and a lone
-/// odd node is *promoted* (carried up unchanged) rather than paired with itself.
-/// Self-pairing (`node(z, z)`) makes `[x, y, z]` and `[x, y, z, z]` share a root
-/// (CVE-2012-2459): the root fails to commit to the leaf count. Promotion avoids it.
+/// Hashes one level into the next, RFC 6962 style: pairs are hashed, and a lone odd node
+/// is *promoted* (carried up unchanged) rather than paired with itself. Self-pairing would
+/// let `[x, y, z]` and `[x, y, z, z]` share a root (CVE-2012-2459).
 fn next_level(level: &[[u8; 32]]) -> Vec<[u8; 32]> {
     let mut next = Vec::with_capacity(level.len().div_ceil(2));
     for pair in level.chunks(2) {
@@ -46,9 +45,8 @@ pub struct MerkleProof {
     pub siblings: Vec<(bool, [u8; 32])>, // (sibling_is_right, hash)
 }
 
-/// The inclusion proof for `leaves[index]`, or `None` if there is no such leaf. The index
-/// may come from whoever asks for a proof, so an out-of-range one is refused rather than
-/// indexed (it used to panic, or silently yield a proof for no leaf; T44).
+/// The inclusion proof for `leaves[index]`, or `None` if there is no such leaf: an
+/// out-of-range index is refused rather than indexed.
 pub fn merkle_proof(leaves: &[[u8; 32]], mut index: usize) -> Option<MerkleProof> {
     if index >= leaves.len() {
         return None;

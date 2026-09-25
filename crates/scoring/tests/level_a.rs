@@ -1,9 +1,5 @@
 //! Level A acceptance tests, run on the same dataset as `sim/bridging_irt_dif.py`
-//! (exported by `sim/export_fixtures.py`). Oracle: μ=0.7551, |corr(axis)|=0.9898,
-//! b_j=[0.108, 0.081, -0.117, 0.092, 0.105, 0.080, 0.084, -0.155, -0.262, -0.020]; the
-//! side-balanced score (D32, T49) S_j=[0.862, 0.835, 0.569, 0.841, 0.858, 0.835, 0.839,
-//! 0.527, 0.562, 0.705] with side gaps [0.01, 0.02, 0.67, 0.06, 0.02, 0.01, 0.00, 0.71,
-//! 0.67, 0.30]; sides of 80 (camp A) and 120 (camp B) reviewers.
+//! (exported by `sim/export_fixtures.py`), checked against its oracle output.
 
 use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, Ratings, Side};
 use scoring::Convergence;
@@ -99,8 +95,8 @@ fn fit_reproduces_oracle_on_identical_dataset() {
     let corr = pearson_abs(&true_f, &f.f_u);
     assert!(corr > 0.98, "axis recovery |corr| = {:.4}", corr);
 
-    // Half the gate's uncertainty band ε = 0.008: a fit error the tolerance hid could
-    // flip an item across τ (T41). Rust and SciPy agree to ~0.002 today.
+    // Tolerance below half the gate's band (`protocol::gate::EPS`), so a hidden fit error
+    // cannot move an item across τ.
     for (j, bj_exp) in expected.iter().enumerate() {
         assert!(
             (f.b_j[j] - bj_exp).abs() < 0.004,
@@ -110,10 +106,8 @@ fn fit_reproduces_oracle_on_identical_dataset() {
         );
     }
 
-    // The side-balanced score (D32, T49): averages of the same predictions over the two
-    // sides, so the fit's agreement carries over. The oracle's side 0 is whichever side
-    // its (sign-arbitrary) fit put at the low end of the axis, so the two side means are
-    // compared as an unordered pair.
+    // The oracle's side 0 is whichever side its sign-arbitrary fit put low, so the two
+    // side means are compared as an unordered pair (D32).
     let sides = side_balanced(&f);
     let (exp_a, exp_b) = (read_expected(6), read_expected(7));
     let (exp_score, exp_gap) = (read_expected(8), read_expected(9));
@@ -144,7 +138,6 @@ fn fit_reproduces_oracle_on_identical_dataset() {
             exp_gap[j]
         );
     }
-    // 2-means separates the two camps exactly: 80 reviewers on one side, 120 on the other.
     let n_a = sides.side.iter().filter(|s| **s == Side::A).count();
     assert!(
         (n_a, data.n - n_a) == (80, 120) || (n_a, data.n - n_a) == (120, 80),
@@ -220,7 +213,7 @@ fn bootstrap_min_is_pessimistic() {
         );
     }
     // "≤ full" holds trivially if the minimum is never updated (it starts at the full
-    // fit): the subsamples must actually pull some scores down (T41).
+    // fit): the subsamples must actually pull some scores down.
     let lowered = (0..bridge.robust.len())
         .filter(|&j| bridge.robust[j] < full.score[j] - 1e-4)
         .count();
@@ -244,11 +237,10 @@ fn bootstrap_min_is_pessimistic() {
     }
 }
 
+/// Corner case (`docs/06`): raising a partisan item's score requires corrupting the
+/// opposing field; the score rises monotonically with the opposing-field count.
 #[test]
 fn corner_case_bipartisan_corruption_cost() {
-    // docs/06: with bridging, pushing a partisan item (idx 7) requires corrupting
-    // the OPPOSING field. The score must rise monotonically with the opposing-field
-    // count — and only the opposing field can lift the side that dislikes the item.
     let base = load_ratings();
     let true_f = read_vector("true_f.csv");
     let field_b: Vec<usize> = (0..base.n).filter(|&u| true_f[u] > 0.0).collect();
@@ -296,7 +288,7 @@ fn an_empty_rating_matrix_has_no_reviewers_items_or_observations() {
     assert!(data.weights.is_empty());
 }
 
-/// T48: the verdict does not depend on the seed. With the default multi-start, fits from
+/// The verdict does not depend on the seed: with the default multi-start, fits from
 /// disjoint seed sets agree on every `b_j` to 1e-4 and on the sign convention of `f`.
 #[test]
 fn bridging_scores_do_not_depend_on_the_seed() {
@@ -336,9 +328,8 @@ fn bridging_scores_do_not_depend_on_the_seed() {
     }
 }
 
-/// Why T48 needed the multi-start: on this very dataset a single start from seed 5 stops
-/// in a worse local minimum (objective ~4× the best) that makes item 08 bridge
-/// (`b_j` ≈ 1.08 instead of −0.26). The default fit from the same seed does not.
+/// Why the multi-start matters: from seed 5, a single start lands in a worse local
+/// minimum that makes item 8 bridge (`b_j > 0`); the default multi-start does not.
 #[test]
 fn a_single_start_can_land_in_a_worse_minimum() {
     let data = load_ratings();

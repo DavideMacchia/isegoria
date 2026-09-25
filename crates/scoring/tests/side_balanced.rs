@@ -1,6 +1,6 @@
-//! The side-balanced bridge score is neutral to camp size and to the batch (D32, T49;
-//! `docs/08` AT-BR-08, AT-BR-09; paper §3.3–3.4 and §7.1). Both properties fail on the
-//! item intercept the gate used to read, and each test shows that too.
+//! The side-balanced bridge score is neutral to camp size and to the batch; the plain
+//! item intercept is not, and each test checks that contrast too (D32; `docs/08`
+//! AT-BR-08, AT-BR-09; paper §3.3–3.4, §7.1).
 
 use rand::Rng;
 use rand::SeedableRng;
@@ -18,11 +18,8 @@ fn normal(rng: &mut ChaCha8Rng) -> f64 {
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 
-/// The paper's mirror design (`paper/scripts/common.py::mirror_design`): two camps at
-/// positions −1 and +1 (sd 0.25), camp B holding `share_b` of the `n` reviewers;
-/// `m_consensus` items of quality 0.82–0.88 with no lean and `m_partisan` items of
-/// quality 0.55 in mirror pairs (lean +0.8 / −0.8); each reviewer rates nine items;
-/// `r = clip(q + 0.45·f·lean + severity + noise)`. Returns the ratings and the leans.
+/// The paper's mirror design (`paper/scripts/common.py::mirror_design`). Returns the
+/// ratings and the leans.
 fn mirror_design(
     n: usize,
     share_b: f64,
@@ -75,10 +72,8 @@ fn mirror_design(
     (Ratings::from_dense(&r, &mask), lean)
 }
 
-/// The majoritarian leak of a score on a mirror design (paper §3.4): the mean score of
-/// the majority's partisan items minus the minority's, over the gap
-/// `2·(2·share − 1)·0.36` between the camp-size-weighted and the camp-balanced approval.
-/// 1 is majority rule, 0 is camp balance.
+/// The majoritarian leak of a score on a mirror design (paper §3.4): 1 means majority
+/// rule, 0 means camp balance.
 fn leak(scores: &[f64], lean: &[f64], share_b: f64) -> f64 {
     let mean = |sign: f64| {
         let v: Vec<f64> = scores
@@ -117,12 +112,9 @@ fn fixture() -> (Vec<Vec<f64>>, Vec<Vec<bool>>) {
 
 // -------------------------------- AT-BR-08 --------------------------------
 
-/// The leak of the side-balanced score stays within 0.1 of camp balance with 60/40 and
-/// 80/20 camps from 200 to 3,200 reviewers, where the intercept leaks 0.5–0.9 of the
-/// camp-size effect (paper Table 3 and Table 7). With 50–100 reviewers — about four to
-/// nine minority ratings per item — the fit shrinks `f` and part of the camp effect stays
-/// in the predictions: the leak is then noisy (measured mean 0.13 at 50, 0.09 at 100 over
-/// six to eight datasets, single datasets up to 0.4), still a fraction of the intercept's.
+/// AT-BR-08: the side-balanced leak stays within 0.1 of camp balance at 60/40 and 80/20
+/// from 200 to 3,200 reviewers; at 50–100 reviewers it stays under 0.2 and under a third
+/// of the intercept's leak.
 #[test]
 fn at_br_08_the_score_is_neutral_to_camp_size() {
     let p = BridgingParams::default();
@@ -150,7 +142,6 @@ fn at_br_08_the_score_is_neutral_to_camp_size() {
             );
         }
     }
-    // Small samples: a residual leak, well below the intercept's.
     for n in [50usize, 100] {
         let seeds = 6u64;
         let (mut leak_side, mut leak_intercept) = (0.0, 0.0);
@@ -167,16 +158,9 @@ fn at_br_08_the_score_is_neutral_to_camp_size() {
     }
 }
 
-/// The third review's dataset — two mirror-image partisan items and eight consensual
-/// ones, 200 reviewers — at every camp ratio from 50/50 to 95/5, in both orientations.
-/// The two mirror items differ by about 0.02 at 50/50 already (their own noise), so the
-/// camp-size effect is the excess over that baseline: for the side-balanced score it stays
-/// within 0.1 of the camp-size-weighted gap at every ratio, for the intercept it is 0.7–0.9
-/// (the review measured intercept gaps of 0.00 / 0.11 / 0.35 / 0.56 at 50/50, 60/40,
-/// 80/20, 95/5). Neither mirror item passes at any ratio, both are polarized, and the
-/// consensus items pass — at 95/5, where the minority side is ten reviewers and its mean
-/// prediction is noisy, one of the eight fell to 0.78 (a measured limit, `docs/02` §A.3),
-/// so there at most one may miss and none falls below 0.75.
+/// AT-BR-08: from 50/50 to 95/5 camps, the mirror items stay polarized and fail while
+/// the eight consensus items score at least 0.75 (at most one miss at 95/5); the
+/// side-balanced leak of the mirror gap stays within 0.1, the intercept's over 0.5.
 #[test]
 fn at_br_08_mirror_items_get_the_same_verdict_whatever_the_camp_sizes() {
     let p = BridgingParams::default();
@@ -237,10 +221,9 @@ fn at_br_08_mirror_items_get_the_same_verdict_whatever_the_camp_sizes() {
 
 // -------------------------------- AT-BR-09 --------------------------------
 
-/// Ten weak decoy items (approval ≈ 0.3, no lean) added to the reference batch move no
-/// other item's score by more than 0.02 and change no verdict; the six consensus items
-/// scored alone stay within 0.02 as well. The intercept, relative to its batch, moves by
-/// more than 0.1 next to the decoys (paper Table 8: from about +0.09 to +0.32).
+/// AT-BR-09: ten weak decoy items move no score by more than 0.02 and change no verdict;
+/// six consensus items scored alone stay within 0.02 too. The intercept moves by more
+/// than 0.1 next to the decoys.
 #[test]
 fn at_br_09_decoys_and_the_batch_do_not_move_the_score() {
     let (r, mask) = fixture();

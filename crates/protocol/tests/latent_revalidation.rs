@@ -1,10 +1,6 @@
 //! The production latent re-check reads the quantity `docs/02` §B.3 specifies and acts
-//! only on a trustworthy fit (T35, `docs/08` DIF-006).
-//!
-//! - `dif` is the b-gap `|b⁺ − b⁻| = 2|δ|`, not the half-gap the code used to threshold;
-//! - a fit that did not converge, or for which the BIC selects one class, flags nothing;
-//! - the threshold is the provisional 1.0 on the b-gap: the literature 0.5 would retire
-//!   every clean item of the one-biased-item fixture.
+//! only on a trustworthy fit (T35, `docs/08` DIF-006): a fit that did not converge, or
+//! for which the BIC selects one class, flags nothing.
 
 use protocol::revalidation::{latent_flags, revalidate_pool_latent};
 use scoring::dif::{mixture_dif, MixtureDif, MIXTURE_DIF_MAX};
@@ -109,10 +105,7 @@ fn the_reported_gap_is_twice_the_class_shift() {
     );
 }
 
-/// Why the threshold is provisional. On the one-biased-item fixture the mixture still
-/// prefers two classes (BIC > 0) and every item's gap sits in 0.5–1.0: the literature
-/// cut-off would retire all eight, seven of them clean. The stated 1.0 retires none —
-/// the lone biased item stays invisible (INV-8), which is the documented limit.
+/// INV-8: the lone biased item stays invisible behind the provisional threshold.
 #[test]
 fn the_literature_threshold_would_retire_every_item_of_the_single_bias_fixture() {
     let theta = read_vector("mixture_single_theta.csv");

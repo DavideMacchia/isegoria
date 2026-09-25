@@ -1,11 +1,5 @@
-//! Property tests for the scoring engine (T42, scoring half): invariants that must hold
-//! for *any* input, not only the fixture datasets. Bridging runs on small random rating
-//! matrices, so each case fits in milliseconds.
-//!
-//! Not stated as a property: "raising every rating of an item never lowers its `b_j`".
-//! The bridging objective can have several local minima of different depth, and a
-//! seeded single start may land in either; monotonicity then fails for reasons that are
-//! about the start point, not the model (`docs/10` T40).
+//! Property tests for the scoring engine (`docs/02`): invariants that must hold for any
+//! input, not only the fixture datasets.
 
 use proptest::prelude::*;
 use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, Ratings};
@@ -18,8 +12,6 @@ use scoring::reputation::{
 
 // ------------------------------ generators ------------------------------
 
-/// A ratings set: `n` reviewers × `m` items, ratings in [0, 1], ~80% observed, and
-/// per-reviewer weights in [0.2, 2].
 fn ratings() -> impl Strategy<Value = Ratings> {
     (3usize..10, 2usize..6).prop_flat_map(|(n, m)| {
         (
@@ -60,7 +52,6 @@ proptest! {
     #[test]
     fn bridging_is_invariant_to_observation_order(data in ratings(), key in any::<u64>()) {
         let mut shuffled = data.clone();
-        // A deterministic permutation driven by `key`.
         shuffled.obs.sort_by_key(|o: &Obs| {
             (o.u as u64 ^ key).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (o.j as u64)
         });
@@ -68,8 +59,8 @@ proptest! {
         prop_assert!(same_fit(&fit(&data, &p).unwrap(), &fit(&shuffled, &p).unwrap()));
     }
 
-    /// Weight 0 (probation) means absent: zeroing a reviewer's weight gives exactly the
-    /// fit obtained by deleting their ratings — including the start point (T42).
+/// Weight 0 (probation) means absent: zeroing a reviewer's weight matches deleting
+/// their ratings, including the start point.
     #[test]
     fn a_zero_weight_reviewer_is_the_same_as_an_absent_one(
         data in ratings(),
@@ -95,8 +86,8 @@ proptest! {
         }
     }
 
-    /// `f` is returned in a canonical sign (T48): its largest-magnitude item loading is
-    /// non-negative, so draws that order reviewers by `f_u` do not flip with the start.
+/// `f` is returned in a canonical sign: its largest-magnitude item loading is
+/// non-negative, so draws that order reviewers by `f_u` do not flip with the start.
     #[test]
     fn the_latent_axis_has_a_canonical_sign(data in ratings()) {
         let f = fit(&data, &BridgingParams::default()).unwrap();
@@ -104,8 +95,7 @@ proptest! {
         prop_assert!(lead >= 0.0, "leading f_j = {lead}");
     }
 
-    /// The robust score is pessimistic: never above the full-data fit's side-balanced
-    /// score, which travels with it.
+    /// The robust score is pessimistic: never above the full-data fit's side-balanced score.
     #[test]
     fn the_bootstrap_minimum_never_exceeds_the_full_fit(data in ratings()) {
         let p = BridgingParams::default();
@@ -117,8 +107,8 @@ proptest! {
         }
     }
 
-    /// The side-balanced score is symmetric in the sign of `f` (D32): negating the axis
-    /// swaps the two sides and leaves the score and the gap bit for bit (T49).
+/// The side-balanced score is symmetric in the sign of `f` (D32): negating the axis
+/// swaps the two sides and leaves the score and the gap bit for bit.
     #[test]
     fn the_side_balanced_score_is_symmetric_in_the_sign_of_f(data in ratings()) {
         let f = fit(&data, &BridgingParams::default()).unwrap();
@@ -137,8 +127,7 @@ proptest! {
 // ------------------------------- Level C -------------------------------
 
 proptest! {
-    /// `C_a` is a posterior mean with a Beta(2, 3) prior: always strictly inside (0, 1)
-    /// for qualities in [0, 1], and never lowered by a better item.
+/// `C_a` is a posterior mean, always strictly inside (0, 1), and never lowered by a better item.
     #[test]
     fn author_score_is_a_probability_and_rewards_quality(
         items in prop::collection::vec((0.0f64..=1.0, 0.0f64..120.0), 0..12),
@@ -173,8 +162,8 @@ proptest! {
         }
     }
 
-    /// The retired skill score is capped at 1 (a perfect predictor) and a predictor equal
-    /// to the baseline scores exactly 0 (its sim-reproduction role, REPUTATION-002).
+/// The Brier skill score is capped at 1 (a perfect predictor); the baseline scores
+/// exactly 0 (REPUTATION-002).
     #[test]
     fn brier_skill_is_at_most_one_and_zero_for_the_baseline(
         cases in prop::collection::vec((0.0f64..=1.0, 0.0f64..=1.0, prop::bool::ANY), 1..20),
@@ -187,9 +176,8 @@ proptest! {
         prop_assert_eq!(brier_skill_score(&base, &o, &base), 0.0);
     }
 
-    /// The leave-one-out difference score is bounded by 1 in absolute value per item, a
-    /// reviewer who forecasts the others' mean scores exactly 0, and the odds weight is
-    /// finite and positive, exactly 1 with nothing scored (D33).
+/// The leave-one-out score is bounded by 1 per item; a reviewer matching the others'
+/// mean scores 0, and the odds weight is finite, positive, and 1 with nothing scored (D33).
     #[test]
     fn loo_scores_are_bounded_and_the_odds_weight_is_positive(
         rows in (2usize..8, 1usize..5).prop_flat_map(|(n, m)| (
@@ -222,8 +210,7 @@ proptest! {
         prop_assert_eq!(odds_weight(s, 0, &EvaluatorParams::default()), 1.0);
     }
 
-    /// The CUSUM statistic is never negative, never above `h` after an observation,
-    /// and a score at or above the reference never raises an alarm (D34).
+    /// The CUSUM stays in `[0, h]`; a score at or above the reference never alarms (D34).
     #[test]
     fn the_cusum_statistic_stays_in_range_and_ignores_good_scores(
         scores in prop::collection::vec(-1.0f64..=1.0, 1..200),

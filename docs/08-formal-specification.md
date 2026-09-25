@@ -86,7 +86,8 @@ status; what the repository changed after the paper's snapshot is listed in
 - **DIF-010 — Error in the ability proxy creates latent classes.** Given the anchor total,
   trial items are positively dependent even without DIF (paper Prop 10); on null batches
   at N = 6,000 the production detector flags clean items with 10 or 20 anchors (KR-20
-  0.69 / 0.82) and passes at 30 (0.87) by 0.01–0.06. The differential gap is no remedy on
+  0.69 / 0.82; spurious gaps of 1.04–1.16 across the paper's four seeds, one to three
+  clean items flagged) and passes at 30 (0.87) by 0.01–0.06. The differential gap is no remedy on
   its own: with 6 of 8 items biased it inverts the verdict. Status: **PARTLY RESOLVED** —
   the precondition is enforced (T53, 2026-09-25): `pilot::admit_anchors` refuses the
   latent re-check when the anchors' KR-20 on the batch's respondents (`irt::kr20`) is
@@ -540,7 +541,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### REPUTATION-004 — Reputation dynamics (was: temporal asymmetry)
 - **Claim (D34, T51).** The weight reads the symmetric mean of the per-item scores; a one-sided CUSUM on the per-item scores against the reviewer's own mean, `s ← max(0, s + (S_u − S_uj) − k)`, alarm at `s > h` (`k = 0.03`, `h = 1.5`, provisional), returns the reviewer to probation.
-- **Evidence.** `reputation::{Cusum, CusumParams}`, `probation::SkillTrack` (runs the detector only out of probation; an alarm restarts the mean, the count and the statistic). `change_detector.rs` (AT-REP-07): a seeded honest stream of 10,000 items (the paper's `panel_bias` regime) raises at most one alarm; a reviewer who starts flipping 20% of forecasts after 300 honest items is caught within 100 items on nine of ten seeds (median 25, the paper's 36; the tenth after 356 — the drift at `k = 0.03` is about 0.01 per item, so detection is noise-driven and the tail is long), is back on probation (weight 0) and established again after 30 honest outcomes. `level_c.rs`: alternating ±0.3 scores never alarm, a drop of 0.1 alarms at item 22. `adversarial.rs::a_long_con_is_unprofitable` reworked on the detector.
+- **Evidence.** `reputation::{Cusum, CusumParams}`, `probation::SkillTrack` (runs the detector only out of probation; an alarm restarts the mean, the count and the statistic). `change_detector.rs` (AT-REP-07): a seeded honest stream of 10,000 items (the paper's `panel_bias` regime) raises at most one alarm; a reviewer who starts flipping 20% of forecasts after 300 honest items is caught within 100 items on nine of ten seeds (median 25, the paper's 36; the tenth after 356 — the drift at `k = 0.03` is about 0.01 per item, so detection is noise-driven and the tail is long), is back on probation (weight 0) and established again after 30 honest outcomes. `level_c.rs`: alternating ±0.3 scores never alarm, a drop of 0.1 alarms at item 22. `adversarial.rs::a_long_con_is_unprofitable` reworked on the detector: a sustained drop of 0.1 below the reviewer's own mean trips the CUSUM within 22 items.
 - **Analysis (history).** `asymmetric_ema` with caller-supplied `(up, down)` penalized variance, not error: its stationary level sat far below the true mean (paper §5.5). Removed in T51.
 - **Evidence status.** IMPLEMENTED, TESTED (D34, 2026-09-25); `k`, `h` provisional (T25); the game-theoretic incentive claim (AT-REP-01) is still a HYPOTHESIS.
 

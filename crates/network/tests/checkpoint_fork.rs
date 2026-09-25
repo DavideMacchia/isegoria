@@ -1,8 +1,6 @@
-//! A higher checkpoint must extend the trusted one (T38, NET-006 residual). With only
-//! checkpoints, a threshold-signed checkpoint at a greater height on a *different*
-//! history is indistinguishable from an extension and `ingest` accepts it. A client that
-//! holds the log uses `ingest_with_log`, which checks both heads against its log
-//! (`log::verify_extends`, T14) and reports the divergence as `Forked`.
+//! A higher checkpoint must extend the trusted one (NET-006 residual): checkpoints alone
+//! cannot tell a threshold-signed one on a *different* history from an extension.
+//! `ingest_with_log` checks both heads against the log and reports the divergence as `Forked`.
 
 use network::cid::cid;
 use network::consortium::{
@@ -124,10 +122,8 @@ fn a_log_that_has_not_caught_up_defers_rather_than_decides() {
     );
 }
 
-/// A local log shorter than the *trusted* checkpoint has not caught up; nothing shows it
-/// left the trusted history. Found by the T43 model: after trusting a checkpoint without
-/// the log (or on first use), a log that was an honest prefix of it was reported as
-/// `LocalLogDiverged` — the local copy at fault — instead of `LogBehind`.
+/// A local log shorter than the trusted checkpoint hasn't caught up (not diverged):
+/// nothing shows it left the trusted history.
 #[test]
 fn a_local_log_behind_the_trusted_checkpoint_is_behind_not_diverged() {
     let (members, msh, mut client) = trusting_prefix();
@@ -153,9 +149,8 @@ fn a_local_log_behind_the_trusted_checkpoint_is_behind_not_diverged() {
 fn a_local_log_that_left_the_trusted_history_is_its_own_fault() {
     let (members, msh, mut client) = trusting_prefix();
     let (_, _, fork) = histories();
-    // The client's own copy is the rewritten one; the incoming checkpoint is the same
-    // rewritten history, so it "extends" the log — but the log no longer extends what
-    // the client trusts.
+    // The client's own copy is the rewritten history: it "extends" the incoming checkpoint
+    // but no longer extends what the client trusts.
     let (cp_fork, s_fork) = signed(&members, msh, &fork);
     assert_eq!(
         client.ingest_with_log(&cp_fork, &s_fork, &fork),

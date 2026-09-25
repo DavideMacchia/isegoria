@@ -1,13 +1,6 @@
-//! End-to-end lifecycle walk over the ten civic items of the oracle fixtures,
-//! exercising all four crates together: a unique author enrolls (`identity`), drafts
-//! are content-addressed onto the transparency log (`network`), Level A bridging
-//! gates them and Level B pilots decide (`scoring`), orchestrated by `protocol`.
-//!
-//! The load-bearing claim is that each item is stopped at the RIGHT stage:
-//! - the ESM item (DIF) passes bridging and dies in the pilot's DIF stage, not in review;
-//! - "capital of Italy" (no discrimination) dies in the pilot's screen;
-//! - a true-but-divisive item, wrongly rejected by bridging for polarization, is
-//!   recovered through the appeal channel because the evidence vindicates it.
+//! End-to-end lifecycle walk over the ten civic items of the oracle fixtures, exercising
+//! all four crates together (`identity`, `network`, `scoring`, `protocol`): each item must
+//! be stopped at the right stage, or reach the pool.
 
 // Identity enrollment, the transparency log and deposit are exercised only by the
 // full-epoch walk, which is calibration-only (its DIF stage is Variant 1, docs/01 D20).
@@ -60,10 +53,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-// Items that reach the pool under the docs-faithful retention criteria (both
-// r_pbis >= 0.20 AND 2PL a >= 0.6): 01 and 07 (0-indexed 0 and 6).
-// The full-epoch expectations below are exercised only by the calibration-mode tests
-// (the attribute-DIF stage is Variant 1, docs/01 D20), so they are gated with them.
+/// Items reaching the pool under the retention criteria of `docs/02` §B.2.
 #[cfg(feature = "calibration")]
 const EXPECTED_POOL: [usize; 2] = [0, 6];
 #[cfg(feature = "calibration")]
@@ -106,14 +96,9 @@ fn load_ratings() -> Ratings {
     Ratings::from_dense(&r, &mask)
 }
 
-/// Runs the pipeline; `appeals` is the set of item indices whose author appeals a
-/// polarization rejection to the evidence filter. Returns the pool (item indices).
-///
-/// Calibration-only: the DIF stage is `stage2_dif` (Variant 1, docs/01 D20), which a
-/// production build does not compile. In production the pilot has no attribute-DIF
-/// stage; a lone ESM item like this fixture's is caught only by the batched latent
-/// re-validation (`revalidate_pool_latent`, exercised by `pool_revalidation_flags_latent_bias`).
-/// Returns the pool and the author's reputation after the epoch (appeals settled, D27).
+/// Runs the pipeline for one epoch. `appeals`: item indices whose author appeals a
+/// polarization rejection; `explored`: gate rejections drawn for exploration (D35).
+/// Returns the pool, the author's reputation after the epoch, and the false-negative tally.
 #[cfg(feature = "calibration")]
 fn run_epoch(
     appeals: &BTreeSet<usize>,
@@ -143,18 +128,16 @@ fn run_epoch(
         Err(DuplicateEnrollment),
         "same person cannot enroll twice, even via another source"
     );
-    // The author holds a committee-issued credential; each deposit proves a `Propose`
-    // nullifier bound to that draft and this epoch (INV-9, T6/T64) — a bare pseudonym
-    // cannot propose, and a proof does not outlive its epoch.
+    // Each deposit proves a `Propose` nullifier bound to the draft and epoch (INV-9): a
+    // bare pseudonym cannot propose, and the proof does not outlive its epoch.
     const EPOCH: u64 = 1;
     let issuer = Issuer::new([1u8; 32]);
     let author = Credential::from_secret([42u8; 32]);
     let (req, pending) = author.request_issuance(&Label([3u8; 32]), &issuer.public());
     let author_cred = pending.finalize(issuer.issue(&req).unwrap());
 
-    // --- network: deposit the ten drafts onto the tamper-evident log, identity-gated
-    // and rate-limited (INV-9/ID-008). The per-credential epoch quota is set from the
-    // author score (here a generous constant; production uses `reputation::proposal_rate`).
+    // --- network: deposit onto the tamper-evident log, identity-gated and rate-limited
+    // (INV-9/ID-008); the epoch quota here is a generous placeholder, not the real rate ---
     let mut log = TransparencyLog::new();
     let mut quota_ledger = QuotaLedger::new();
     const PROPOSAL_QUOTA: u32 = 32;
@@ -193,11 +176,8 @@ fn run_epoch(
         "content addressing gives each draft a distinct id"
     );
 
-    // --- scoring Level A: bridging gate, on ratings weighted by prior-epoch standing ---
-    // The fit consumes per-reviewer weights (T5, BRIDGE-007). This is a bootstrap epoch,
-    // so every reviewer seeds as a founder at unit weight — but the weight now comes from
-    // the orchestrator (`bridging_weights`), the same reputation path that weights the
-    // aggregation, instead of being an implicit `1.0` baked into `Ratings::from_dense`.
+    // --- scoring Level A: bridging gate, on ratings weighted by prior-epoch standing (T5,
+    // BRIDGE-007) — a bootstrap epoch, so every reviewer seeds as a founder at unit weight ---
     let r_dense = read_matrix("R.csv");
     let mask_bool: Vec<Vec<bool>> = read_matrix("mask.csv")
         .iter()
@@ -209,18 +189,13 @@ fn run_epoch(
     let params = BridgingParams::default();
     let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
 
-    // Gate every item on its robust side-balanced score and side gap (D32) and record
-    // whether it advances: a straight pass, a band item the D26 re-decision carries (a
-    // re-run bridging fit vs the plain threshold τ — a bridging decision, not a vote), or
-    // a polarization reject whose author appeals.
+    // Gates every item on its robust side-balanced score and side gap (D32): a pass, a
+    // band item the D26 re-decision later resolves, or a polarization reject to appeal.
     let gate: Vec<GateOutcome> = (0..m)
         .map(|j| bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP))
         .collect();
-    // A band item would be re-decided after its extra round (D26, T59, T60): a second
-    // panel drawn outside the first, whose reveals `run_item` folds into the ratings
-    // before `gate::supplementary_review`. On the provisional gate no fixture item is in
-    // the band (consensus 0.83–0.86, partisan ≤ 0.57), so the effective outcome is the
-    // gate's; the extra round is exercised in `supplementary_redecision.rs`.
+    // No fixture item lands in the band on the provisional gate, so the effective outcome
+    // is the gate's; the band's extra round is exercised in `supplementary_redecision.rs`.
     assert!(
         gate.iter()
             .all(|g| !matches!(g, GateOutcome::SupplementaryReview)),
@@ -233,9 +208,8 @@ fn run_epoch(
                 || (matches!(effective[j], GateOutcome::AppealEligible) && appeals.contains(&j))
         })
         .collect();
-    // The gate's rejections the exploration draw picked (D35, T52) — `explored` stands
-    // for the beacon's draw, as `seed_from_checkpoint` does for the lottery's — are
-    // piloted with the advancing items, for measurement only.
+    // The gate rejections the exploration draw picked (D35, T52) are piloted alongside
+    // the advancing items, for measurement only; `explored` stands for that draw.
     let piloted: Vec<usize> = (0..m)
         .filter(|&j| {
             advancing.contains(&j)
@@ -248,17 +222,14 @@ fn run_epoch(
         })
         .collect();
 
-    // --- scoring Level B: two-stage pilot on the advancing items, batch/sample-gated ---
-    // The pilot runs through `pilot::{screen, dif_batch}` (INV-8, §B.6, T9): the fixtures
-    // meet both floors (1500 respondents; ≥ 2 advancing items), so admission succeeds.
+    // --- scoring Level B: two-stage pilot on the advancing items (INV-8, §B.6, T9), via
+    // `pilot::{screen, dif_batch}`; the fixtures meet both admission floors ---
     let theta = theta_from_anchors(&read_matrix("levelb_XA.csv"));
     let grp = read_vector("levelb_grp.csv");
     let x = read_matrix("levelb_X.csv");
 
-    // --- identity: every respondent is one person (INV-9, T65) ---
-    // Each fixture row is a respondent who proves a `Respond` nullifier bound to this
-    // pilot batch and epoch (`submit_response`); the floors count the admitted set, not
-    // the rows, so one person cannot fill a sample (PROTO-013, AT-PRO-09).
+    // --- identity: every respondent proves a `Respond` nullifier bound to this batch and
+    // epoch (INV-9, T65); the floors count the admitted set, so one person cannot fill a sample ---
     let batch = batch_id(&piloted.iter().map(|&j| item_cid[j]).collect::<Vec<_>>());
     let mut respondents = NullifierSet::new();
     for i in 0..theta.len() as u32 {
@@ -304,12 +275,8 @@ fn run_epoch(
         .collect();
     let pilot2_batch_size = after1.len();
 
-    // --- protocol: the lifecycle state machine decides each item (T12) ---
-    // Each item's blind review round is walked through the machine (T33): a panel of 9
-    // reviewers who rated it commits to, then reveals, its own rating as a probability.
-    // Every stage-to-stage transition (gate outcome → pilot entry, pilot verdict → pool
-    // or reject) goes through `lifecycle::step`; the pool is exactly the items the
-    // machine leaves in `ActivePool`.
+    // --- protocol: each item's review round and every stage transition go through the
+    // lifecycle state machine (T12, T33); the pool is exactly what `ActivePool` holds ---
     let reviewed = |j: usize| {
         let admitted = step(
             deposit(true, true, true, true).unwrap(),
@@ -330,9 +297,8 @@ fn run_epoch(
         let panel = judgments.iter().map(|jd| jd.nym).collect();
         review_round(admitted, item_cid[j], panel, &judgments).unwrap()
     };
-    // --- the author's standing: two accepted items on record, so an appeal's stake is
-    // covered; each appeal escrows a zero-quality pseudo-observation and the terminal
-    // state settles it (D27, T61) ---
+    // --- the author's standing: enough accepted items that an appeal's stake is covered;
+    // an appeal escrows a zero-quality observation the terminal state settles (D27, T61) ---
     let prior = AuthorPrior::default();
     let mut author = AuthorHistory::new();
     author.record(0.9, 6.0);
@@ -392,10 +358,8 @@ fn full_epoch_filters_each_item_at_the_right_stage() {
             "clean item {good} missing from {pool:?}"
         );
     }
-    // Everything the two filters must stop is absent, each for its own reason:
-    // ESM (DIF), capital (no discrimination), wrong key (negative point-biserial), the
-    // constitutional-majority item (too flat a 2PL slope in the screen), and the
-    // un-appealed polarized items 08/09 and real-health.
+    // Everything the two filters must stop is absent, each for its own reason (DIF, no
+    // discrimination, negative point-biserial, a flat 2PL slope, or unappealed polarization).
     for bad in [
         CONSTITUTIONAL,
         ESM,
@@ -408,10 +372,8 @@ fn full_epoch_filters_each_item_at_the_right_stage() {
     ] {
         assert!(!pool.contains(&bad), "item {bad} should not reach the pool");
     }
-    // The "constitutional majority" item is a hard item with a guessing floor: fitting
-    // a 2PL to 3PL-with-guessing data underestimates its discrimination, so it falls in
-    // the pilot's screen (docs/02 B.1 notes 3PL exists for exactly this). It is thus
-    // legitimately absent under the current 2PL screen.
+    // CONSTITUTIONAL is a 3PL-with-guessing item: fitting a 2PL underestimates its
+    // discrimination, so it falls in the screen as `docs/02` B.1 anticipates.
     assert!(!pool.contains(&CONSTITUTIONAL));
     assert_eq!(pool, EXPECTED_POOL.into_iter().collect::<BTreeSet<_>>());
 }
@@ -494,11 +456,9 @@ fn appeal_recovers_a_true_but_divisive_item() {
     );
 }
 
-/// D35 on the fixtures (T52): the real-health item, polarized and unappealed, is a gate
-/// rejection; drawn for exploration it is piloted for measurement only — the Level B data
-/// that vindicate it on appeal measure it as a pass — so the epoch records a gate false
-/// negative, the pool is exactly what it was (an explored item never enters it), and the
-/// author's standing is untouched.
+/// D35 on the fixtures (T52): the real-health item, a gate rejection, is drawn for
+/// exploration and piloted for measurement only — never entering the pool, and never
+/// touching the author's standing.
 #[cfg(feature = "calibration")]
 #[test]
 fn an_explored_rejection_is_measured_and_never_pooled() {

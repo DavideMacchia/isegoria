@@ -1,9 +1,6 @@
-//! Rate-limiting nullifier (`docs/03`, §Cost of proposing).
-//!
-//! One token per slot of an epoch: `H(secret, role, epoch, slot)`. Spending beyond
-//! the quota forces reusing a slot, whose token collides and is caught as a
-//! double-spend. In production the reuse also reveals the secret in zero knowledge;
-//! here we model the detectable collision.
+//! Rate-limiting nullifier (`docs/03` §Cost of proposing): `H(secret, role, epoch, slot)`
+//! per slot; reuse beyond the quota collides and is caught as a double-spend, modeling
+//! the ZK secret-reveal the real design uses.
 
 use crate::hash::tagged;
 use crate::nym::Role;
@@ -24,7 +21,6 @@ pub fn rln_token(secret: &[u8; 32], role: Role, epoch: u64, slot: u32) -> Token 
     ))
 }
 
-/// Whether a slot index is within the per-epoch quota.
 pub fn within_quota(slot: u32, quota: u32) -> bool {
     slot < quota
 }

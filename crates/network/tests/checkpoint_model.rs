@@ -1,22 +1,6 @@
-//! Model-based test of the consortium checkpoint client (`CheckpointClient::{ingest,
-//! ingest_with_log}`, `docs/08` §9.4, T43). A reference model, written here from the §9.4
-//! table and the `CheckpointUpdate` / `CheckpointReject` contracts rather than from the
-//! client, predicts the update and the trusted checkpoint after every incoming checkpoint
-//! of a random walk. Histories are payload sequences that share prefixes, and the model
-//! decides whether a log extends a checkpoint as a prefix relation on them, never through
-//! `verify_extends`. The walks mix honest extensions, replays, lower and equal heights,
-//! forks, arbitrary heads, foreign networks and member sets, and signature sets that are
-//! short, repeated, misattributed, over another message (up to a whole quorum), by a
-//! stranger or listed past the member list; the local logs are behind, level with or
-//! ahead of the checkpoints, on the same history or another. Independently of the model,
-//! every step is checked against the client invariants:
-//!
-//! - the trusted height never decreases;
-//! - a wrong network or member set, or too few signatures, never changes the state, nor
-//!   does any update other than `Accepted`;
-//! - two different heads at the trusted height are always `Forked`;
-//! - with the log, a higher checkpoint is accepted iff the log extends both the trusted
-//!   checkpoint and the new one.
+//! Model-based test of `CheckpointClient::{ingest, ingest_with_log}` against `docs/08`
+//! §9.4: an independent reference model (not `verify_extends`) predicts each random walk's
+//! update and trusted checkpoint, and every step is also checked against client invariants.
 
 use ed25519_dalek::Signature;
 use network::cid::cid;
@@ -59,8 +43,7 @@ enum Head {
 }
 
 impl Head {
-    /// A log whose payloads are `log` extends a checkpoint with this head iff the
-    /// checkpoint's payloads are a prefix of the log's.
+    /// Extends `log` iff the checkpoint's payloads are a prefix of it.
     fn extended_by(&self, log: &[u8]) -> bool {
         match self {
             Head::Payloads(p) => log.starts_with(p),
@@ -86,8 +69,7 @@ struct Model {
 }
 
 impl Model {
-    /// The §9.4 decision on `incoming`, for a consortium of threshold `t`, with the local
-    /// log's payloads when the client holds a log.
+    /// The §9.4 decision on `incoming`, for a consortium of threshold `t` and local `log`.
     fn ingest(&mut self, incoming: &Incoming, t: usize, log: Option<&[u8]>) -> CheckpointUpdate {
         use CheckpointReject::*;
         use CheckpointUpdate::*;
@@ -115,9 +97,8 @@ impl Model {
                 }
                 // Higher: without the log it cannot be vetted.
                 (Some(_), None) => Accepted,
-                // Higher, with the log: a log too short to show a head has not caught up;
-                // one that shows another head than the trusted one left the trusted
-                // history; one that shows another head than the new one proves a fork.
+                // With the log: too short to show a head is not caught up; showing another
+                // head than trusted diverged; than the new one is a fork.
                 (Some((trusted, head)), Some(log)) => {
                     let shows = |height: u64| log.len() as u64 >= height;
                     if !shows(trusted.height) {
@@ -195,15 +176,14 @@ struct Step {
     height: Height,
     foreign_network: bool,
     foreign_member_set: bool,
-    /// `None`: a quorum of exactly `t` members signs; `Some(k)`: `k % (n + 1)` members do,
-    /// starting from member `rotate`.
+    /// `None`: a quorum of `t` members signs; `Some(k)`: `k % (n + 1)` do, from `rotate`.
     signers: Option<u8>,
     rotate: u8,
     /// The quorum signed a checkpoint that differs in one field, not this one.
     forged: Option<u8>,
     extra: Vec<Sig>,
-    /// `None`: `ingest`; `Some`: `ingest_with_log` over a log following a history, with a
-    /// length relative to the incoming height.
+    /// `None`: `ingest`; `Some`: `ingest_with_log` over a log of the given history, its length
+    /// relative to the incoming height.
     log: Option<(Follows, i8)>,
 }
 
@@ -211,8 +191,7 @@ struct Step {
 struct Walk {
     n: usize,
     t: usize,
-    /// A history and two that follow it up to a fork point, then go their own way (which
-    /// may be the same way).
+    /// A history and two that follow it up to a fork point, then go their own way.
     histories: Vec<Vec<u8>>,
     steps: Vec<Step>,
 }
@@ -342,8 +321,7 @@ impl Committee {
         (committee, keys)
     }
 
-    /// The signature list `s` asks for over `cp`, and how many distinct members in it
-    /// genuinely signed exactly `cp` under their own index.
+    /// The signature list `s` asks for over `cp`, and how many members genuinely signed it.
     fn sign(&self, s: &Step, t: usize, cp: &Checkpoint) -> (Vec<(usize, Signature)>, usize) {
         let n = self.members.len();
         let member = |i: u8| i as usize % n;
@@ -425,8 +403,7 @@ fn label(
     }
 }
 
-/// Runs one walk against a fresh client, checking every step against the model and the
-/// invariants. Returns what happened.
+/// Runs one walk against a fresh client, checking every step against the model.
 fn run_walk(w: &Walk) -> Result<HashSet<String>, TestCaseError> {
     let (committee, keys) = Committee::new(w.n);
     let msh = committee.member_set_hash;
@@ -547,21 +524,17 @@ fn run_walk(w: &Walk) -> Result<HashSet<String>, TestCaseError> {
     Ok(seen)
 }
 
-// Signature checks dominate the cost (milliseconds each in a debug build), so the walks are
-// few but long; every run draws new ones.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// Every incoming checkpoint of every walk gets the update the model predicts, leaves
-    /// the trust where the model has it, and keeps the client invariants.
+    /// Every incoming checkpoint of every walk matches the model and keeps the client invariants.
     #[test]
     fn random_walks_agree_with_the_model(w in walk()) {
         run_walk(&w)?;
     }
 }
 
-/// The walks are not vacuous: over a fixed sample they meet every update the client can
-/// give, on both paths.
+/// The walks are not vacuous: over a fixed sample they meet every update the client can give.
 #[test]
 fn the_walks_cover_every_update() {
     let mut runner = TestRunner::deterministic();

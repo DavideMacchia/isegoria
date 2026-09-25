@@ -1,7 +1,6 @@
-//! The threshold OPRF (`docs/03` §M1) works as a drop-in `UniquenessOracle`: a
-//! `t`-of-`n` committee produces the uniqueness label, and cross-source duplicate
-//! enrollment is still rejected. The threshold cryptography itself (subset agreement,
-//! `t-1` insufficiency, DLEQ soundness) is covered by unit tests in `src/oprf.rs`.
+//! The threshold OPRF (`docs/03` §M1) as a drop-in `UniquenessOracle`: a `t`-of-`n`
+//! committee produces the label and cross-source duplicates are still rejected. The
+//! threshold cryptography itself is covered by unit tests in `src/oprf.rs`.
 
 use identity::enrollment::{Cie, DuplicateEnrollment, EnrollmentRegistry, Spid};
 use identity::oprf::ThresholdOprfOracle;

@@ -1,23 +1,6 @@
-//! Epoch orchestrator: the glue that closes two audit gaps whose *core* already exists
-//! but was never wired at the epoch boundary.
-//!
-//! - **T5 / BRIDGE-007 / G-03 — reputation actually counts.** `bridging::fit` already
-//!   minimizes the weighted objective `Σ w_u (r − r̂)²`; what was missing is the piece
-//!   that turns a reviewer's *previous-epoch* standing into the `w_u` the current fit
-//!   consumes. [`bridging_weights`] is that piece (probation = 0, founder = 1,
-//!   established = `min(w_max, exp(γ·S_u·k_u/(k_u+k₀)))`, D33), and
-//!   [`weighted_ratings`] hands it to the fit; [`epoch_weight_cap`] is the epoch's
-//!   `3 × median` over the weights that count. [`axis_mask`] is the review floor of
-//!   `docs/02` §A.4 (T39): a reviewer with fewer than [`N_MIN_REVIEWS`] reviews on
-//!   record — a founder excepted — fills the `f` space without defining it.
-//!
-//! - **T12 / §9.1 — one lifecycle, one decision path.** The stage-to-stage decisions of
-//!   an epoch (a gate outcome becomes a pilot entry, a pilot verdict becomes pool or
-//!   reject) used to be re-implemented imperatively by every caller. [`run_item`] drives
-//!   those transitions through `lifecycle::step`, so the state machine — not the caller
-//!   — owns them. [`review_round`] walks the commit/reveal sub-machine for one panel, and
-//!   `run_item` scores the state it leaves: the machine itself checks that every
-//!   panelist revealed (T33), so an epoch cannot be scored on a partial round.
+//! Epoch orchestrator (`docs/02` §A.4/§C.4, `docs/05`): wires reputation into the bridging
+//! fit's per-reviewer weights ([`bridging_weights`], D33) and drives an item's stage
+//! transitions through `lifecycle::step` ([`run_item`], [`review_round`]).
 
 use crate::appeal::{AppealOutcome, AuthorHistory, Escrow};
 use crate::gate::GateOutcome;
@@ -29,23 +12,18 @@ use network::cid::Cid;
 use scoring::bridging::{Obs, Ratings, RatingsError};
 use scoring::reputation::weight_cap;
 
-/// A reviewer's standing carried from the previous epoch, in the same order as the
-/// ratings rows the fit will see. `skill` is `S_u`, the mean leave-one-out difference
-/// score over the reviewer's `judgments_with_outcome` scored items (`docs/01` D33 / T50,
-/// `reputation::{loo_scores, mean_score}`); it is ignored on probation and for founders.
+/// A reviewer's standing from the previous epoch, row-ordered like the fit's ratings.
+/// `skill` is `S_u` (`reputation::{loo_scores, mean_score}`), ignored on probation/founders.
 #[derive(Clone, Copy, Debug)]
 pub struct ReviewerStanding {
     pub is_founder: bool,
     pub judgments_with_outcome: usize,
     pub skill: f64,
-    /// Reviews on record, outcome observed or not (`probation::SkillTrack::reviewed`):
-    /// the count the review floor of the axis reads (`docs/02` §A.4, T39).
     pub reviews: usize,
 }
 
 impl ReviewerStanding {
-    /// A bootstrap founder: unit review weight until it has a track record
-    /// (`docs/05` §Cold start).
+    /// A bootstrap founder: unit review weight until it has a track record (`docs/05` §Cold start).
     pub fn founder() -> Self {
         ReviewerStanding {
             is_founder: true,
@@ -55,7 +33,6 @@ impl ReviewerStanding {
         }
     }
 
-    /// An established reviewer with skill `S_u`, just past probation.
     pub fn established(skill: f64) -> Self {
         ReviewerStanding {
             is_founder: false,
@@ -66,36 +43,27 @@ impl ReviewerStanding {
     }
 }
 
-/// `n_min` of `docs/02` §A.4 (T39): reviews on record before a reviewer defines the
-/// latent axis; below it the reviewer's `f_u` is fixed at 0 in the fit — it fills the
-/// space, it does not define it. A founder defines the axis from the start: the founder
-/// set is declared heterogeneous so that the first epochs have an axis at all
-/// (`docs/05` §Cold start). Provisional (T25).
+/// `n_min` of `docs/02` §A.4: below it `f_u` is fixed at 0 in the fit. Provisional (T25).
 pub const N_MIN_REVIEWS: usize = 30;
 
-/// Which reviewers define the axis this epoch (`Ratings::axis`, T39): the founders and
-/// everyone with at least [`N_MIN_REVIEWS`] reviews on record, in the order of `prev`.
+/// Which reviewers define the axis this epoch (`Ratings::axis`): founders, and anyone
+/// with at least [`N_MIN_REVIEWS`] reviews on record, in the order of `prev`.
 pub fn axis_mask(prev: &[ReviewerStanding]) -> Vec<bool> {
     prev.iter()
         .map(|r| r.is_founder || r.reviews >= N_MIN_REVIEWS)
         .collect()
 }
 
-/// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
-/// BRIDGE-007). This is exactly the review vote weight — 0 on probation, 1 for a
-/// bootstrap founder, the capped odds weight of the skill once established (D33) — so
-/// the same reputation that weights the aggregation also weights the fit that produces
-/// the bridge score.
+/// Per-reviewer bridging weight `w_u` from the previous epoch's standing: 0 on probation,
+/// 1 for a founder, the capped odds weight once established (D33).
 pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
     prev.iter()
         .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.skill, w_max))
         .collect()
 }
 
-/// The epoch's weight cap `w_max = 3 × median(w)` (`docs/02` §C.4, D33), over the
-/// uncapped weights of the reviewers who carry weight — founders at 1, established
-/// reviewers at their odds weight; probationers, at 0, are not part of the crowd the cap
-/// is relative to. With nobody carrying weight there is nothing to cap: `+∞`.
+/// The epoch's weight cap `w_max = 3 × median(w)` (`docs/02` §C.4, D33) over the uncapped
+/// weights of reviewers who carry weight (probationers excluded). `+∞` if none do.
 pub fn epoch_weight_cap(prev: &[ReviewerStanding]) -> f64 {
     let counted: Vec<f64> = prev
         .iter()
@@ -116,10 +84,8 @@ pub fn epoch_weight_cap(prev: &[ReviewerStanding]) -> f64 {
     }
 }
 
-/// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the
-/// previous epoch (T5) and the review floor of the axis ([`axis_mask`], T39). `prev` is
-/// indexed like the rows of `r`/`mask`: a standing count that differs from the rows, or
-/// a malformed matrix, is refused (`RatingsError`, T62).
+/// Builds the current epoch's [`Ratings`] with weights from the previous epoch and the
+/// axis review floor ([`axis_mask`]); a malformed matrix is refused (`RatingsError`).
 pub fn weighted_ratings(
     r: &[Vec<f64>],
     mask: &[Vec<bool>],
@@ -133,39 +99,23 @@ pub fn weighted_ratings(
     Ok(ratings)
 }
 
-/// The gate and pilot verdicts an epoch computes for one item, handed to the state
-/// machine so the *lifecycle* decisions are made by [`run_item`], not the caller.
+/// The gate and pilot verdicts an epoch computes for one item, for [`run_item`].
 #[derive(Clone, Copy, Debug)]
 pub struct ItemVerdicts {
-    /// Level A bridging gate outcome.
     pub gate: GateOutcome,
-    /// The author appealed a polarization rejection.
     pub appealed: bool,
-    /// The appeal was filed inside the appeal window.
     pub appeal_within_window: bool,
-    /// The author's `C_a` when the appeal was filed (`appeal::AuthorHistory::reputation`),
-    /// and the floor it must cover (`appeal::appeal_floor`): `run_item` derives
-    /// `reputation_covers_stake` from the two, it is never asserted by the caller (T61).
+    /// The author's `C_a` and the floor it must cover; [`run_item`] derives the covers-stake check.
     pub author_reputation: f64,
     pub appeal_floor: f64,
-    /// Pilot stage 1 (discrimination screen) had enough distinct respondents (INV-8).
     pub enough_respondents: bool,
-    /// Pilot stage 1 verdict.
     pub screen_passed: bool,
-    /// Pilot stage 2 (DIF) verdict.
     pub dif_passed: bool,
-    /// Number of items in the stage-2 DIF batch (never validate below `K_MIN`, INV-8).
     pub pilot2_batch_size: usize,
-    /// The beacon's exploration draw for this item (D35, T52:
-    /// `exploration::explore_from_beacon` at `EXPLORATION_RATE`, keyed on the admitted
-    /// slot). A gate rejection so drawn is piloted for measurement only, on the pilot
-    /// verdicts above, and ends `Measured`, never in the pool. Ignored for an item that
-    /// passes the gate or is appealed.
+    /// The beacon's exploration draw for this item (D35): measurement only, never the pool.
     pub explored: bool,
 }
 
-/// One panelist's blind judgment: the probability it commits to, and the nonce it later
-/// reveals (INV-12).
 #[derive(Clone, Copy, Debug)]
 pub struct Judgment {
     pub nym: Nym,
@@ -173,10 +123,8 @@ pub struct Judgment {
     pub nonce: [u8; 32],
 }
 
-/// Walks one review round through `lifecycle::step` from `Admitted`: assign `panel` to
-/// `item`, every judgment commits, commits close, every judgment reveals. Returns the
-/// `Revealing` state to hand to [`run_item`]; any invalid move (duplicate panelist,
-/// outsider, double commit or reveal) is the machine's rejection.
+/// Walks one review round through `lifecycle::step` from `Admitted` to `Revealing`, for
+/// [`run_item`]; an invalid move is the machine's rejection.
 pub fn review_round(
     admitted: State,
     item: Cid,
@@ -208,19 +156,15 @@ pub fn review_round(
     Ok(s)
 }
 
-/// The band's extra round (D26, T60): `k_extra` reviewers outside the first panel and
-/// their blind judgments on the same item.
+/// The band's extra round (D26): reviewers outside the first panel and their judgments.
 #[derive(Clone, Debug)]
 pub struct ExtraRound {
     pub panel: Vec<Nym>,
     pub judgments: Vec<Judgment>,
 }
 
-/// Walks the band's extra round through `lifecycle::step` from `SupplementaryReview`:
-/// assign the extra panel, every judgment commits, commits close, every judgment reveals
-/// — as [`review_round`] does for the first panel. Returns the state to resolve; any
-/// invalid move (a panelist of the first round, a repeated nym, an outsider, a double
-/// commit or reveal) is the machine's rejection.
+/// Walks the band's extra round through `lifecycle::step` from `SupplementaryReview`, as
+/// [`review_round`] does for the first panel; an invalid move is the machine's rejection.
 pub fn extra_round(band: State, extra: &ExtraRound) -> Result<State, Invalid> {
     let item = match &band {
         State::SupplementaryReview { item, .. } => *item,
@@ -256,10 +200,8 @@ pub fn extra_round(band: State, extra: &ExtraRound) -> Result<State, Invalid> {
     Ok(s)
 }
 
-/// The ratings the band re-decision fits (D26, T60): `base` — the epoch's ratings, one
-/// row per reviewer in `rows` — plus one observation of `item` per extra reveal. An extra
-/// reviewer with a row rates the item from it (their position on the axis is what they
-/// rated elsewhere); one without a row gets a new row, weighted by `weight_of_new`.
+/// The ratings the band re-decision fits (D26): `base` plus one observation of `item` per
+/// extra reveal, adding a weighted row for a reviewer not already in `rows`.
 pub fn expanded_ratings(
     base: &Ratings,
     rows: &[Nym],
@@ -282,28 +224,9 @@ pub fn expanded_ratings(
     expanded
 }
 
-/// Drives one item from a scored review round to its terminal `State` via
-/// `lifecycle::step` (T12). `reviewed` is the state [`review_round`] left; scoring it is
-/// refused unless every panelist revealed. `ActivePool` means it reached the pool.
-///
-/// An appealed item's `Appeal` event carries what the verdicts say: filed within the
-/// window, and an author reputation that covers the stake (`appeal_floor`); the escrow
-/// the filing left in the author's history is settled by [`settle_appeal`] on the
-/// terminal state (D27, T61).
-///
-/// A band item is scored to `SupplementaryReview`, walks the D26 extra round `extra`
-/// ([`extra_round`]; a band item without one is refused, `NoExtraPanel`), and is resolved
-/// by `redecide`, called on the extra round's reveals as the machine recorded them, once
-/// the round is complete: the caller folds them into the epoch's ratings
-/// ([`expanded_ratings`]) and re-runs `gate::supplementary_review` — a re-run bridging
-/// fit re-deciding the side-balanced score against the plain threshold (T10/T30, amended
-/// by T59, T60) — so a passing band item advances to the pilot, a polarized failing one
-/// keeps the appeal channel, and a defect is a `Borderline` reject, never a dead end.
-///
-/// A gate rejection the beacon drew for exploration (`explored`, D35, T52) is piloted for
-/// measurement only: the same batches as a passing item, a `Measured` terminal, never the
-/// pool. Its outcome is what its reviewers are scored on, at weight `1/ε`
-/// (`exploration::record_outcome`).
+/// Drives one item from a scored review round to its terminal `State` via `lifecycle::step`:
+/// resolves an `Appeal`, a band's `SupplementaryReview` (via `redecide` over the extra
+/// round's reveals, [`expanded_ratings`]), an exploration draw, then the pilot batches.
 pub fn run_item(
     reviewed: State,
     v: &ItemVerdicts,
@@ -316,8 +239,7 @@ pub fn run_item(
         if let Some(extra) = extra {
             s = extra_round(s, extra)?;
         }
-        // The re-decision reads the round's reveals; a round the machine would refuse
-        // (no extra panel, a panelist missing) is not re-decided at all.
+        // A round the machine refuses (no panel, a missing panelist) falls through to `Reject`.
         let outcome = match &s {
             State::SupplementaryReview {
                 extra_panel,
@@ -349,8 +271,7 @@ pub fn run_item(
         };
     }
 
-    // The exploration draw (D35, T52): only a gate rejection can be here — a pilot
-    // rejection is reached below, after the batches.
+    // Only a gate rejection can be `Rejected` here; a pilot rejection is reached below.
     if v.explored && matches!(s, State::Rejected(_)) {
         s = step(
             s,
@@ -393,10 +314,8 @@ pub fn run_item(
     Ok(s)
 }
 
-/// Settles an appeal's escrow on the item's terminal state (D27, T61): reaching the pool
-/// promotes the item, and its measured `quality` replaces the zero-quality
-/// pseudo-observation in the author's history; any other terminal leaves the zero
-/// standing — the item's real result.
+/// Settles an appeal's escrow on the item's terminal state (D27): reaching the pool
+/// promotes it via `quality`; any other terminal keeps the zero standing.
 pub fn settle_appeal(author: &mut AuthorHistory, escrow: Escrow, terminal: &State, quality: f64) {
     let outcome = if matches!(terminal, State::ActivePool) {
         AppealOutcome::Promoted { quality }

@@ -1,11 +1,6 @@
-//! Item lifecycle state machine (`docs/08` §9.1, `docs/05`). Until now the flow lived
-//! only as an imperative sequence inside `tests/end_to_end.rs`; this owns per-item state
-//! and **rejects every invalid transition** (§9.1's "invalid cases" column, PC-1).
-//!
-//! Preconditions that need primitives built by other tasks — a verified identity
-//! nullifier (T6), an RLN quota proof (T11), a checkpoint-derived lottery seed (T8) —
-//! enter as explicit `bool` inputs the machine checks, so the invalid case is rejected
-//! here while the proof itself is computed by the caller once those land.
+//! Item lifecycle state machine (`docs/08` §9.1, `docs/05`): rejects every invalid
+//! transition (PC-1). Preconditions from other tasks (identity nullifier T6, quota
+//! proof T11, checkpoint seed T8) enter as explicit `bool` inputs.
 
 use crate::exposure::RetirementReason;
 use crate::gate::GateOutcome;
@@ -13,26 +8,22 @@ use crate::review::{reveal, Commit as Commitment};
 use identity::nym::Nym;
 use network::cid::Cid;
 
-/// Why an item left the pipeline without reaching the pool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RejectReason {
-    /// Bridging rejected it for a defect (not appeal-eligible).
+    /// Not appeal-eligible.
     Defect,
-    /// Appeal-eligible (polarized) but the appeal window expired.
+    /// The appeal window expired without an appeal.
     Polarized,
     /// Failed the pilot's discrimination screen (stage 1).
     Screen,
     /// Failed the DIF check (stage 2).
     Dif,
-    /// Borderline: the D26 supplementary re-decision did not lift `b_j` over the
-    /// threshold (roadmap T10/T30).
+    /// D26 supplementary re-decision did not lift `b_j` over the threshold.
     Borderline,
 }
 
 impl RejectReason {
-    /// A rejection by the gate — a defect, an unappealed polarization, a failed band
-    /// re-decision — whose Level B outcome is unknown, so the exploration draw (D35, T52)
-    /// can measure it; a pilot rejection's outcome is already known.
+    /// True for a gate rejection: a defect, unappealed polarization, or a failed re-decision.
     pub fn at_the_gate(self) -> bool {
         matches!(
             self,
@@ -47,7 +38,7 @@ pub enum State {
     Deposited,
     Admitted,
     InReview {
-        /// The item this panel reviews; the commit-reveal binds to it (INV-12, T7).
+        /// The item this panel reviews; the commit-reveal binds to it (INV-12).
         item: Cid,
         panel: Vec<Nym>,
         commits: Vec<(Nym, Commitment)>,
@@ -59,13 +50,8 @@ pub enum State {
         commits: Vec<(Nym, Commitment)>,
         reveals: Vec<(Nym, f64)>,
     },
-    /// Borderline band: the D26 extra round, then the re-decision (T10/T30/T59/T60).
-    /// `k_extra` reviewers drawn outside the first panel are assigned
-    /// (`Event::AssignExtraReviewers`), commit and reveal on the same item under the same
-    /// binding as the first round, and `Event::Resolve` — refused until every extra
-    /// panelist revealed — carries the re-decision computed over the first panel's
-    /// ratings *plus* theirs (`gate::supplementary_review`): pass, or the below-band rule
-    /// (a polarized item keeps the appeal channel, D26 amendment).
+    /// D26 borderline band: extra reviewers assigned once, then commit/reveal as the first
+    /// round did; `Event::Resolve` re-decides over the first panel's ratings plus theirs.
     SupplementaryReview {
         item: Cid,
         /// The first panel: the extra panel is drawn outside it.
@@ -73,7 +59,6 @@ pub enum State {
         /// The extra reviewers; empty until assigned.
         extra_panel: Vec<Nym>,
         commits: Vec<(Nym, Commitment)>,
-        /// The extra round's commit deadline has passed (`CloseCommits`).
         commits_closed: bool,
         reveals: Vec<(Nym, f64)>,
     },
@@ -86,15 +71,13 @@ pub enum State {
     },
     ActivePool,
     Rejected(RejectReason),
-    /// A gate rejection drawn for exploration (D35, T52): piloted for measurement only,
-    /// through the same two batches as a passing item; `screened` once stage 1 is passed.
+    /// A gate rejection drawn for exploration (D35), piloted for measurement only until
+    /// `screened` once stage 1 passes.
     Explored {
         reason: RejectReason,
         screened: bool,
     },
-    /// The pilot's measurement of an explored rejection: whether Level B would have
-    /// passed it. Terminal — the item never enters the pool; the outcome enters its
-    /// reviewers' scores at weight `1/ε` and the gate's false-negative rate.
+    /// Terminal measurement of an explored rejection; feeds reviewer scores at weight `1/ε`.
     Measured {
         reason: RejectReason,
         passed: bool,
@@ -106,56 +89,43 @@ pub enum State {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Invalid {
     NoPrimarySource,
-    /// The proposer did not present a valid identity nullifier (INV-9, T6).
     UnprovenIdentity,
-    /// Over the per-credential rate-limit quota (ID-008, T11).
     OverQuota,
     DuplicateCid,
-    /// The lottery seed — or the exploration draw's (D35, T52) — was not the signed
-    /// checkpoint head (INV-10, T8).
+    /// The draw's seed was not the signed checkpoint head (INV-10).
     SeedNotFromCheckpoint,
     /// Panel size must be odd and in `[7, 11]`.
     PanelSizeInvalid,
-    /// The same nym appears twice in a panel (fewer distinct reviewers than slots).
     DuplicatePanelist,
-    /// Commit/reveal from a nym that is not in the panel.
     NotInPanel,
     AlreadyCommitted,
-    /// Reveal from a nym that never committed.
     NoCommit,
-    /// A second reveal from the same nym.
     AlreadyRevealed,
-    /// The reveal does not open the stored commitment (INV-12).
     RevealMismatch,
     /// A revealed probability outside `[0, 1]`, or NaN.
     ProbabilityOutOfRange,
-    /// Scoring attempted before every panelist revealed (partial epoch) — of the first
-    /// round (`Score`) or of the band's extra round (`Resolve`, T60).
+    /// Not every panelist revealed yet — for `Score` or the extra round's `Resolve`.
     PartialEpoch,
-    /// The band re-decision was attempted before extra reviewers were assigned (D26, T60).
+    /// `Resolve` attempted before extra reviewers were assigned (D26).
     NoExtraPanel,
     /// Appeal filed after the window closed, or on a non-appealable reject.
     AppealWindowClosed,
-    /// Author reputation does not cover the appeal stake.
     InsufficientReputation,
-    /// Pilot stage 1 with fewer than the required distinct respondents (INV-8).
     NotEnoughRespondents,
-    /// Pilot stage 2 batch below `K_min` (never validate a single item, INV-8).
     BatchTooSmall,
     /// The event is not defined for the current state (out-of-order).
     UnexpectedEvent,
 }
 
-/// Smallest admissible DIF batch (`docs/08` §9.1 / INV-8: `K_min ≥ 2`).
+/// Smallest admissible DIF batch (`docs/08` §9.1, INV-8).
 pub const K_MIN: usize = 2;
 
-/// Largest extra panel of the band's second round (D26, T60): at least one and at most
-/// as many reviewers as a first panel, all outside it. The default draw is
-/// `review::K_EXTRA`.
+/// Largest extra panel of the band's second round (D26): at least one, at most a first
+/// panel's size, all outside it. The default draw is `review::K_EXTRA`.
 pub const K_EXTRA_MAX: usize = 11;
 
-/// `— → Deposited` (§9.1 row 1). The three proof inputs gate the invalid cases that
-/// need primitives from T6/T11 and the log.
+/// `— → Deposited` (§9.1 row 1). The bool inputs gate the invalid cases that need
+/// primitives from other tasks and the log.
 pub fn deposit(
     source_present: bool,
     identity_proven: bool,
@@ -177,15 +147,13 @@ pub fn deposit(
     Ok(State::Deposited)
 }
 
-/// Events that drive an item forward (§9.1). Guard *results* (the bridging outcome, the
-/// screen/DIF verdicts) are passed in, so the machine is a pure transition layer over
-/// the existing per-stage functions.
+/// Events that drive an item forward (§9.1). Guard *results* (bridging outcome, screen/DIF
+/// verdicts) are passed in: this is a pure transition layer over the per-stage functions.
 #[derive(Clone, Debug)]
 pub enum Event {
     /// Epoch close: admitted by the lottery. `seed_from_checkpoint` must hold (INV-10).
     Admit { seed_from_checkpoint: bool },
-    /// Reviewers assigned to `item`; `panel` are their judge nyms, `k = panel.len()` odd
-    /// ∈ [7,11]. The item enters the state so the commit-reveal can bind to it (INV-12).
+    /// Reviewers assigned to `item`; `panel` are judge nyms, odd length in `[7,11]` (INV-12).
     AssignReviewers { panel: Vec<Nym>, item: Cid },
     /// A panelist commits to a judgment before the deadline.
     Commit { nym: Nym, commitment: Commitment },
@@ -197,19 +165,12 @@ pub enum Event {
         prob: f64,
         nonce: [u8; 32],
     },
-    /// Reveal deadline reached; the epoch is scored. Refused unless every panelist has
-    /// revealed (checked against the state, not asserted by the caller).
+    /// Reveal deadline reached; refused unless every panelist revealed (checked, not assumed).
     Score { outcome: GateOutcome },
-    /// The band's extra round (D26, T60): `panel` are `k_extra` judge nyms outside the
-    /// first panel, `1..=K_EXTRA_MAX`, distinct. They then `Commit`, `CloseCommits` and
-    /// `Reveal` on the same item, as the first panel did.
+    /// The band's extra round (D26): `k_extra` judge nyms outside the first panel, distinct.
     AssignExtraReviewers { panel: Vec<Nym> },
-    /// The D26 supplementary re-decision of a band item, refused until every extra
-    /// panelist revealed (T60): `outcome` is `gate::supplementary_review` over the first
-    /// panel's ratings plus the extra round's (a re-run bridging fit, the side-balanced
-    /// score vs the plain threshold) — `Pass`, or, below it, the below-band rule of the
-    /// gate: `AppealEligible` for a polarized item, `Reject` for a defect (D26 amendment,
-    /// T59). `SupplementaryReview` is not an outcome of a re-decision and is refused.
+    /// The D26 re-decision, refused until every extra panelist revealed: `outcome` is
+    /// `gate::supplementary_review` over the combined ratings (never `SupplementaryReview`).
     Resolve { outcome: GateOutcome },
     /// The author appeals a polarization rejection.
     Appeal {
@@ -225,8 +186,7 @@ pub enum Event {
     },
     /// Pilot stage 2 batch of `batch_size` items; `passed` = DIF (Variant 2).
     Pilot2Batch { batch_size: usize, passed: bool },
-    /// The beacon's exploration draw picked this gate rejection (D35, T52): it goes to
-    /// the pilot for measurement only. `seed_from_checkpoint` must hold (INV-10).
+    /// The beacon's exploration draw (D35) sends this rejection to the pilot for measurement.
     Explore { seed_from_checkpoint: bool },
     /// The item is administered (adds exposure).
     Administer,
@@ -242,7 +202,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
     use Event::*;
     use State::*;
     match (state, event) {
-        // Deposited → Admitted: the lottery seed must come from the signed checkpoint.
         (
             Deposited,
             Admit {
@@ -256,7 +215,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // Admitted → InReview: k odd ∈ [7, 11] distinct reviewers.
         (Admitted, AssignReviewers { panel, item }) => {
             let k = panel.len();
             if k % 2 == 0 || !(7..=11).contains(&k) {
@@ -272,7 +230,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // InReview: accumulate commits from distinct panelists.
         (
             InReview {
                 item,
@@ -308,9 +265,8 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             reveals: Vec::new(),
         }),
 
-        // Revealing: a reveal must open a stored commitment with an in-range probability.
-        // The opening recomputes the commitment for the revealer and this item, so a
-        // copied commitment cannot be opened by anyone else (INV-12, T7).
+        // The opening recomputes the commitment for the revealer and this item, so a copied
+        // commitment cannot be opened by anyone else (INV-12).
         (
             Revealing {
                 item,
@@ -341,8 +297,8 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             })
         }
 
-        // Revealing → Gated outcome: never on a partial epoch. Reveals are unique and
-        // come only from committed panelists, so "all in" is every panelist present.
+        // Reveals are unique and come only from committed panelists, so "all in" is every
+        // panelist present.
         (
             Revealing {
                 item,
@@ -370,9 +326,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             })
         }
 
-        // SupplementaryReview: the D26 extra round (T60). The extra panel is assigned once,
-        // outside the first panel; its members commit, the commits close, they reveal —
-        // the same rules and the same binding as the first round.
         (
             SupplementaryReview {
                 item,
@@ -484,11 +437,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             })
         }
 
-        // SupplementaryReview → the D26 re-decision (T10/T30, amended by T59, T60): only
-        // once the extra round is complete. The re-run bridging fit over the expanded
-        // ratings lifts the score over the plain threshold (→ pilot) or it does not — then
-        // a polarized item keeps the appeal channel (→ AppealEligible) and a defect is a
-        // borderline reject. A second band is not an outcome of a re-decision.
         (
             SupplementaryReview {
                 extra_panel,
@@ -514,7 +462,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // AppealEligible: appeal within the window with reputation to cover the stake.
         (
             AppealEligible,
             Appeal {
@@ -532,7 +479,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
         }
         (AppealEligible, AppealExpires) => Ok(Rejected(RejectReason::Polarized)),
 
-        // Pilot 1 → Pilot 2 / Rejected(Screen).
         (
             Pilot1 { appealed },
             Pilot1Batch {
@@ -549,7 +495,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // Pilot 2 → ActivePool / Rejected(DIF): never validate a batch below K_min.
         (Pilot2 { .. }, Pilot2Batch { batch_size, passed }) => {
             if batch_size < K_MIN {
                 Err(Invalid::BatchTooSmall)
@@ -560,9 +505,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // Rejected at the gate → Explored (D35, T52): the beacon's exploration draw sends
-        // a random 5% of gate rejections to the pilot for measurement only. A pilot
-        // rejection has its outcome already; the draw's seed must be the checkpoint's.
         (
             Rejected(reason),
             Explore {
@@ -581,8 +523,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             })
         }
 
-        // Explored: the two pilot batches under the pilot's own floors, ending `Measured`
-        // — a pass here measures the gate, it never enters the pool.
         (
             Explored {
                 reason,
@@ -621,7 +561,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        // ActivePool loop and retirements.
         (ActivePool, Administer) => Ok(ActivePool),
         (ActivePool, Revalidate { emerging_dif }) => Ok(if emerging_dif {
             Retired(RetirementReason::EmergingDif)
@@ -630,7 +569,6 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
         }),
         (ActivePool, ExposureLimit) => Ok(Retired(RetirementReason::Exposure)),
 
-        // Everything else is an out-of-order transition.
         _ => Err(Invalid::UnexpectedEvent),
     }
 }

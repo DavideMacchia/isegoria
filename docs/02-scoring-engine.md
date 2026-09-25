@@ -623,7 +623,7 @@ detector no longer confuses with a cartel.
 | `DIF_j` max (latent classes) | 1.0 logit (provisional; literature 0.5) | IRT mixture; see §B.3 |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
 | `α` (cluster discount) | 0.5 | square root; analysis only, not applied to the protocol's weights (D40) |
-| `min_shared` (coordination) | 30 | shared items before a pair's residual correlation is read (D39) |
+| `min_shared` (coordination) | 30 | shared items before a pair's residual correlation is read (D39); at the design scale two reviewers share under one item per epoch, so a pair is read only after many epochs |
 | `ρ_min`, `p_max` (coordination) | 0.7, 0.001 | a flagged pair's residual correlation and permutation p-value (999 permutations); 0.5 flags honest pairs by chance |
 | `w_max` | 3× median | individual cap |
 | `T` (reputation half-life) | 18 months | |

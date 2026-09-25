@@ -1,8 +1,6 @@
-//! The reviewer floor at the protocol boundary (`docs/02` §A.4, `docs/08` BRIDGE-001 and
-//! PROTO-003, T39): a reviewer defines the latent axis once it has `N_MIN_REVIEWS` reviews
-//! on record — a founder from the start — and until then it fills the space: its `f_u`
-//! is fixed at 0 in the fit, it weighs 0 while on probation (D36), and it is assigned
-//! like any other candidate, from the position it has.
+//! The reviewer floor at the protocol boundary (`docs/02` §A.4, `docs/08` BRIDGE-001/
+//! PROTO-003, T39): a reviewer defines the latent axis once it has `N_MIN_REVIEWS`
+//! reviews on record (a founder from the start); until then it fills the space at `f_u=0`.
 
 use identity::nym::Nym;
 use protocol::orchestrator::{axis_mask, weighted_ratings, ReviewerStanding, N_MIN_REVIEWS};
@@ -45,9 +43,8 @@ fn the_axis_is_defined_by_founders_and_reviewers_past_the_floor() {
     assert_eq!(ratings.weights[2], 0.0, "on probation: weight 0");
 }
 
-/// The track counts every reviewed item, observed or not, so a reviewer crosses the
-/// floor after `N_MIN_REVIEWS` reviews — before it is out of probation if some outcomes
-/// were never observed.
+/// The track counts every reviewed item, observed or not: a reviewer can cross the
+/// floor before it is out of probation.
 #[test]
 fn the_track_carries_the_reviews_on_record_into_the_standing() {
     let params = CusumParams::default();

@@ -1,6 +1,6 @@
-//! The latent-class DIF detector beyond the two-class, uniform case (T40): the number of
+//! The latent-class DIF detector beyond the two-class, uniform case: the number of
 //! classes and uniform vs non-uniform DIF are chosen by BIC, each candidate from several
-//! seeded starts. Synthetic data with known parameters: N = 3000, K = 8, θ known.
+//! seeded starts. Synthetic data with known parameters (`docs/02` §B.3).
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -49,8 +49,8 @@ fn difficulty(j: usize) -> f64 {
     -1.2 + 2.4 * j as f64 / 7.0
 }
 
-/// No DIF at all: the BIC keeps one class, so there is no gap to flag (a false-positive
-/// check on one dataset; the rate is T24's).
+/// No DIF at all: the BIC keeps one class, so there is no gap to flag (a single-dataset
+/// false-positive check).
 #[test]
 fn clean_data_selects_a_single_class() {
     let (theta, x) = generate(10, &[1.0], |_, _| 1.2, |j, _| difficulty(j));
@@ -61,11 +61,9 @@ fn clean_data_selects_a_single_class() {
     assert_eq!(res.bic_gain, 0.0);
 }
 
-/// The differential gap (D37, T53) is a diagnostic, never the verdict: with 6 of 8 items
-/// shifted the same way, the batch's common shift *is* the campaign, so the differential
-/// gap is small on the shifted items and large on the two clean ones — inverted — while
-/// the raw gap `dif` flags exactly the shifted items (θ known here; with a proxy θ that
-/// is T54's target model).
+/// The differential gap (D37) is a diagnostic, never the verdict: when most items shift
+/// together the shift becomes the campaign, so the gap inverts (small on shifted items,
+/// large on the clean ones) while the raw gap `dif` still flags the shifted items.
 #[test]
 fn the_differential_gap_inverts_in_a_campaign() {
     let (theta, x) = generate(
@@ -105,10 +103,9 @@ fn the_differential_gap_inverts_in_a_campaign() {
     }
 }
 
-/// Non-uniform DIF: the same difficulty in both classes, but items 0–2 discriminate at
-/// 0.5 in one class and 2.5 in the other. The BIC prefers per-class discrimination and
-/// `a_gap` locates those items; their difficulty gap stays small. (The verdict still
-/// reads only the difficulty gap, as `docs/02` §B.3 specifies — see `docs/08` DIF-004.)
+/// Non-uniform DIF: same difficulty, discrimination shifted in items 0–2 only. The BIC
+/// prefers per-class discrimination and `a_gap` locates those items, while the verdict
+/// still reads only the difficulty gap (`docs/02` §B.3, `docs/08` DIF-004).
 #[test]
 fn a_discrimination_shift_is_found_as_non_uniform_dif() {
     let (theta, x) = generate(
@@ -164,8 +161,8 @@ fn read_matrix(name: &str) -> Vec<Vec<f64>> {
         .collect()
 }
 
-/// The multi-start makes the verdict independent of the seed (as T48 did for bridging):
-/// on the batch fixture, different seeds select the same model and the same gaps.
+/// The multi-start makes the verdict independent of the seed: on the batch fixture,
+/// different seeds select the same model and the same gaps.
 #[test]
 fn the_selected_model_does_not_depend_on_the_seed() {
     let theta: Vec<f64> = read_matrix("mixture_batch_theta.csv")

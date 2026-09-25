@@ -1,8 +1,6 @@
-//! The OPRF wire messages (RFC 9497, `docs/03` §M1; T44). Enrollment will exchange them
-//! over a network: the server decodes a blinded element from an untrusted client, and the
-//! client decodes an evaluation and a proof from an untrusted server. Decoding arbitrary
-//! bytes never panics, and no decoded evaluation passes verification without the server
-//! key.
+//! The OPRF wire messages (RFC 9497, `docs/03` §M1): the server decodes a blinded
+//! element from an untrusted client, the client decodes an evaluation and proof from an
+//! untrusted server. Neither panics, and no decoded evaluation verifies without the server key.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;

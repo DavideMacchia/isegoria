@@ -1,7 +1,6 @@
 //! Guard against drift between the Python sims and the committed oracle fixtures:
-//! regenerate and compare (catches editing a sim without regenerating, or vice versa).
-//! Needs `python3` + numpy/scipy (`sim/requirements.txt`, `fixtures/PROVENANCE.md`);
-//! self-skips when that environment is absent so `cargo test` stays green without it.
+//! regenerate and compare. Needs `python3` + numpy/scipy (`sim/requirements.txt`,
+//! `fixtures/PROVENANCE.md`); self-skips without it, so `cargo test` stays green.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -83,9 +82,8 @@ fn compare_csv(a: &Path, b: &Path, name: &str) {
     let xb = tokens(&fs::read_to_string(b).unwrap());
     assert_eq!(xa.len(), xb.len(), "{name}: token count changed");
 
-    // Files holding optimizer outputs (`*expected*`: the bridging b_j, the logistic
-    // fits) vary by ~1e-3 across platforms and scipy releases (docs/08 REPRO-003); the
-    // raw seeded data files are exact.
+    // Optimizer outputs (`*expected*`) vary slightly across platforms and scipy releases
+    // (`docs/08` REPRO-003); the raw seeded data files must match exactly.
     let tol = if name.contains("expected") {
         2e-3
     } else {

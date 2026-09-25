@@ -1,14 +1,11 @@
-//! Consortium checkpoints (`docs/04`, §The consortium as backbone). A few dozen
-//! heterogeneous signers co-sign the log head. Security comes from the diversity of
-//! who controls the machines, so a checkpoint needs a threshold `t` of `n` signers.
+//! Consortium checkpoints (`docs/04` §The consortium as backbone): a threshold `t` of `n`
+//! heterogeneous signers co-sign the log head.
 
 use crate::hash::tagged;
 use crate::log::{ConsistencyError, TransparencyLog};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
-/// A signed state: the log head at a given height, bound to the network and the member
-/// set that signs it (`network_id`, `member_set_hash`) so it cannot be replayed onto
-/// another network or a different consortium (NET-006, T15).
+/// A signed log head bound to its network and signing member set (NET-006).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Checkpoint {
     pub network_id: [u8; 32],
@@ -18,7 +15,6 @@ pub struct Checkpoint {
 }
 
 impl Checkpoint {
-    /// Convenience constructor.
     pub fn new(
         network_id: [u8; 32],
         member_set_hash: [u8; 32],
@@ -34,8 +30,8 @@ impl Checkpoint {
     }
 
     fn message(&self) -> [u8; 32] {
-        // v2 (T15): the network id and member-set hash are inside the signed message, so a
-        // signature is valid only for its own network and consortium.
+        // Network id and member-set hash sit inside the message (v2): a signature binds
+        // to its own network and consortium.
         tagged(
             "isegoria/checkpoint/v2",
             &[
@@ -48,8 +44,6 @@ impl Checkpoint {
     }
 }
 
-/// One consortium signer. In production keys are held by distinct organizations in
-/// different jurisdictions; here a key is built deterministically from a seed.
 pub struct Member {
     key: SigningKey,
 }
@@ -70,7 +64,6 @@ impl Member {
     }
 }
 
-/// The set of member public keys and the signature threshold.
 pub struct Consortium {
     members: Vec<VerifyingKey>,
     threshold: usize,
@@ -81,17 +74,14 @@ impl Consortium {
         Consortium { members, threshold }
     }
 
-    /// Hash of the ordered member public keys (NET-006, T15). Placed in a checkpoint's
-    /// signed message so the checkpoint commits to *which* set signed it; a client with a
-    /// different member set rejects it.
+    /// Hash of the ordered member public keys: commits a checkpoint to *which* set signed it.
     pub fn member_set_hash(&self) -> [u8; 32] {
         let keys: Vec<[u8; 32]> = self.members.iter().map(|k| k.to_bytes()).collect();
         let refs: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
         tagged("isegoria/consortium/member-set/v1", &refs)
     }
 
-    /// Accepts a checkpoint if at least `threshold` distinct members produced a
-    /// valid signature over it.
+    /// Accepts a checkpoint signed by at least `threshold` distinct members.
     pub fn verify(&self, cp: &Checkpoint, sigs: &[(usize, Signature)]) -> bool {
         let msg = cp.message();
         let mut seen = vec![false; self.members.len()];
@@ -112,20 +102,14 @@ impl Consortium {
     }
 }
 
-/// A light node's decision on an incoming checkpoint (NET-006, §9.4, T15).
-// `Forked` carries two checkpoints (the equivocation evidence); the size gap is fine for
-// a value returned once on a rare alarm path, not stored in bulk.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CheckpointUpdate {
-    /// A strictly higher checkpoint with correct binding and enough signatures: the new
-    /// trusted head.
+    /// A strictly higher, correctly bound checkpoint with enough signatures: the new trusted head.
     Accepted,
-    /// A checkpoint at or below the trusted height (or a duplicate of it): a replay,
-    /// ignored (AT-NET-03).
+    /// At or below the trusted height, or a duplicate: an ignored replay (AT-NET-03).
     Stale,
-    /// Two threshold-signed checkpoints at the same height with different heads — the
-    /// consortium equivocated (AT-NET-04). Both are kept as accountable evidence.
+    /// Same height, different heads, both threshold-signed: equivocation (AT-NET-04).
     Forked {
         trusted: Checkpoint,
         conflicting: Checkpoint,
@@ -134,31 +118,20 @@ pub enum CheckpointUpdate {
     Rejected(CheckpointReject),
 }
 
-/// Why a checkpoint was rejected outright (before the monotonicity/fork rules).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckpointReject {
-    /// The checkpoint is for another network (cross-network replay, AT-NET-05).
+    /// Another network: cross-network replay (AT-NET-05).
     WrongNetwork,
-    /// The checkpoint commits to a different member set than this client trusts.
     WrongMemberSet,
-    /// Fewer than the threshold of valid distinct signatures.
     InsufficientSignatures,
-    /// [`CheckpointClient::ingest_with_log`]: the local log is too short to show the trusted
-    /// head or the new one, so it cannot yet show the new head extends the trusted one.
-    /// Sync, retry.
+    /// The local log reaches neither head ([`CheckpointClient::ingest_with_log`]): sync, retry.
     LogBehind,
-    /// [`CheckpointClient::ingest_with_log`]: the local log reaches the trusted height but
-    /// does not extend the checkpoint this client already trusts (another head there, or a
-    /// broken chain) — the local copy, not the new checkpoint, is at fault.
+    /// [`CheckpointClient::ingest_with_log`]: the local log diverges from the trusted
+    /// checkpoint — the local copy, not the new one, is at fault.
     LocalLogDiverged,
 }
 
-/// A light node that follows one network's checkpoints under a fixed member set,
-/// enforcing the §9.4 rules: reject a foreign network or member set, ignore a replayed
-/// (non-monotonic) height, and alarm on equivocation. [`ingest`](Self::ingest) sees only
-/// checkpoints, so it cannot tell a higher checkpoint on a *different* history from an
-/// extension; a client holding the log uses [`ingest_with_log`](Self::ingest_with_log),
-/// which also requires the new head to extend the trusted one (T38).
+/// A light node following one network's checkpoints under a fixed member set (§9.4).
 pub struct CheckpointClient {
     network_id: [u8; 32],
     member_set_hash: [u8; 32],
@@ -177,22 +150,18 @@ impl CheckpointClient {
         }
     }
 
-    /// The last accepted checkpoint, if any.
     pub fn trusted(&self) -> Option<&Checkpoint> {
         self.trusted.as_ref()
     }
 
-    /// Processes an incoming checkpoint and its signatures against the trusted state.
-    /// Accepts any correctly signed higher checkpoint: without the log it cannot check
+    /// Accepts any correctly signed higher checkpoint; without the log it cannot check
     /// that the new head extends the trusted one (use [`Self::ingest_with_log`]).
     pub fn ingest(&mut self, cp: &Checkpoint, sigs: &[(usize, Signature)]) -> CheckpointUpdate {
         self.ingest_checked(cp, sigs, |_| Ok(()))
     }
 
-    /// Like [`Self::ingest`], but a higher checkpoint is accepted only if `log` — this
-    /// client's copy — consistently extends both the trusted checkpoint and the new one
-    /// (`log::verify_extends`, T14). A threshold-signed checkpoint on a different history
-    /// is then reported as `Forked` instead of silently becoming the trusted head (T38).
+    /// Like [`Self::ingest`], but accepts a higher checkpoint only if `log` extends both
+    /// (`log::verify_extends`); a fork on a different history is `Forked`, not trusted.
     pub fn ingest_with_log(
         &mut self,
         cp: &Checkpoint,
@@ -225,8 +194,6 @@ impl CheckpointClient {
         })
     }
 
-    /// The shared §9.4 rules; `extends` vets a strictly higher checkpoint against the
-    /// trusted one before it is accepted.
     fn ingest_checked(
         &mut self,
         cp: &Checkpoint,

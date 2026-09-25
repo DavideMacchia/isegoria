@@ -1,9 +1,6 @@
 //! The coordination detector on model residuals (`docs/01` D39, `docs/08`
-//! COLLUSION-002/003/005/006, T56). The paper's dataset (`revisions_collusion.py`): 200
-//! reviewers in two camps (80/120) over 60 items — 30 consensus, 30 partisan in mirror
-//! pairs — and a cartel of 10 minority-camp members who rate 5 majority-favoured items at
-//! 1.0 plus jitter σ = 0.05. Raw correlations cannot tell the cartel from honest
-//! reviewers who share a camp; residual correlations can (AT-COL-02, AT-COL-07).
+//! COLLUSION-002/003/005/006), tested on the paper's cartel dataset
+//! (`revisions_collusion.py`, AT-COL-02, AT-COL-07).
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -114,10 +111,9 @@ fn pair_means(camp_b: &[bool], corr: impl Fn(usize, usize) -> f64) -> (f64, f64,
     (mean(&same), mean(&cross), mean(&cartel))
 }
 
-/// AT-COL-07 / AT-COL-02 (D39): on residuals the cartel — jittered at σ = 0.05 — stands
-/// out and nothing else does; honest reviewers of the same camp are not flagged, opposite
-/// camps are not joined, and the cartel is one cluster. Raw correlations, the retired
-/// rule, put honest same-camp pairs level with the cartel.
+/// AT-COL-07 / AT-COL-02 (D39): on residuals the cartel stands out and nothing else does
+/// — honest reviewers of the same camp are not flagged, opposite camps are not joined,
+/// and the cartel is one cluster. Raw correlations put honest same-camp pairs level with it.
 #[test]
 fn at_col_07_the_residual_detector_flags_the_cartel_and_no_honest_pair() {
     let (ratings, camp_b, _) = dataset(11);
@@ -188,9 +184,8 @@ fn at_col_07_the_residual_detector_flags_the_cartel_and_no_honest_pair() {
     }
 }
 
-/// The retired rule on the same data: connected components over raw correlations at the
-/// threshold that catches the cartel merge honest reviewers of a camp into one cluster —
-/// and the cartel with them (COLLUSION-005).
+/// Connected components over raw correlations, at the threshold that catches the
+/// cartel, merge honest reviewers of a camp into one cluster too (COLLUSION-005).
 #[test]
 fn the_retired_raw_correlation_rule_chains_honest_reviewers_together() {
     let (ratings, _, _) = dataset(11);
@@ -206,8 +201,6 @@ fn the_retired_raw_correlation_rule_chains_honest_reviewers_together() {
         largest > 50,
         "the raw rule chains honest reviewers: largest cluster {largest}"
     );
-    // The whole majority camp — honest reviewers who merely share a position — is one
-    // cluster, and would have been discounted to √120 / 120 of its weight.
     assert!(
         (N_A..N).all(|u| clusters[u] == clusters[N_A]),
         "camp B is not one cluster under the raw rule"
@@ -220,7 +213,6 @@ fn the_retired_raw_correlation_rule_chains_honest_reviewers_together() {
 fn a_pair_below_the_shared_floor_is_never_flagged() {
     let (ratings, _, _) = dataset(11);
     let full = history(&ratings);
-    // The same residuals on the first 20 items only.
     let mut short = ResidualHistory::new(N);
     let mask = vec![vec![true; M]; N];
     let data = Ratings::from_dense(&ratings, &mask);
@@ -237,7 +229,6 @@ fn a_pair_below_the_shared_floor_is_never_flagged() {
     let report = coordination_clusters(&short, &CoordinationParams::default());
     assert!(report.flagged.is_empty());
     assert!(report.groups().is_empty());
-    // 30 shared items: read.
     assert!(full.pair(0, 1, MIN_SHARED_ITEMS).is_some());
 }
 
@@ -248,8 +239,6 @@ fn a_pair_below_the_shared_floor_is_never_flagged() {
 fn the_history_accumulates_across_epochs() {
     let mut r = ChaCha8Rng::seed_from_u64(5);
     let mut h = ResidualHistory::new(4);
-    // Reviewers 0 and 1 coordinate: their residuals share a pattern plus small noise;
-    // reviewers 2 and 3 are honest: independent noise. Each epoch adds 3 shared items.
     for epoch in 0..12u64 {
         for k in 0..3u64 {
             let item = epoch * 3 + k;

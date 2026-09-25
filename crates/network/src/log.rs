@@ -1,14 +1,6 @@
-//! Append-only transparency log (`docs/04`, §Signed append-only logs): a
-//! hash-chained, add-only register. Each entry carries the previous entry's hash,
-//! so altering any past entry breaks the chain visibly.
-//!
-//! A hash chain alone (`verify`) catches an *inconsistent* edit but not a **consistent
-//! suffix rewrite** (rewrite entries `i..`, recompute every later hash — the result still
-//! verifies) nor a **truncation** (a shorter valid prefix verifies). Both are caught only
-//! against an *externally held, signed* prior head: a consortium [`Checkpoint`] over the
-//! log head at some height (`consortium`). [`TransparencyLog::verify_extends`] is that
-//! check (NET-004 / DS-1, T14): given a checkpoint the verifier trusts (a threshold of
-//! consortium signatures), it proves the current log consistently extends it.
+//! Append-only transparency log (`docs/04` §Signed append-only logs, `docs/08` NET-004):
+//! a hash chain. [`verify_extends`](TransparencyLog::verify_extends) proves it extends an
+//! externally held, signed prior [`Checkpoint`] — catching what a bare chain misses.
 
 use crate::cid::Cid;
 use crate::consortium::Checkpoint;
@@ -33,8 +25,8 @@ fn entry_hash(seq: u64, prev: &[u8; 32], payload: &Cid) -> [u8; 32] {
 #[derive(Default)]
 pub struct TransparencyLog {
     entries: Vec<Entry>,
-    /// Every payload appended so far, so an entry point can refuse a duplicate before it
-    /// does anything else (`docs/08` §9.1 row 1, T64).
+    /// Every payload appended so far: lets an entry point refuse a duplicate first
+    /// (`docs/08` §9.1 row 1).
     payloads: HashSet<Cid>,
 }
 
@@ -57,8 +49,7 @@ impl TransparencyLog {
         self.entries.last().unwrap()
     }
 
-    /// Whether `payload` is already on the log (T64): the check a deposit runs first, so
-    /// a replayed proposal is refused before the identity check and the quota charge.
+    /// Whether `payload` is already on the log: checked first, before identity and quota.
     pub fn contains(&self, payload: &Cid) -> bool {
         self.payloads.contains(payload)
     }
@@ -100,10 +91,8 @@ impl TransparencyLog {
         true
     }
 
-    /// The log's current state as a `Checkpoint` bound to `network_id` and
-    /// `member_set_hash` (T15) — the object the consortium signs (`consortium::Member::
-    /// sign`). A signature over this head commits the whole prefix, because the head chains
-    /// every earlier entry.
+    /// The log's current state as a `Checkpoint` bound to `network_id` and `member_set_hash`
+    /// — the object the consortium signs. A signature over the head commits the whole prefix.
     pub fn checkpoint(&self, network_id: [u8; 32], member_set_hash: [u8; 32]) -> Checkpoint {
         Checkpoint::new(
             network_id,
@@ -113,14 +102,9 @@ impl TransparencyLog {
         )
     }
 
-    /// Proves the log consistently extends `prior` — a checkpoint the verifier already
-    /// trusts (a threshold of consortium signatures). The chain must verify, be at least
-    /// `prior.height` long, and its entry at `prior.height` must still chain to
-    /// `prior.head`. Because the head is collision-resistant over the whole prefix, an
-    /// equal `prior.height`-th head proves the first `prior.height` entries are unchanged.
-    /// This catches the consistent suffix rewrite and the truncation that [`verify`] alone
-    /// cannot (NET-004, AT-NET-01). Appending new entries beyond `prior.height` is a valid
-    /// extension and passes.
+    /// Proves the log consistently extends `prior`: the chain must verify, reach at least
+    /// `prior.height`, and its entry there must still chain to `prior.head` (NET-004,
+    /// AT-NET-01).
     pub fn verify_extends(&self, prior: &Checkpoint) -> Result<(), ConsistencyError> {
         if !self.verify() {
             return Err(ConsistencyError::BrokenChain);
@@ -144,7 +128,7 @@ impl TransparencyLog {
     }
 }
 
-/// Why a log does not consistently extend a trusted prior checkpoint (NET-004, T14).
+/// Why a log does not consistently extend a trusted prior checkpoint (NET-004).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConsistencyError {
     /// The hash chain itself is broken (a tampered entry that was not re-chained).

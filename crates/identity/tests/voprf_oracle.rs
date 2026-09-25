@@ -1,9 +1,6 @@
-//! Cryptographic properties of the real uniqueness-label backend (`docs/03` §M1):
-//! the single-server VOPRF (RFC 9497, Ristretto255-SHA512) behind
-//! `UniquenessOracle`. Dedup / cross-source equality is covered by the pipeline
-//! tests in `properties.rs`; here we pin the protocol-level guarantees that make the
-//! label trustworthy — determinism independent of the blind, key separation,
-//! obliviousness, and verifiability.
+//! Cryptographic properties of the real uniqueness-label backend (`docs/03` §M1): the
+//! single-server VOPRF behind `UniquenessOracle` — determinism independent of the blind,
+//! key separation, obliviousness, verifiability. Dedup is covered in `properties.rs`.
 
 use identity::enrollment::{Anchor, UniquenessOracle, VoprfOracle};
 use rand_core::OsRng;
@@ -17,9 +14,8 @@ fn anchor(s: &str) -> Anchor {
 
 #[test]
 fn label_is_deterministic_despite_a_fresh_random_blind() {
-    // Each call blinds with a fresh random scalar, yet the finalized PRF output
-    // F(k, anchor) is blind-independent — so the label is stable. Without this the
-    // dedup registry could never recognise a repeat enrollment.
+    // Each call blinds with a fresh random scalar; the finalized output F(k, anchor)
+    // is blind-independent.
     let oracle = VoprfOracle::new([7u8; 32]);
     let a = anchor("RSSMRA80A01H501U");
     assert_eq!(oracle.label(&a), oracle.label(&a));
@@ -27,9 +23,8 @@ fn label_is_deterministic_despite_a_fresh_random_blind() {
 
 #[test]
 fn same_seed_rebuilds_the_same_oracle() {
-    // DeriveKeyPair is deterministic: an operator that reloads its seed in another
-    // process recomputes identical labels. This is what lets dedup work across the
-    // network rather than within a single instance.
+    // DeriveKeyPair is deterministic: reloading the seed in another process
+    // recomputes identical labels.
     let a = anchor("VRDLGI85M02F205Z");
     assert_eq!(
         VoprfOracle::new([42u8; 32]).label(&a),
@@ -56,9 +51,8 @@ fn distinct_anchors_give_distinct_labels() {
 
 #[test]
 fn an_anchor_beyond_the_rfc_9497_limit_still_gets_a_stable_label() {
-    // RFC 9497 caps an input at u16::MAX bytes; a longer anchor used to panic the oracle
-    // (T44). It is now hashed first, under a tag of its own, so it gets a stable label
-    // distinct from every other anchor's — and an anchor at the limit is unaffected.
+    // Longer than the RFC 9497 cap: hashed first, under a tag of its own, so it stays
+    // distinct from every other anchor's; an anchor at the limit is unaffected.
     let oracle = VoprfOracle::new([7u8; 32]);
     let long = anchor(&"A".repeat(70_000));
     let longer = anchor(&"A".repeat(70_001));
@@ -72,8 +66,7 @@ fn an_anchor_beyond_the_rfc_9497_limit_still_gets_a_stable_label() {
 #[test]
 fn the_blinded_message_hides_the_anchor() {
     // Obliviousness: what leaves the client is a blinded group element, not the
-    // codice fiscale. The server evaluating the OPRF never sees the anchor in the
-    // clear. (This is the property the plain keyed-hash reference never had.)
+    // codice fiscale.
     let input = b"RSSMRA80A01H501U";
     let mut rng = OsRng;
     let blind = VoprfClient::<Ristretto255>::blind(input, &mut rng).unwrap();
@@ -84,8 +77,7 @@ fn the_blinded_message_hides_the_anchor() {
 #[test]
 fn a_wrong_key_fails_verification() {
     // Verifiability: the client checks the server's proof against the committed
-    // public key. An evaluation that does not match that key is rejected — a server
-    // cannot silently answer under a different key.
+    // public key; a mismatched key is rejected.
     let input = b"RSSMRA80A01H501U";
     let mut rng = OsRng;
 

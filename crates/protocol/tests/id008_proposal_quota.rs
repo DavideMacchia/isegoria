@@ -1,8 +1,6 @@
-//! Per-credential proposal rate limit (docs/08 ID-008, T11): a proposer may deposit at
-//! most `quota` drafts per epoch, keyed on the verified Propose nullifier id (INV-9). The
-//! quota is set from the author score (`reputation::proposal_rate`) — reputation and a
-//! rate limit, never money (invariant #3). This is the structural in-process form; the
-//! RLN cryptographic-grade form is T20.
+//! Per-credential proposal rate limit (`docs/08` ID-008, T11): a proposer may deposit at
+//! most `quota` drafts per epoch, keyed on the Propose nullifier id (INV-9); `quota`
+//! comes from the author score (`reputation::proposal_rate`), never money.
 
 use identity::credential::{AnonymousCredential, Credential, Issuer};
 use identity::enrollment::Label;
@@ -65,7 +63,6 @@ fn over_quota_proposals_are_rejected() {
             "proposal {j} within quota"
         );
     }
-    // The next proposal is over quota and is refused before it reaches the log.
     assert_eq!(
         propose(&mut log, &mut ledger, &issuer, &cred, "one too many", quota),
         Err(DepositRejected::OverQuota)
@@ -79,8 +76,7 @@ fn over_quota_proposals_are_rejected() {
 
 #[test]
 fn distinct_proposers_have_independent_quotas() {
-    // A different person (different secret → different Propose nullifier id) has its own
-    // quota, so one author exhausting theirs does not block another.
+    // A different secret is a different Propose nullifier id.
     let (issuer, alice) = issued([9u8; 32]);
     let bob = {
         let holder = Credential::from_secret([10u8; 32]);
@@ -96,14 +92,12 @@ fn distinct_proposers_have_independent_quotas() {
         Err(DepositRejected::OverQuota),
         "alice is at quota"
     );
-    // Bob still has his own budget.
     assert!(propose(&mut log, &mut ledger, &issuer, &bob, "b1", 1).is_ok());
 }
 
 #[test]
 fn the_quota_is_metered_by_reputation_not_money() {
-    // The proposal budget is derived from the author score C_a via `proposal_rate`, so a
-    // higher-reputation author may propose more — the cost is reputation, never a stake.
+    // The budget comes from the author score C_a via `proposal_rate`.
     let (q_min, q_max) = (2.0, 20.0);
     let low = proposal_rate(0.1, q_min, q_max);
     let high = proposal_rate(0.9, q_min, q_max);

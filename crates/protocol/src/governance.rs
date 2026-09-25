@@ -1,10 +1,6 @@
-//! Meta-level governance (`docs/05`, §Meta-level governance; `docs/01` D16).
-//!
-//! Everything that controls the system itself — scoring parameters, the honeypot
-//! committee, the coverage blueprint, consortium composition — is decided by
-//! STRATIFIED SORTITION, never by vote, with a qualified supermajority and a time
-//! delay for changes. Sortition is the recurring defense against capture by whoever
-//! controls the rules: whoever can *choose* who tunes the system controls it.
+//! Meta-level governance (`docs/05` §Meta-level governance, `docs/01` D16): scoring
+//! parameters, the honeypot committee, the coverage blueprint and consortium composition
+//! are decided by stratified sortition, never by vote (qualified supermajority + delay).
 
 use crate::randomness::{Beacon, SORTITION};
 use rand::seq::SliceRandom;
@@ -16,22 +12,16 @@ use std::hash::Hash;
 pub const SUPERMAJORITY: f64 = 2.0 / 3.0;
 pub const CHANGE_DELAY_DAYS: u32 = 30;
 
-/// A sortition candidate: an opaque id and its latent position `f_u` from Level A.
 #[derive(Clone, Copy, Debug)]
 pub struct Candidate<Id> {
     pub id: Id,
     pub f_u: f64,
 }
 
-/// The same id appears twice among the candidates: it would get two tickets in the draw
-/// and could fill two seats (T36).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DuplicateCandidate;
 
-/// Stratified sortition seeded from the signed checkpoint (INV-10, D29, T8): who tunes
-/// the system is drawn from the epoch beacon, closing the meta-level capture vector
-/// (the beacon's own grinding residual is T37). `round` domain-separates successive
-/// draws. Sanctioned entry point; [`stratified_sortition`] takes a raw seed for testing.
+/// [`stratified_sortition`] seeded from the signed checkpoint (INV-10).
 pub fn sortition_from_beacon<Id: Clone + Eq + Hash>(
     candidates: &[Candidate<Id>],
     seats: usize,
@@ -42,10 +32,8 @@ pub fn sortition_from_beacon<Id: Clone + Eq + Hash>(
     stratified_sortition(candidates, seats, n_strata, beacon.seed(SORTITION, round))
 }
 
-/// Draws `seats` members by stratified sortition on `f_u`: sort by position, split
-/// into `n_strata` equal-frequency strata, and spread the seats across the strata so
-/// every position of the axis is represented. Deterministic per `seed`. Returns the
-/// chosen ids in candidate order; refuses a candidate list with a repeated id.
+/// Draws `seats` members by stratified sortition on `f_u` across `n_strata` strata, so
+/// every position is represented. Deterministic per `seed`; refuses a repeated id.
 pub fn stratified_sortition<Id: Clone + Eq + Hash>(
     candidates: &[Candidate<Id>],
     seats: usize,
@@ -103,8 +91,7 @@ pub fn stratified_sortition<Id: Clone + Eq + Hash>(
 }
 
 /// A meta-level change is approved only with a qualified supermajority AND after the
-/// mandatory delay (`docs/05`: e.g. 2/3 + 30 days). Both conditions are required. A
-/// tally with more votes than eligible voters is malformed and never approves (T36).
+/// mandatory delay; a tally with more votes than eligible voters never approves (T36).
 pub fn change_approved(votes_for: usize, total_eligible: usize, days_elapsed: u32) -> bool {
     if total_eligible == 0 || votes_for > total_eligible {
         return false;

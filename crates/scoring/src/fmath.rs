@@ -1,10 +1,5 @@
-//! The transcendental functions the engine uses, from one pure-Rust implementation (the
-//! `libm` crate) instead of the platform's libm (CLAUDE.md invariant #7, `docs/08` INV-7 /
-//! AT-BR-04). glibc, musl, Apple's and Microsoft's `exp`, `log`, `cos` and `pow` differ
-//! in their last bits, and an iterative fit amplifies a last-bit difference into a
-//! different stopping point, so the same input would give different bits on different
-//! machines. `sqrt`, `abs`, `powi` and the arithmetic itself are IEEE-754-exact or
-//! compiler builtins and stay as they are.
+//! Transcendental functions via `libm`, not the platform's libm, for bit-identical results
+//! across machines (CLAUDE.md invariant #7, `docs/08` INV-7, AT-BR-04).
 
 #[inline]
 pub(crate) fn exp(x: f64) -> f64 {
@@ -35,8 +30,7 @@ pub(crate) fn powf(x: f64, y: f64) -> f64 {
 mod tests {
     use super::*;
 
-    /// Same values as the platform's libm to within an ulp or two: the point is one
-    /// implementation everywhere, not a different function.
+    /// Matches the platform's libm to a few ulps (AT-BR-04).
     #[test]
     fn agrees_with_the_platform_libm_to_a_few_ulps() {
         for x in [-30.0, -2.5, -0.3, 0.0, 1e-9, 0.7, 2.0, 25.0] {

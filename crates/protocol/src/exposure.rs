@@ -1,8 +1,6 @@
-//! Item exposure and retirement (`docs/05` [9], `docs/00` [8]). An item used a lot
-//! gets memorized and circulates, losing value. Countermeasures: a broad pool with
-//! rotation, parametric items (same structure, different values), and automatic
-//! retirement on exposure — plus retirement on drift, obsolescence, or DIF that
-//! emerges from periodic re-validation of the pool.
+//! Item exposure and retirement (`docs/05` [9], `docs/00` [8]): an item used a lot
+//! gets memorized and loses value. Countermeasures: pool rotation, parametric items,
+//! and retirement on exposure, drift, obsolescence, or emerging DIF.
 
 use network::cid::{cid, Cid};
 use std::collections::HashMap;
@@ -70,9 +68,8 @@ impl ExposureLedger {
 }
 
 /// A parametric item: a fixed structure whose slots are filled by different values,
-/// so many concrete items share one template. Each instantiation is a distinct
-/// content-addressed item; rotating variants spreads exposure so no single concrete
-/// item is memorized.
+/// so many concrete items share one template. Rotating variants spreads exposure so
+/// no single concrete item is memorized.
 pub struct Template {
     structure: Vec<u8>,
 }

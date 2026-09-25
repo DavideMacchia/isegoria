@@ -1,8 +1,6 @@
-//! D26 supplementary re-decision (docs/01 D26, docs/08 PROTO-012/PROTO-008, T10/T30): a
-//! borderline (band) item is re-decided by re-running bridging and comparing `b_j` to the
-//! plain threshold τ — a bridging decision over the latent axis, NOT a weighted vote. This
-//! replaces the retired `aggregate` tie-break, which advanced even polarized items the
-//! bridging model itself rejects (AT-PRO-03).
+//! D26 supplementary re-decision (`docs/01` D26, `docs/08` PROTO-008/PROTO-012, T10/T30):
+//! a band item is re-decided by re-running bridging and comparing its score to τ
+//! (`gate::supplementary_review`, AT-PRO-03).
 
 use identity::nym::Nym;
 use network::cid::cid;
@@ -39,9 +37,8 @@ fn ratings() -> Ratings {
 }
 
 /// The fixture plus an eleventh, borderline item: approval about τ from every reviewer,
-/// no lean, nine in ten cells observed. On the provisional gate (τ = 0.80 ± 0.02) no
-/// fixture item is borderline — the consensus items score 0.83–0.86, the partisan ones
-/// 0.52–0.57 — so the band is exercised on this one.
+/// no lean, nine in ten cells observed — no fixture item is otherwise borderline on the
+/// provisional gate, so the band is exercised on this one.
 fn ratings_with_a_borderline_item() -> (Ratings, usize) {
     ratings_with_a_borderline_item_at(TAU)
 }
@@ -95,9 +92,8 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
         "the bridging band on these fixtures"
     );
 
-    // The re-decision is the full fit's side-balanced score against the plain τ — a
-    // bridging decision over the latent axis, whichever way it falls — and below τ the
-    // below-band rule (T59): the gap decides between appeal and borderline reject.
+    // The re-decision reads the full fit's side-balanced score against the plain τ; below
+    // τ the below-band rule (T59) reads the gap for appeal vs. borderline reject.
     let full = side_balanced(&fit(&ratings, &params).unwrap());
     let expected = if full.score[borderline] >= TAU {
         GateOutcome::Pass
@@ -113,10 +109,8 @@ fn at_pro_03_the_band_is_re_decided_by_bridging_not_by_a_vote() {
         full.score[borderline]
     );
 
-    // The partisan items (07, 08) — which the retired weighted-mean tie-break advanced
-    // (unit-weight means 0.59 / 0.71 ≥ 0.5) — are NOT passed here: bridging gives them a
-    // side-balanced score far below τ, so a larger camp does not carry a polarized item
-    // (docs/01 D2, D32).
+    // The partisan items (07, 08): bridging gives them a side-balanced score far below τ,
+    // so a larger camp does not carry a polarized item (docs/01 D2, D32).
     for j in [7usize, 8] {
         assert_eq!(
             supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap(),
@@ -158,15 +152,14 @@ fn ratings_with_a_leaning_item(approval: f64, lift: f64) -> (Ratings, usize) {
     )
 }
 
-/// T59 (D26 amendment): an item that fails the re-decision follows the below-band rule.
-/// Rejected for polarization — one side approves, the other does not — it keeps the
-/// appeal channel; rejected as a defect — both sides lukewarm — it is a borderline
-/// reject; and an item both sides approve passes.
+/// T59: an item that fails the re-decision follows the below-band rule — polarized (one
+/// side approves, the other does not) keeps the appeal channel, a defect (both lukewarm)
+/// is a borderline reject; both sides approving passes.
 #[test]
 fn a_failing_re_decision_keeps_the_appeal_for_a_polarized_item_only() {
     let params = BridgingParams::default();
 
-    // Polarized: side A at 0.55, side B at 0.95 — S_j ≈ 0.75 < τ, gap ≈ 0.40 ≥ 0.25.
+    // Polarized: side A approves, side B does not.
     let (ratings, j) = ratings_with_a_leaning_item(0.55, 0.40);
     let sides = side_balanced(&fit(&ratings, &params).unwrap());
     assert!(
@@ -180,7 +173,7 @@ fn a_failing_re_decision_keeps_the_appeal_for_a_polarized_item_only() {
         GateOutcome::AppealEligible
     );
 
-    // A defect: both sides at 0.75 — S_j ≈ 0.75 < τ, gap ≈ 0.
+    // A defect: both sides lukewarm.
     let (ratings, j) = ratings_with_a_leaning_item(0.75, 0.0);
     let sides = side_balanced(&fit(&ratings, &params).unwrap());
     assert!(
@@ -202,8 +195,7 @@ fn a_failing_re_decision_keeps_the_appeal_for_a_polarized_item_only() {
     );
 }
 
-/// A band item whose extra round is complete (T60): first panel `1..=9`, extra panel
-/// `20..=23`, everyone committed and revealed.
+/// A band item whose extra round is complete (T60): both panels committed and revealed.
 fn band_ready() -> State {
     let item = cid(b"borderline");
     let nym = |i: u8| Nym([i; 32]);
@@ -247,9 +239,8 @@ fn band_ready() -> State {
 
 #[test]
 fn a_borderline_item_reaches_a_defined_terminal() {
-    // AT-PRO-03: from `SupplementaryReview` — once the extra round is complete (T60) — the
-    // D26 re-decision gives a defined outcome: pilot entry when it passes, a borderline
-    // reject when it does not — never a dead end.
+    // AT-PRO-03: once the extra round is complete (T60), the D26 re-decision gives a
+    // defined outcome — pilot entry when it passes, a borderline reject when it does not.
     assert_eq!(
         step(
             band_ready(),
@@ -283,10 +274,9 @@ fn a_borderline_item_reaches_a_defined_terminal() {
     );
 }
 
-/// T60 (D26): the re-decision fits the first panel's ratings *plus* the extra round's.
-/// A band item both sides of the first panel approve just above τ passes on the first
-/// panel alone — and is rejected once the extra reviewers, who had not rated it,
-/// disapprove; when they approve, it passes.
+/// T60: the re-decision fits the first panel's ratings plus the extra round's. A band
+/// item passing on the first panel alone is rejected once disapproving extra reviewers,
+/// who had not rated it, are folded in; approving ones still pass it.
 #[test]
 fn the_extra_reviewers_change_the_re_decision() {
     let params = BridgingParams::default();
@@ -303,7 +293,7 @@ fn the_extra_reviewers_change_the_re_decision() {
         GateOutcome::Pass
     );
 
-    // The extra round: every reviewer who had not rated it (20 of 200, from both camps).
+    // The extra round: every reviewer who had not rated it, from both camps.
     let extra: Vec<Nym> = (0..ratings.n)
         .filter(|u| u % 10 == 3)
         .map(|u| Nym([u as u8; 32]))
@@ -369,15 +359,12 @@ fn ratings_with_a_panel_rated_item(approval: f64, panel: &[usize]) -> (Ratings, 
     )
 }
 
-/// The same, end to end through the machine (T60): the band item's extra round is
-/// walked by `run_item`, and the re-decision — the closure — fits the reveals the
-/// machine recorded into the epoch's ratings. Nine reviewers from both camps rated it
-/// just above τ, so on the first panel alone it passes; four disapproving extra
-/// reviewers send it to a borderline reject, four approving ones to the pool.
+/// End to end through the machine (T60): the band's extra round is walked by `run_item`,
+/// whose re-decision closure fits the machine's recorded reveals into the epoch's ratings.
 #[test]
 fn a_band_item_whose_extra_reviewers_disapprove_is_rejected() {
     let params = BridgingParams::default();
-    // Camp A is `u < 80` (`f_u < 0`), camp B `u ≥ 80`: four and five of them.
+    // Camp A is `u < 80` (`f_u < 0`), camp B `u ≥ 80`.
     let first_panel = [0usize, 20, 40, 60, 80, 100, 120, 140, 160];
     let (ratings, j) = ratings_with_a_panel_rated_item(TAU + 0.02, &first_panel);
     let rows: Vec<Nym> = (0..ratings.n).map(|u| Nym([u as u8; 32])).collect();

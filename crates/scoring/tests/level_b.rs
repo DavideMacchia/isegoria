@@ -102,13 +102,9 @@ fn verdicts_match_the_oracle() {
     let grp = read_vector("levelb_grp.csv");
     let theta = theta_from_anchors(&xa);
 
-    // 04 ESM (idx 3): strong DIF.
     assert!(logistic_dif(&column(&x, 3), &theta, &grp).beta2.abs() > BETA2_MAX);
-    // 05 capital of Italy (idx 4): no discrimination.
     assert!(point_biserial(&column(&x, 4), &theta) < R_PBIS_MIN);
-    // 06 wrong key (idx 5): negative point-biserial.
     assert!(point_biserial(&column(&x, 5), &theta) < 0.0);
-    // A clean item (idx 0) passes both.
     assert!(point_biserial(&column(&x, 0), &theta) >= R_PBIS_MIN);
     assert!(logistic_dif(&column(&x, 0), &theta, &grp).beta2.abs() <= BETA2_MAX);
 }
@@ -135,20 +131,16 @@ fn mantel_haenszel_classifies_dif() {
     let grp = read_vector("levelb_grp.csv");
     let theta = theta_from_anchors(&xa);
 
-    // 04 ESM (idx 3): strong DIF → class C (rejected).
     let esm = mantel_haenszel(&column(&x, 3), &theta, &grp, 5);
     assert_eq!(esm.class, EtsClass::C, "ESM Δ_MH = {:.2}", esm.delta);
-    // A clean item (idx 0) → class A, and its sign agrees with β₂ (~0).
     let clean = mantel_haenszel(&column(&x, 0), &theta, &grp, 5);
     assert_eq!(clean.class, EtsClass::A, "clean Δ_MH = {:.2}", clean.delta);
 }
 
+/// Purification (`docs/02` §B.4) flags only the ESM item and re-verifies the fixed point.
 #[cfg(feature = "calibration")]
 #[test]
 fn purification_reaches_a_stable_flagged_set() {
-    // docs/02 §B.4: iterate until the flagged set is a fixed point. Only the DIF
-    // item (idx 3, ESM) is flagged; clean items are not; θ stays aligned with the
-    // anchor-based estimate.
     let xa = read_matrix("levelb_XA.csv");
     let x = read_matrix("levelb_X.csv");
     let grp = read_vector("levelb_grp.csv");
@@ -158,11 +150,8 @@ fn purification_reaches_a_stable_flagged_set() {
     for j in [0usize, 1, 2, 7, 8, 9] {
         assert!(!res.flagged[j], "clean item {j} should not be flagged");
     }
-    // Round 1 flags ESM (a change from "none flagged"), round 2 confirms it: the loop
-    // stops at the first round that reproduces the previous set, not before (T41).
     assert_eq!(res.iterations, 2);
 
-    // θ is the standardized total over the anchors plus the batch items left unflagged.
     let totals: Vec<f64> = (0..xa.len())
         .map(|i| {
             xa[i].iter().sum::<f64>()
@@ -179,25 +168,21 @@ fn purification_reaches_a_stable_flagged_set() {
         assert!((res.theta[i] - (t - mean) / sd).abs() < 1e-9, "theta[{i}]");
     }
 
-    // Fixed point: re-running DIF with the final θ reproduces the same flagged set.
     for (j, &flag) in res.flagged.iter().enumerate() {
         let refit = logistic_dif(&column(&x, j), &res.theta, &grp).beta2.abs() > BETA2_MAX;
         assert_eq!(refit, flag, "item {j} not at a fixed point");
     }
 }
 
+/// 3 of 8 items carry hidden-axis DIF (`docs/02` §B.3): the mixture separates them by BIC.
 #[test]
 fn mixture_detects_bias_in_a_batch() {
-    // 3 of 8 items biased on a never-observed axis (edu). The detector should
-    // recover a large difficulty gap on the biased items, a small one on the clean
-    // ones, prefer a two-class mixture by BIC, and reconstruct the hidden axis
-    // (docs/02, §B.3).
     let theta = read_vector("mixture_batch_theta.csv");
     let x = read_matrix("mixture_batch_X.csv");
     let edu = read_vector("mixture_batch_edu.csv");
     let res = mixture_dif(&theta, &x, 8, 0);
 
-    // `dif` is the b-gap 2|δ| (DIF-006); the fixture plants δ = 0.9, a gap of 1.8.
+    // `dif` is the b-gap 2|δ| (DIF-006).
     let biased_mean = res.dif[..3].iter().sum::<f64>() / 3.0;
     let clean_mean = res.dif[3..].iter().sum::<f64>() / 5.0;
     assert!(biased_mean > 1.2, "biased DIF mean = {biased_mean:.3}");
@@ -229,10 +214,9 @@ fn best_axis(posterior: &[Vec<f64>], axis: &[f64]) -> f64 {
         .fold(0.0, f64::max)
 }
 
+/// A single biased item stays undetectable (`docs/02` §B.3, invariant #8): batching is required.
 #[test]
 fn mixture_misses_a_single_biased_item() {
-    // Invariant #8 / docs/02 §B.3: a lone biased item is unidentifiable — the
-    // reason validation must run in batches.
     let theta = read_vector("mixture_single_theta.csv");
     let x = read_matrix("mixture_single_X.csv");
     let edu = read_vector("mixture_single_edu.csv");
@@ -245,8 +229,7 @@ fn mixture_misses_a_single_biased_item() {
     );
 }
 
-/// A NaN in the caller-supplied θ used to panic `mantel_haenszel` via
-/// `partial_cmp().unwrap()`. Bad data must degrade the stratification, not crash.
+/// A NaN in θ degrades `mantel_haenszel`'s stratification instead of panicking via `partial_cmp`.
 #[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_tolerates_a_nan_theta() {
@@ -254,16 +237,13 @@ fn mantel_haenszel_tolerates_a_nan_theta() {
     let theta = vec![0.5, f64::NAN, -0.3, 1.2, f64::NAN, -1.0];
     let group = vec![0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
     let r = mantel_haenszel(&item, &theta, &group, 3); // must not panic
-                                                       // The classification is still one of the ETS classes.
     assert!(matches!(r.class, EtsClass::A | EtsClass::B | EtsClass::C));
 }
 
+/// A NaN θ at 200 respondents doesn't panic `mantel_haenszel`'s sort (`docs/08` IQ-2, DIF-003).
 #[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_tolerates_nan_theta_at_sort_detection_sizes() {
-    // docs/08 IQ-2 / DIF-003 guard: a comparator that treats NaN as equal to everything
-    // is not a total order, which Rust's sort (≥ 1.81) may detect on longer slices and
-    // panic on. `total_cmp` cannot. 200 respondents, every 13th θ is NaN.
     let n = 200;
     let item: Vec<f64> = (0..n).map(|i| ((i * 7) % 3 == 0) as u8 as f64).collect();
     let theta: Vec<f64> = (0..n)
@@ -304,7 +284,7 @@ fn cell_rows(theta: f64, a: usize, b: usize, c: usize, d: usize) -> Vec<(f64, f6
 }
 
 /// One stratum: α_MH = (a·d)/(b·c) = 9/16, Δ = −2.35·ln α ≈ +1.35 → class B. Swapping
-/// the groups inverts α and flips the sign of Δ, same class (T41).
+/// the groups inverts α and flips the sign of Δ, same class.
 #[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_matches_a_hand_computed_table() {
@@ -347,7 +327,7 @@ fn mantel_haenszel_pools_within_ability_strata() {
 
 /// Strata of unequal size weight each table by `1/N_s`: 6 respondents with (3,1,1,1)
 /// and 7 with (1,1,1,4) give α_MH = (3/6 + 4/7)/(1/6 + 1/7) = 45/13 — not the
-/// unweighted 7/2, and not the collapsed 20/4 (T41).
+/// unweighted 7/2, and not the collapsed 20/4.
 #[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_weights_each_stratum_by_its_size() {
@@ -358,10 +338,8 @@ fn mantel_haenszel_weights_each_stratum_by_its_size() {
     assert!((r.alpha - 45.0 / 13.0).abs() < 1e-12, "alpha = {}", r.alpha);
 }
 
-/// More strata than respondents leaves strata empty; they contribute nothing instead of
-/// a 0/0 NaN. Note what remains: every stratum holds one person, who forms no
-/// discordant pair, so α is undefined → ∞ → class C. Over-stratifying a small sample
-/// rejects the item (calibration-only; the caller picks `n_strata`).
+/// More strata than respondents leaves some empty; they contribute nothing instead of
+/// a 0/0 NaN. A single-person stratum has undefined α (→ ∞), landing in class C.
 #[cfg(feature = "calibration")]
 #[test]
 fn mantel_haenszel_skips_empty_strata() {
@@ -370,7 +348,6 @@ fn mantel_haenszel_skips_empty_strata() {
     assert_eq!(r.alpha, f64::INFINITY);
     assert!(!r.delta.is_nan());
     assert_eq!(r.class, EtsClass::C);
-    // The same respondents in one stratum: a finite estimate.
     assert!(mantel_haenszel(&item, &theta, &group, 1).alpha.is_finite());
 }
 

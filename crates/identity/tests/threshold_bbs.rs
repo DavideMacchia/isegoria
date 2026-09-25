@@ -1,7 +1,6 @@
-//! Threshold BBS+ issuance (`docs/03` §M2): a `t`-of-`n` committee blind-signs the
-//! credential via MPC, and the aggregate is an ordinary BBS+ signature the holder
-//! unblinds and verifies — exactly as with the single issuer, but no `t-1` members and
-//! no single party can produce it. The holder side is unchanged.
+//! Threshold BBS+ issuance (`docs/03` §M2): a `t`-of-`n` committee blind-signs via MPC
+//! into an ordinary BBS+ signature — the holder side is unchanged, and no `t-1` members
+//! can produce it alone.
 
 use identity::credential::{Credential, ThresholdIssuer};
 use identity::enrollment::Label;
@@ -49,7 +48,7 @@ fn a_credential_does_not_verify_under_a_different_committee() {
 }
 
 mod proptests {
-    //! T42: any credential the committee issues verifies, whatever the secret and label.
+    //! Any credential the committee issues verifies, whatever the secret and label.
     use super::*;
     use proptest::prelude::*;
     use std::sync::OnceLock;

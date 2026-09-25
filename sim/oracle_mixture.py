@@ -1,15 +1,6 @@
-"""Differential oracle for the latent-class mixture on a fixed ability (docs/08 REPRO-003, T45).
-
-The paper's NumPy/SciPy two-class uniform-DIF mixture (paper/scripts/common.py::dif_fit:
-class difficulties b ± d, a shared discrimination, L-BFGS-B at gtol 1e-8, four seeded starts)
-and its one-class null on a batch the Rust tests wrote. The engine's two-class uniform
-candidate is the same model in a free parametrization (b_j0, b_j1 instead of b, d; the mixing
-logit), so the optimal negative log-likelihoods, the BICs and the gaps 2|d| must agree. Reads
-<dir>/theta.csv (one value per respondent) and <dir>/X.csv (respondents x items, 0/1); writes
-<dir>/oracle.csv as `name,value` lines: n, k, null_nll, mixture_nll, pi, then d[k].
-
-Usage: python sim/oracle_mixture.py <dir>
-"""
+"""Differential oracle for the latent-class mixture (`docs/08` REPRO-003): the paper's
+SciPy two-class fit and one-class null (`paper/scripts/common.py::dif_fit`) on
+`<dir>/theta.csv` and `X.csv`; writes `<dir>/oracle.csv` as `name,value` lines."""
 import os
 import sys
 

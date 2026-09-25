@@ -5,8 +5,6 @@ use scoring::collusion::{
     cluster_by_correlation, correlation_matrix, discount_weights, sublinear_group_weight, ALPHA,
 };
 
-/// Builds `k` identical voters (a cartel) plus `n_indep` distinct independents,
-/// each with a non-constant judgment vector over `m` items.
 fn cartel_plus_independents(k: usize, n_indep: usize, m: usize) -> Vec<Vec<f64>> {
     let cartel_pattern: Vec<f64> = (0..m).map(|j| ((j * 7) % 5) as f64 / 4.0).collect();
     let mut rows = vec![cartel_pattern; k];
@@ -27,13 +25,11 @@ fn coordinated_block_forms_one_cluster() {
     let corr = correlation_matrix(&judgments);
     let clusters = cluster_by_correlation(&corr, 0.99);
 
-    // The 500 colluders share one cluster id.
     let cartel_id = clusters[0];
     assert!(
         clusters[..500].iter().all(|&c| c == cartel_id),
         "the cartel should be a single cluster"
     );
-    // Independents are not swallowed into the cartel cluster.
     assert!(
         clusters[500..].iter().all(|&c| c != cartel_id),
         "independents must not join the cartel"
@@ -42,7 +38,6 @@ fn coordinated_block_forms_one_cluster() {
 
 #[test]
 fn five_hundred_coordinated_count_as_about_twenty_two() {
-    // docs/02: √500 ≈ 22.36, so a 500-node cartel ≈ 22 independents.
     let cartel = vec![1.0; 500];
     let group = sublinear_group_weight(&cartel, ALPHA);
     assert!((group - 500f64.sqrt()).abs() < 1e-9);
@@ -63,8 +58,6 @@ fn unit_weight_singletons_are_untouched() {
 
 #[test]
 fn cartel_total_influence_matches_independents() {
-    // 500 colluders (one cluster) vs 22 independents (singletons), all unit weight:
-    // the cartel's summed discounted influence should be ~22.
     let mut weights = vec![1.0; 522];
     let mut clusters = vec![0usize; 500]; // cartel
     for i in 0..22 {
@@ -83,9 +76,8 @@ fn cartel_total_influence_matches_independents() {
     );
 }
 
-/// Honest reviewers: two polarized camps on the axis items, both rating the target `t`
-/// low, plus a small per-reviewer jitter so they stay distinct (singletons, not a
-/// cluster).
+/// Honest reviewers: two polarized camps rating the target `t` low, with jitter so
+/// they stay distinct (singletons, not a cluster).
 fn honest_rows(honest: usize, m: usize, t: usize) -> Vec<Vec<f64>> {
     (0..honest)
         .map(|u| {
@@ -126,8 +118,7 @@ fn endorsers_of(count: usize, m: usize, t: usize, distinct: bool) -> Vec<Vec<f64
 }
 
 /// AT-COL-06 / BRIDGE-007 / G-03: weights are consumed by bridging, so a discounted
-/// cartel of `k` moves the target's `b_j` less than `k` genuine independents would
-/// (√k ≈ 20 for k = 400).
+/// cartel of `k` moves the target's `b_j` less than `k` genuine independents would.
 #[test]
 fn at_col_06_cartel_moves_the_bridge_score_less_than_independents() {
     let m = 9;
@@ -176,13 +167,10 @@ fn at_col_06_cartel_moves_the_bridge_score_less_than_independents() {
     );
 }
 
-/// COLLUSION-004 / INV-14 / AT-COL-04: the discount is a discount, never a boost.
-/// With real evaluator weights `E_u ∈ (0,1)` a cluster's total is below 1, where the
-/// raw multiplier `s^{α−1} > 1` would *inflate* a node (a `0.25` singleton became
-/// `0.5`). No discounted weight may exceed its input, at any weight scale.
+/// COLLUSION-004 / INV-14 / AT-COL-04: the discount is a discount, never a boost — no
+/// discounted weight may exceed its input, at any weight scale.
 #[test]
 fn discount_never_increases_a_weight() {
-    // Singletons across the whole sub-unit range, plus a small honest cluster.
     let weights = vec![0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.3, 0.3];
     let clusters = vec![0, 1, 2, 3, 4, 5, 6, 6]; // last two share a cluster (s = 0.6 < 1)
     let discounted = discount_weights(&weights, &clusters, ALPHA);
@@ -190,7 +178,6 @@ fn discount_never_increases_a_weight() {
         assert!(d <= w + 1e-12, "node {i}: discounted {d} exceeds input {w}");
         assert!(d >= 0.0);
     }
-    // The specific regression: a sub-unit singleton is left untouched, not boosted.
     assert!(
         (discounted[2] - 0.25).abs() < 1e-12,
         "0.25 singleton must stay 0.25"

@@ -1,10 +1,6 @@
 //! Model-based test of the epoch orchestrator (`orchestrator::{review_round, run_item}`,
-//! T43). A reference model, written from the §9.1 rules for a whole review round at once
-//! rather than by replaying `lifecycle::step`, predicts the state `review_round` leaves, or
-//! the first invalid move, and where `run_item` takes that state, or the exact `Invalid`.
-//! The rounds are complete, partial or empty, with outsiders, with a nym that judges twice,
-//! with out-of-range or NaN probabilities, on a short, long or repeated panel, and start
-//! from `Admitted` or from another state.
+//! T43, `docs/08` §9.1). A reference model predicts the state `review_round` leaves, or the
+//! first invalid move, and where `run_item` takes that state, or the exact `Invalid`.
 
 use identity::nym::Nym;
 use network::cid::{cid, Cid};
@@ -19,10 +15,9 @@ use std::collections::HashSet;
 
 // ------------------------------------ the reference model ------------------------------------
 
-/// `review_round` as one decision. Commitments hide their content, so every commit-time
-/// rule (panel membership, one commit per nym) applies to the whole list before any
-/// reveal-time rule (the probability); and a judgment reveals exactly what it committed,
-/// so every reveal opens.
+/// `review_round` as one decision: since commitments hide their content, every commit-time
+/// rule (panel membership, one commit per nym) applies before any reveal-time rule (the
+/// probability); a judgment reveals exactly what it committed, so every reveal opens.
 fn model_review_round(
     start: &State,
     item: Cid,
@@ -92,10 +87,8 @@ fn model_extra_round(first: &HashSet<Nym>, x: &ExtraRound) -> Result<(), Invalid
 }
 
 /// `run_item` as one decision: the round must be complete; the gate decides whether the
-/// item enters the pilot (a band item if the D26 re-decision — on a complete extra round
-/// outside the first panel, T60 — passes, a polarized one — below the band or failing the
-/// re-decision as polarized (T59) — only on appeal); the pilot's respondent floor and
-/// batch minimum refuse, its verdicts reject.
+/// item enters the pilot — a band item via the D26 re-decision (T60), a polarized one only
+/// on appeal (T59) — and the pilot's floor, batch minimum and verdicts decide the rest.
 fn model_run_item(
     reviewed: &State,
     v: &ItemVerdicts,
@@ -463,8 +456,7 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
         )
 }
 
-/// The extra round's detours are drawn more often than the first round's: they matter
-/// only in the rounds that reach the band, a quarter of the complete ones.
+/// Extra-round detours (T60) are drawn more often than the first round's.
 fn extra_spec() -> impl Strategy<Value = ExtraSpec> {
     let prob = prop_oneof![10 => 0..IN_RANGE, 1 => any::<u8>()];
     (
@@ -628,9 +620,8 @@ proptest! {
 }
 
 /// The rounds are not vacuous: over a fixed sample, `review_round` meets every way a round
-/// can fail and succeed, and `run_item` reaches every end of the pipeline — including,
-/// through the band's extra round, every way that round can fail (T60), and, through the
-/// exploration draw, the measurement of every kind of gate rejection (T52).
+/// can fail and succeed, and `run_item` reaches every end of the pipeline, including the
+/// band's extra round (T60) and the exploration draw's measurement (T52).
 #[test]
 fn the_rounds_cover_every_outcome() {
     let mut runner = TestRunner::deterministic();

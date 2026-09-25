@@ -117,9 +117,20 @@ next:
 
 ## Code style and docs
 
-- **Comments are minimal** and point back to the relevant `docs/` section; they do not
-  restate the maths (see `ARCHITECTURE.md` principle #4). The design docs are the source
-  of truth for the logic, not the code comments.
+- **Comments are budgeted, and the budget is enforced.** The design docs are the source of
+  truth for the logic (`ARCHITECTURE.md` principle #4); code comments never restate them.
+  `scripts/comment_budget.py` fails a file that exceeds the budget, and it runs in CI and,
+  through the hook in `.claude/settings.json`, after every edit Claude Code makes:
+  - a `//!` module header of at most 3 lines: what the module is, plus the `docs/` pointer;
+  - `///` item docs of at most 3 lines: only the contract the signature does not express
+    (shapes, units, preconditions, what an error means), plus the `docs/` pointer;
+  - inline `//` runs of at most 2 lines, only for a mechanic the code cannot express;
+  - no comment line over 100 characters (a longer line is not a shorter comment);
+  - at most 10% comment lines per file (files with 20 comment lines or fewer are exempt);
+  - one line per test: the property checked and its AT id.
+  Never in a comment: rationale, history (task or decision narratives), measurements,
+  rejected alternatives, or a narration of the next statement. A fact worth keeping that is
+  not in `docs/` goes into `docs/` (`02`, `08`), not into a comment.
 - **Keep the docs in step with the code.** When a change implements or alters behaviour
   the docs describe, update the relevant section in the same change (e.g. the `docs/08`
   §15 status matrix, the `docs/10` roadmap) rather than letting them drift.

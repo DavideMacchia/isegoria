@@ -1,7 +1,5 @@
-//! Hand-computed values for the Level C and anti-collusion arithmetic (T41). The other
-//! suites check ranges and orderings (a cartel is discounted, reputation falls fast);
-//! cargo-mutants showed those pass with a wrong decay, an unweighted baseline, a wrong
-//! even-length median or a wrong mean in Pearson. These pin the formulas themselves.
+//! Hand-computed values for the Level C and anti-collusion arithmetic: each assertion
+//! pins a formula against a value computed by hand, not just its range or ordering.
 
 use scoring::collusion::{correlation_matrix, discount_weights};
 use scoring::reputation::{author_score, crowd_baseline, weight_cap, AuthorPrior};

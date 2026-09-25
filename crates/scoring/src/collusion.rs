@@ -1,20 +1,6 @@
-//! Anti-collusion. See `docs/02` §Anti-collusion, `docs/01` D7, D39, D40.
-//!
-//! **Detection (D39, T56).** Coordination between two reviewers is the correlation of
-//! their *residuals* — rating minus the bridging model's prediction — on the items both
-//! rated, accumulated across epochs ([`ResidualHistory`]). The model already explains the
-//! agreement of honest reviewers who share a position; a cartel agrees beyond it. A pair
-//! is read only once it shares [`MIN_SHARED_ITEMS`], its correlation is tested against a
-//! permutation null, and clusters use average linkage ([`coordination_clusters`]), so one
-//! spurious pair does not chain an honest reviewer to a cartel.
-//!
-//! **Discount (D7, kept for analysis; D40).** A detected cluster constrains panel
-//! assignment (`protocol::review::assign_diverse`, T57); the protocol does not apply the
-//! sublinear discount below. The engine keeps it: a group's weight grows as `(Σ w)^α`
-//! with `α ≈ 0.5`, so `k` coordinated nodes count as `√k` (500 ≈ 22). The raw-rating
-//! correlation and connected components ([`correlation_matrix`], [`cluster_by_correlation`])
-//! stay as the retired rule's reference: they flag honest like-minded reviewers, chain
-//! unrelated groups and are evaded by jitter (`docs/08` COLLUSION-002/005).
+//! Anti-collusion (`docs/02` §Anti-collusion, `docs/01` D7, D39, D40): coordination is the
+//! correlation of two reviewers' residuals — rating minus the bridging prediction — read
+//! past [`MIN_SHARED_ITEMS`] and tested against a permutation null ([`coordination_clusters`]).
 
 use crate::bridging::{Fit, Ratings};
 use crate::fmath::powf;
@@ -25,9 +11,8 @@ use std::collections::BTreeMap;
 
 pub const ALPHA: f64 = 0.5;
 
-/// Fewest items two reviewers must share before their residual correlation is read at
-/// all (D39): below it a correlation is noise, whatever its value. At the design scale
-/// two reviewers share under one item per epoch, so this takes many epochs.
+/// Fewest shared items before two reviewers' residual correlation is read (D39): below
+/// it, a correlation is noise regardless of value.
 pub const MIN_SHARED_ITEMS: usize = 30;
 
 /// Settings of the coordination detector (D39, T56). Provisional (T25).
@@ -35,10 +20,8 @@ pub const MIN_SHARED_ITEMS: usize = 30;
 pub struct CoordinationParams {
     /// Shared items before a pair is read ([`MIN_SHARED_ITEMS`]).
     pub min_shared: usize,
-    /// The residual correlation a flagged pair must reach — the effect size — and the
-    /// average cross-pair correlation two clusters must reach to merge. On the paper's
-    /// dataset the cartel pairs sit at 0.84–0.93 and the largest of 18,000 honest pairs at
-    /// 0.57: at 0.5 four honest pairs are flagged by chance, at 0.7 none.
+    /// Residual correlation a flagged pair must reach, and the mean cross-pair correlation
+    /// two clusters must keep to merge.
     pub rho_min: f64,
     /// The permutation p-value a flagged pair must reach.
     pub p_max: f64,
@@ -67,8 +50,7 @@ pub struct ItemIdCount {
 }
 
 /// Every reviewer's residuals on the items they rated, accumulated across epochs (D39):
-/// `r_uj − r̂_uj`, keyed by a global item id. The reviewer index is the reviewer's row in
-/// every epoch's ratings — the caller keeps it stable across epochs.
+/// `r_uj − r̂_uj` by global item id; the caller keeps reviewer indices stable across epochs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ResidualHistory {
     rows: Vec<BTreeMap<u64, f64>>,
@@ -85,8 +67,7 @@ impl ResidualHistory {
         self.rows.len()
     }
 
-    /// One residual: reviewer `reviewer` on item `item`. A later record of the same pair
-    /// replaces the earlier one.
+    /// One residual of `reviewer` on `item`; a later record of the same pair replaces it.
     pub fn record(&mut self, reviewer: usize, item: u64, residual: f64) {
         if reviewer >= self.rows.len() {
             self.rows.resize(reviewer + 1, BTreeMap::new());
@@ -94,9 +75,8 @@ impl ResidualHistory {
         self.rows[reviewer].insert(item, residual);
     }
 
-    /// One epoch's residuals from its bridging fit: for every observation `(u, j)`,
-    /// `r − r̂` with `r̂ = μ + b_u + b_j + f_u·f_j`; `item_ids[j]` names item `j` across
-    /// epochs.
+    /// One epoch's residuals from its bridging fit: for every observation `(u, j)`, `r − r̂`
+    /// with `r̂ = μ + b_u + b_j + f_u·f_j`; `item_ids[j]` names item `j` across epochs.
     pub fn record_epoch(
         &mut self,
         ratings: &Ratings,
@@ -134,8 +114,7 @@ impl ResidualHistory {
         (a, b)
     }
 
-    /// The residual correlation of `u` and `v` on the items both rated, with their count;
-    /// `None` below `min_shared` — such a pair is never read (D39).
+    /// Residual correlation of `u`, `v` and the shared count; `None` under `min_shared` (D39).
     pub fn pair(&self, u: usize, v: usize, min_shared: usize) -> Option<(f64, usize)> {
         let (a, b) = self.shared_residuals(u, v);
         if a.len() < min_shared.max(2) {
@@ -145,10 +124,8 @@ impl ResidualHistory {
     }
 }
 
-/// The permutation null (D39): the share of `permutations` seeded re-pairings of `b`
-/// with `a` whose correlation reaches `rho`, as `(1 + hits) / (permutations + 1)` — one
-/// sided, coordination being agreement beyond the model. Seeded, so the verdict is
-/// reproducible (INV-7).
+/// The permutation null (D39): the share of `permutations` seeded re-pairings of `b` with
+/// `a` whose correlation reaches `rho`, one-sided. Seeded, so the verdict is reproducible (INV-7).
 pub fn permutation_p_value(a: &[f64], b: &[f64], rho: f64, permutations: usize, seed: u64) -> f64 {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut shuffled = b.to_vec();
@@ -172,8 +149,7 @@ pub struct PairEvidence {
     pub p_value: f64,
 }
 
-/// What the detector found: the flagged pairs, and a cluster id per reviewer — the
-/// smallest index in the cluster, so a singleton's id is its own index.
+/// The flagged pairs and a cluster id per reviewer (the smallest index in the cluster).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CoordinationReport {
     pub flagged: Vec<PairEvidence>,
@@ -191,14 +167,9 @@ impl CoordinationReport {
     }
 }
 
-/// The coordination detector (D39, T56). Every pair with at least `min_shared` items in
-/// common is read on the correlation of its residuals; a pair whose correlation reaches
-/// `rho_min` is tested against the permutation null and flagged at `p ≤ p_max`. Clusters
-/// are built by average linkage over the flagged pairs: two groups merge only while the
-/// mean correlation over *all* their cross pairs (an unflagged pair counting 0) reaches
-/// `rho_min`, so one spurious pair does not chain an honest reviewer to a cartel
-/// (COLLUSION-005), and opposite camps — residuals uncorrelated — are never joined.
-/// Everyone else is a singleton.
+/// The coordination detector (D39, T56): pairs past `min_shared` are flagged at `rho_min`
+/// and `p_max`; average linkage merges groups while their mean cross-pair correlation
+/// still reaches `rho_min` (COLLUSION-005).
 pub fn coordination_clusters(
     history: &ResidualHistory,
     params: &CoordinationParams,
@@ -273,8 +244,7 @@ pub fn coordination_clusters(
     CoordinationReport { flagged, clusters }
 }
 
-/// Pearson correlation between every pair of node judgment vectors (dense rows).
-/// Constant rows have undefined correlation and are treated as 0.
+/// Pearson correlation between every pair of dense judgment rows; a constant row counts as 0.
 pub fn correlation_matrix(judgments: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = judgments.len();
     let mut c = vec![vec![0.0; n]; n];
@@ -289,8 +259,7 @@ pub fn correlation_matrix(judgments: &[Vec<f64>]) -> Vec<Vec<f64>> {
     c
 }
 
-/// Clusters nodes into connected components of the correlation graph, joining any
-/// pair with `|ρ| ≥ threshold`. Returns a cluster id per node.
+/// Connected components of the `|ρ| ≥ threshold` graph; a cluster id per node.
 pub fn cluster_by_correlation(corr: &[Vec<f64>], threshold: f64) -> Vec<usize> {
     let n = corr.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -304,19 +273,14 @@ pub fn cluster_by_correlation(corr: &[Vec<f64>], threshold: f64) -> Vec<usize> {
     (0..n).map(|i| find(&mut parent, i)).collect()
 }
 
-/// Total weight a group contributes: `min(Σ w, (Σ w)^α)`. The `min` enforces
-/// INV-14 — the transform is a *discount*, never a boost: when `Σ w < 1` the raw
-/// power `(Σ w)^α` exceeds `Σ w` (e.g. `0.25^0.5 = 0.5`), so it is capped at `Σ w`.
+/// Total weight a group contributes: `min(Σ w, (Σ w)^α)` (INV-14): a discount, never a boost.
 pub fn sublinear_group_weight(group_weights: &[f64], alpha: f64) -> f64 {
     let sum = group_weights.iter().sum::<f64>();
     powf(sum, alpha).min(sum)
 }
 
-/// Per-node discounted weights: each cluster's total is shrunk to `(Σ w)^α` and
-/// split back across its members in proportion to their raw weight. The per-node
-/// multiplier `s^{α−1}` is capped at 1 (INV-14): the discount MUST NOT increase any
-/// node's weight, so a cluster whose total weight is below 1 — a singleton honest
-/// node with `E_u ∈ (0,1)`, in particular — is left untouched instead of boosted.
+/// Per-node discounted weights: each cluster's total is shrunk to `(Σ w)^α` and split back
+/// in proportion to raw weight, capped at 1 per INV-14 so a cluster under 1 is never boosted.
 pub fn discount_weights(weights: &[f64], cluster_ids: &[usize], alpha: f64) -> Vec<f64> {
     let n = weights.len();
     let max_id = cluster_ids.iter().copied().max().map_or(0, |m| m + 1);
@@ -328,8 +292,7 @@ pub fn discount_weights(weights: &[f64], cluster_ids: &[usize], alpha: f64) -> V
         .map(|i| {
             let s = group_sum[cluster_ids[i]];
             if s > 0.0 {
-                // s^{α−1} is the fraction of its raw weight each member keeps; capped
-                // at 1 so `s < 1` clusters are never inflated (INV-14).
+                // s^{α−1} is the fraction of raw weight each member keeps, capped at 1 (INV-14).
                 weights[i] * (powf(s, alpha) / s).min(1.0)
             } else {
                 0.0

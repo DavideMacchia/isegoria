@@ -82,7 +82,6 @@ fn scored(outcome: GateOutcome) -> State {
 #[test]
 fn a_full_valid_walk_reaches_the_pool_then_retires() {
     let mut s = in_review();
-    // Every panelist commits (bound to its own nym and this item), then reveals it.
     let (prob, nonce) = (0.8, [7u8; 32]);
     for n in panel() {
         s = step(
@@ -536,23 +535,20 @@ fn band_ready() -> State {
     s
 }
 
+/// The D26 re-decision (T60): pass lifts to the pilot, fail is a borderline reject or,
+/// if polarized, appeal-eligible; never a second band.
 #[test]
 fn a_band_item_is_resolved_by_the_d26_re_decision() {
-    // PROTO-008/PROTO-012 closed (T10/T30): the band has a forward transition — the D26
-    // re-decision (`Resolve`) either lifts it into the pilot or rejects it as borderline —
-    // taken once the extra round is complete (T60).
     let s = band_ready();
     assert!(matches!(
         &s,
         State::SupplementaryReview { extra_panel, reveals, commits_closed: true, .. }
             if extra_panel.len() == 4 && reveals.len() == 4
     ));
-    // An out-of-order event is still rejected …
     assert_eq!(
         step(s.clone(), Event::Administer),
         Err(Invalid::UnexpectedEvent)
     );
-    // … the re-decision passing lifts it to the pilot,
     assert_eq!(
         step(
             s.clone(),
@@ -563,7 +559,6 @@ fn a_band_item_is_resolved_by_the_d26_re_decision() {
         .unwrap(),
         State::Pilot1 { appealed: false }
     );
-    // … failing it as a defect is a defined borderline reject, not a dead end,
     assert_eq!(
         step(
             s.clone(),
@@ -574,7 +569,6 @@ fn a_band_item_is_resolved_by_the_d26_re_decision() {
         .unwrap(),
         State::Rejected(RejectReason::Borderline)
     );
-    // … failing it as a polarized item keeps the appeal channel (D26 amendment, T59),
     assert_eq!(
         step(
             s.clone(),
@@ -585,7 +579,6 @@ fn a_band_item_is_resolved_by_the_d26_re_decision() {
         .unwrap(),
         State::AppealEligible
     );
-    // … and a second band is not an outcome of a re-decision.
     assert_eq!(
         step(
             s,

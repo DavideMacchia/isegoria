@@ -1,13 +1,6 @@
-//! Golden outputs (invariant #7, `docs/08` REPRO-002, T41). `reproducibility.rs` checks
-//! that two runs agree with each other; this pins what they agree *on*. Every value the
-//! engine returns on the fixture datasets is compared bit-for-bit against
-//! `fixtures/golden_bits.txt`, so any silent change — a different initialization, a
-//! changed RNG consumption order, a reordered sum — fails here even when the result
-//! still lands inside an oracle tolerance. The file is Rust output, not a sim oracle,
-//! hence `.txt`: `fixture_drift` regenerates every `.csv` fixture from the sims.
-//!
-//! An intended change regenerates the file, and the diff shows exactly which values
-//! moved: `ISEGORIA_UPDATE_GOLDEN=1 cargo test -p scoring --test golden`.
+//! Golden outputs (invariant #7, `docs/08` REPRO-002): every value the engine returns on
+//! the fixture datasets, compared bit-for-bit against `fixtures/golden_bits.txt`. An
+//! intended change regenerates it: `ISEGORIA_UPDATE_GOLDEN=1 cargo test -p scoring --test golden`.
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::dif::mixture_dif;
@@ -55,9 +48,8 @@ fn record(rows: &mut Vec<String>, name: &str, v: &[f64]) {
     }
 }
 
-/// A seeded batch for the target model (T54): 1,500 respondents, 20 anchors, 8 trial
-/// items of which the first two are shifted by ±0.9 on a hidden axis — generated here,
-/// as the fixtures carry no anchor responses. Returns (anchors, responses).
+/// A seeded batch for the target model: generated here, since the fixtures carry no
+/// anchor responses. Returns (anchors, responses).
 fn latent_batch(seed: u64) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
@@ -144,7 +136,7 @@ fn current() -> Vec<String> {
         );
     }
 
-    // The target model (D37, T54): the anchors inside the likelihood, θ integrated out.
+    // The target model (D37): the anchors inside the likelihood, θ integrated out.
     let (anchors, x) = latent_batch(54);
     let res = latent_dif_with(
         &anchors,

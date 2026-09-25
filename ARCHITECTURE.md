@@ -37,6 +37,8 @@ Four rules shape every crate:
    property tests. It is a considered exception, not the default.
 4. **The docs are the source of truth for the logic.** Code comments are minimal
    and point back to the relevant `docs/` section; they do not restate the maths.
+   `scripts/comment_budget.py` enforces the budget (`docs/CLAUDE.md`, "Code style and
+   docs") in CI and after every edit made through Claude Code.
 
 ## Workspace and dependency graph
 

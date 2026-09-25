@@ -1,13 +1,6 @@
-//! Storage and network layer. See `docs/04-storage-network.md`.
-//!
-//! The property that matters: no one can delete or rewrite questions and votes, and
-//! no one can falsify the scores without it being visible. That comes from operator
-//! diversity plus reproducible computation, not from permissionless consensus.
-//!
-//! Real here: content addressing, Merkle trees, the append-only transparency log,
-//! consortium checkpoints (ed25519), and erasure coding. Plug points: gossip/DHT
-//! transport (libp2p), convergent state (CRDT), and public-chain anchoring
-//! (OpenTimestamps) — behind traits, wired to mature libraries in production.
+//! Storage and network layer (`docs/04-storage-network.md`): content addressing, Merkle
+//! trees, the transparency log, consortium checkpoints, and erasure coding are real; the
+//! gossip/DHT transport, CRDT state, and OpenTimestamps anchoring are plug points.
 
 pub mod anchoring;
 pub mod cid;
