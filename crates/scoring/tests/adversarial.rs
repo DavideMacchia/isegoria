@@ -5,7 +5,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use scoring::collusion::{cluster_by_correlation, correlation_matrix, discount_weights, ALPHA};
-use scoring::reputation::{asymmetric_ema, capped_weight, weight_cap};
+use scoring::reputation::{
+    cap_weights, odds_weight, EvaluatorHistory, CUSUM_H, CUSUM_K, GAMMA, K_SHRINK,
+};
 
 #[test]
 fn a_cartel_cannot_outweigh_an_honest_majority() {
@@ -57,41 +59,57 @@ fn a_cartel_cannot_outweigh_an_honest_majority() {
     );
 }
 
+fn normal(rng: &mut ChaCha8Rng) -> f64 {
+    let u1: f64 = 1.0 - rng.gen::<f64>();
+    let u2: f64 = rng.gen();
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
+
 #[test]
 fn a_long_con_is_unprofitable() {
-    // Reputation rises slowly and falls fast, so accumulating trust to spend it later
-    // does not pay (docs/02 C.4).
-    let (up, down) = (0.05, 0.5);
-    let mut e = 0.5;
-    for _ in 0..15 {
-        e = asymmetric_ema(e, 1.0, up, down);
+    // Hoarding reputation to spend it later does not pay (docs/02 C.4, D33/D34): 300
+    // honest items build a weight, then the con — forecasts flipped often enough to cost
+    // about 0.15 per item — is caught by the CUSUM within about a hundred items, and the
+    // alarm wipes the record: back to probation, weight 0, nothing to spend.
+    let mut rng = ChaCha8Rng::seed_from_u64(5);
+    let mut history = EvaluatorHistory::new();
+    for _ in 0..300 {
+        let honest = 0.01 + 0.10 * normal(&mut rng);
+        assert!(
+            !history.record(honest, CUSUM_K, CUSUM_H),
+            "a false alarm in the honest phase"
+        );
     }
-    let peak = e;
+    let before = odds_weight(history.score(), history.scored(), GAMMA, K_SHRINK);
     assert!(
-        peak < 0.85,
-        "even 15 honest epochs should not saturate reputation: {peak:.3}"
+        history.scored() == 300 && before > 1.0,
+        "weight built honestly: {before}"
     );
 
-    // One betrayal erases far more than a single honest epoch ever added.
-    let after_betrayal = asymmetric_ema(peak, 0.0, up, down);
-    let one_step_gain = up * (1.0 - peak);
+    let mut caught_after = None;
+    for t in 0..300 {
+        let con = -0.15 + 0.20 * normal(&mut rng);
+        if history.record(con, CUSUM_K, CUSUM_H) {
+            caught_after = Some(t + 1);
+            break;
+        }
+    }
+    let caught_after = caught_after.expect("the con was never caught");
     assert!(
-        (peak - after_betrayal) > 10.0 * one_step_gain,
-        "the fall ({:.3}) should dwarf a single gain ({:.4})",
-        peak - after_betrayal,
-        one_step_gain
+        caught_after <= 100,
+        "caught only after {caught_after} items"
     );
+    assert_eq!(history.scored(), 0, "the record is wiped");
+    assert_eq!(history.alarms(), 1);
 
-    // And even a maxed-out actor is capped at 3× the crowd median, so no single node
-    // dominates the vote.
-    let crowd = [0.3, 0.4, 0.4, 0.5, 0.6];
-    let w_max = weight_cap(&crowd); // 3 * median(0.4) = 1.2
+    // And even a maxed-out actor is capped at 3× the median of the counted weights, so no
+    // single node dominates the vote.
+    let mut weights = vec![1.0; 9];
+    weights.push(odds_weight(0.1, 1000, GAMMA, K_SHRINK)); // exp(35 · 0.1 · 0.91) ≈ 24
+    let capped = cap_weights(&weights);
+    assert_eq!(capped[9], 3.0, "a huge weight is capped");
     assert!(
-        (capped_weight(0.9, w_max) - 0.9).abs() < 1e-9,
-        "a normal weight is untouched"
-    );
-    assert!(
-        (capped_weight(5.0, w_max) - w_max).abs() < 1e-9,
-        "a huge E_u is capped"
+        capped[..9].iter().all(|&w| w == 1.0),
+        "normal weights are untouched"
     );
 }

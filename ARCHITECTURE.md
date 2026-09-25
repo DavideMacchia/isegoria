@@ -65,7 +65,7 @@ executable specification; the Rust implementation must reproduce their results.
 | `irt` | §B.1–B.2, B.4 | `theta_from_anchors`, `kr20`, `point_biserial`, `fit_2pl_item`, `A_MIN`, `R_PBIS_MIN`, `KR20_MIN` (D37, T53) |
 | `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif`, with the `differential_gap` diagnostic of D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
-| `reputation` | §C | `author_score`; `loo_baseline`, `difference_scores`, `mean_score`, `odds_weight`, `cap_weights` (the D33 evaluator score and weights, T50; `GAMMA`, `K_SHRINK`); `asymmetric_ema` (until T51), `weight_cap`, `dasgupta_ghosh` |
+| `reputation` | §C | `author_score`; `loo_baseline`, `difference_scores`, `mean_score`, `odds_weight`, `cap_weights` (the D33 evaluator score and weights, T50; `GAMMA`, `K_SHRINK`); `EvaluatorHistory` (the long-window mean and the CUSUM change detector, D34/T51; `CUSUM_K`, `CUSUM_H`); `weight_cap`, `dasgupta_ghosh` |
 | `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
 | `glm` (private) | — | shared maximum-likelihood logistic regression |
 | `optim` (private) | §A.5 | in-house L-BFGS + numerical gradient |
@@ -164,12 +164,12 @@ steps are seeded for reproducibility.
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9); `admit_anchors` — θ only from anchors with KR-20 ≥ `KR20_MIN` on the batch's respondents (D37, T53) | `scoring::irt`, `scoring::dif` |
-| `honeypot` | Golden items | `inject`, `reviewer_skills` (the mean leave-one-out difference score per panelist, D33), `HONEYPOT_RATE` | `scoring::reputation` |
+| `honeypot` | Golden items | `inject`, `reviewer_skills` (the mean leave-one-out difference score per panelist, D33), `record_golden_scores` (per-item scores into the histories, alarms out — D34), `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight` (0 / 1 / the odds weight of the score), `FounderSet`, `N_PROBATION` (30, D36) | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent` (the math), `revalidate_batch_latent` (the production gate: item and respondent floors, persons, anchor reliability — T9/T65/T53), `items_to_retire` | `scoring::dif`, `pilot`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
-| `orchestrator` | Epoch glue | `ReviewerStanding`, `bridging_weights` (odds weights capped across the epoch, D33/T50), `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
+| `orchestrator` | Epoch glue | `ReviewerStanding` (`from_history`: a caught reviewer is back on probation, D34), `bridging_weights` (odds weights capped across the epoch, D33/T50), `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -248,7 +248,8 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    (`anti_collusion.rs`) and in the T5 bridging weights.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
-   majority; a long-con's reputation rises slowly, falls fast, and is capped;
+   majority; a long con is caught by the CUSUM within about a hundred scored items and
+   its hoarded record wiped, and an outlier's weight is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.
 6. **Golden outputs** (`scoring/tests/golden.rs`): every value `fit`, `bridge_scores`

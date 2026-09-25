@@ -12,11 +12,12 @@ respondent's latent competence.
 > correct; the tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap.
 > D32 is implemented (T49, 2026-09-24): §A.3 below describes the side-balanced score as
 > built, with the amendment (appeal eligibility by the side gap) and the measured limits
-> the paper does not have. Until the others land, the text describes the implemented
+> the paper does not have; so are D33, D34 and D36 (T50, T51, 2026-09-25: §C.2 and §C.4
+> describe the evaluator score, its weights and its dynamics as built) and D37's
+> precondition (T53). Until the others land, the text describes the implemented
 > behaviour, and the marked sections are superseded by the decisions: §B.3 latent-class
-> DIF (D37, D38), §C.2 evaluator score (D33, D35), §C.4 temporal asymmetry and cap (D33,
-> D34, D36), anti-collusion (D39, D40). `paper/README.md` lists what changed since the
-> paper's snapshot.
+> DIF (the target model of D37, D38), §C.2 scored outcomes (D35), anti-collusion (D39,
+> D40). `paper/README.md` lists what changed since the paper's snapshot.
 
 ---
 
@@ -477,17 +478,35 @@ own judgment, (b) the expected distribution of the others. The **surprisingly co
 answer is rewarded — more frequent than the group predicted. It extracts information
 from the informed minority.
 
-### C.4 Temporal asymmetry, cap and probation
+### C.4 Reputation dynamics, cap and probation
 
-> **Revised by D33, D34 and D36 (T50 done, T51 next).** The cap now applies on the odds
-> scale, where it binds, and probation lasts 30 scored outcomes (T50, 2026-09-25). The
-> asymmetric update below rewards copying the crowd (paper §5.5): it will be replaced by
-> a symmetric long-window mean of the per-item scores with a CUSUM change detector — an
-> alarm returns the reviewer to probation (T51).
+> **Revised by D33, D34 and D36 — implemented (T50, T51, 2026-09-25).** The asymmetric
+> update this section used to specify ("rises slowly, falls fast") penalized variance,
+> not error: it held a cautious honest reviewer below a crowd copier (paper §5.5; on the
+> reference regime, −0.10 against a true mean of +0.002). The text below is the built
+> rule.
 
-- *Until T51:* the score rises slowly (average over a long window), falls quickly
-  (immediate reaction to failures), meant to make the long-con attack unprofitable
-  (`reputation::asymmetric_ema`, not wired to the weights).
+- **Long-window mean.** The score that sets the weight is the symmetric mean of the
+  reviewer's per-item scores `S_uj` since its record (re)started
+  (`reputation::EvaluatorHistory`): it tracks the true mean, so a cautious reviewer who
+  beats the crowd is ranked above one who copies it.
+- **Change detector.** A one-sided CUSUM on the same per-item scores, each measured
+  against the reviewer's own mean of the items before it:
+
+  ```
+  s ← max( 0 , s + (S̄_u − S_uj) − k )        k = 0.03;   alarm when s > h = 1.5
+  ```
+
+  An alarm means the reviewer has changed: the history restarts and the reviewer
+  **returns to probation** (D36) — weight 0 for 30 scored outcomes, then shrinkage from
+  scratch. A founder's seed weight is a bootstrap privilege, lost at the first alarm.
+  `k` and `h` are provisional (T25). Measured on the paper's regime (`AT-REP-07`,
+  `change_detector.rs`): about one false alarm per 10,000 honest items (the paper's 0.07
+  per 1,000 used the true mean as reference; here it is the running mean); a reviewer who
+  starts flipping 20% of its forecasts is caught in every seeded stream, after 50 items
+  in the median (25 of 30 within 100, worst 224). This is what makes the long con
+  unprofitable: the hoarded record vanishes at the first sustained betrayal, and the cap
+  bounds what it was worth meanwhile.
 - `w_max = 3 × median(w)`, a hard cap recomputed each epoch over the weights that count
   — the positive ones; a probationer's 0 is an exclusion, not a weight
   (`reputation::cap_weights`). Limits the damage of a single event: a reviewer reliably
@@ -545,6 +564,8 @@ conservatively.
 | `γ` (evaluator weight gain) | 35 (provisional, D33) | `w_u = exp(γ · S_u · k_u/(k_u + k_0))`; 0.02 better than the crowd → ×2 (§C.2) |
 | `k_0` (shrinkage) | 100 scored outcomes (provisional, D33) | the score counts `k_u/(k_u + k_0)` |
 | `w_max` | 3× median of the counted weights | individual cap, on the odds scale (binds, T50) |
+| `k` (CUSUM allowance) | 0.03 (provisional, D34) | per-item slack below the reviewer's own mean (§C.4) |
+| `h` (CUSUM threshold) | 1.5 (provisional, D34) | alarm → the history restarts, the reviewer returns to probation |
 | `N_probation` | 30 scored outcomes (D36) | weight 0 before (`03` P2) |
 | `T` (reputation half-life) | 18 months | |
 | `η` (honeypot rate) | 5% | see `05` |

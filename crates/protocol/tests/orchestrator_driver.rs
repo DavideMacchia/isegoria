@@ -9,6 +9,7 @@
 use identity::nym::Nym;
 use network::cid::{cid, Cid};
 use protocol::gate::GateOutcome;
+use protocol::honeypot::record_golden_scores;
 use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State};
 use protocol::orchestrator::{
     bridging_weights, review_round, run_item, weighted_ratings, ItemVerdicts, Judgment,
@@ -16,6 +17,7 @@ use protocol::orchestrator::{
 };
 use protocol::probation::N_PROBATION;
 use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
+use scoring::reputation::EvaluatorHistory;
 
 // ------------------------------- T5: weights from standing -------------------------------
 
@@ -53,6 +55,62 @@ fn bridging_weights_map_probation_founder_established() {
     assert_eq!(w[3], 0.0);
     let expected = (-35.0 * 0.01 * 30.0 / 130.0f64).exp();
     assert!((w[4] - expected).abs() < 1e-12, "{} vs {expected}", w[4]);
+}
+
+/// A reviewer the CUSUM catches is back on probation (D34, T51): `record_golden_scores`
+/// feeds the golden items' per-item scores into the histories, an alarm restarts the
+/// caught reviewer's record, and `ReviewerStanding::from_history` gives it weight 0 —
+/// a founder too, whose seed weight is a bootstrap privilege lost at the first alarm.
+#[test]
+fn a_caught_reviewer_returns_to_probation_with_weight_zero() {
+    let n = 40;
+    let outcomes: Vec<f64> = (0..n).map(|j| (j % 2) as f64).collect();
+    let steady: Vec<f64> = outcomes.iter().map(|&o| 0.3 + 0.4 * o).collect();
+    let sharp: Vec<f64> = outcomes.iter().map(|&o| 0.1 + 0.8 * o).collect();
+    let mut histories = [EvaluatorHistory::new(), EvaluatorHistory::new()];
+
+    // Forty golden items forecast well by both: no alarm, both established with a record.
+    let alarms = record_golden_scores(
+        &mut histories,
+        &[steady.clone(), sharp.clone()],
+        &[1.0, 1.0],
+        &outcomes,
+    );
+    assert_eq!(alarms, vec![false, false]);
+    let standings = [
+        ReviewerStanding::from_history(false, &histories[0]),
+        ReviewerStanding::from_history(true, &histories[1]),
+    ];
+    assert_eq!((standings[0].scored, standings[1].scored), (n, n));
+    let w = bridging_weights(&standings);
+    assert!(
+        w[0] > 0.0 && w[1] > w[0],
+        "the sharper forecaster weighs more: {w:?}"
+    );
+
+    // Then the sharp one betrays: its forecasts inverted on the next batch of ten golden
+    // items. The CUSUM catches it on the second one, its record restarts — the CUSUM
+    // detects the change; the level it settles at is the weight's business — and with
+    // eight items to its name it is on probation: weight 0, founder or not.
+    let inverted: Vec<f64> = sharp[..10].iter().map(|p| 1.0 - p).collect();
+    let alarms = record_golden_scores(
+        &mut histories,
+        &[steady[..10].to_vec(), inverted],
+        &[1.0, 1.0],
+        &outcomes[..10],
+    );
+    assert_eq!(alarms, vec![false, true]);
+    assert_eq!(histories[1].scored(), 8, "record restarted after the alarm");
+    assert_eq!(histories[1].alarms(), 1);
+    assert_eq!(histories[0].scored(), n + 10);
+    let caught = ReviewerStanding::from_history(true, &histories[1]);
+    assert!(
+        !caught.is_founder,
+        "the seed weight is lost at the first alarm"
+    );
+    let w = bridging_weights(&[ReviewerStanding::from_history(false, &histories[0]), caught]);
+    assert_eq!(w[1], 0.0, "back on probation: {w:?}");
+    assert!(w[0] > 0.0);
 }
 
 /// The load-bearing T5 claim at the protocol boundary: a coordinated bloc pushing an

@@ -557,6 +557,18 @@ the reviewer being scored.
 
 ## D34 — Reputation dynamics: long-window mean plus a change detector
 
+> **Implemented (T51, 2026-09-25):** `scoring::reputation::EvaluatorHistory` keeps the
+> long-window mean of a reviewer's per-item scores (the `S_u` of D33) and a one-sided
+> CUSUM against it, `CUSUM_K = 0.03`, `CUSUM_H = 1.5`; an alarm restarts the history, so
+> the reviewer is back on probation with nothing to its name
+> (`orchestrator::ReviewerStanding::from_history`; a founder loses its seed weight at the
+> first alarm); `honeypot::record_golden_scores` feeds the golden items' scores in;
+> `asymmetric_ema` is removed. Measured on the paper's regime with the running mean as
+> reference (`change_detector.rs`, AT-REP-07): about one false alarm per 10,000 honest
+> items, a reviewer flipping 20% of its forecasts caught in 30 of 30 seeded streams
+> (median ≈ 50 items, 25 of 30 within 100, worst 224); the asymmetric update held the same
+> honest reviewer at −0.10 against a true mean of +0.002.
+
 **Choice.** The score used for the weights is a symmetric long-window mean of the
 per-item scores. The fast fall of the asymmetric update is replaced by a one-sided CUSUM
 on each reviewer's per-item scores, measured against the reviewer's own long-run mean.

@@ -24,7 +24,7 @@ use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
 use scoring::bridging::{Ratings, RatingsError};
-use scoring::reputation::cap_weights;
+use scoring::reputation::{cap_weights, EvaluatorHistory};
 
 /// A reviewer's standing carried from the previous epochs, in the same order as the
 /// ratings rows the fit will see. `score` is the evaluator score `S_u` — the mean
@@ -55,6 +55,18 @@ impl ReviewerStanding {
             is_founder: false,
             scored,
             score,
+        }
+    }
+
+    /// The standing a scored history gives (D33, D34, T51): its long-window mean and its
+    /// count since the last restart — so a reviewer the CUSUM caught is back on probation
+    /// with nothing to its name. A founder's seed weight is a bootstrap privilege, lost
+    /// at the first alarm: a caught founder is on probation like anyone else.
+    pub fn from_history(is_founder: bool, history: &EvaluatorHistory) -> Self {
+        ReviewerStanding {
+            is_founder: is_founder && history.alarms() == 0,
+            scored: history.scored(),
+            score: history.score(),
         }
     }
 }

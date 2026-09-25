@@ -4,8 +4,9 @@
 //! score against the docs examples.
 
 use scoring::reputation::{
-    asymmetric_ema, author_score, cap_weights, capped_weight, dasgupta_ghosh, difference_scores,
-    loo_baseline, mean_score, odds_weight, proposal_rate, weight_cap, AuthorPrior, GAMMA, K_SHRINK,
+    author_score, cap_weights, capped_weight, dasgupta_ghosh, difference_scores, loo_baseline,
+    mean_score, odds_weight, proposal_rate, weight_cap, AuthorPrior, EvaluatorHistory, CUSUM_H,
+    CUSUM_K, GAMMA, K_SHRINK,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -214,12 +215,35 @@ fn proposal_rate_scales_with_author_score() {
     assert!(proposal_rate(0.5, 0.5, 5.0) > proposal_rate(0.2, 0.5, 5.0));
 }
 
+/// The history by hand (D34): the first score only seeds the mean; the CUSUM then adds
+/// each drop below the mean of the previous items, less the allowance, and never goes
+/// below 0; a drop past the threshold is an alarm that restarts the record.
 #[test]
-fn reputation_rises_slowly_and_falls_fast() {
-    let up = asymmetric_ema(0.5, 0.9, 0.1, 0.8);
-    let down = asymmetric_ema(0.5, 0.1, 0.1, 0.8);
-    assert!((up - 0.54).abs() < 1e-9, "slow rise: {up}");
-    assert!((down - 0.18).abs() < 1e-9, "fast fall: {down}");
+fn evaluator_history_by_hand() {
+    assert_eq!(CUSUM_K, 0.03);
+    assert_eq!(CUSUM_H, 1.5);
+    let mut h = EvaluatorHistory::new();
+    assert_eq!((h.score(), h.scored(), h.cusum()), (0.0, 0, 0.0));
+    assert!(!h.record(0.2, CUSUM_K, CUSUM_H));
+    assert_eq!(h.cusum(), 0.0, "no reference for the first item");
+    assert!(!h.record(0.0, CUSUM_K, CUSUM_H));
+    // reference 0.2: s = max(0, 0 + (0.2 − 0.0) − 0.03) = 0.17; the mean is now 0.1
+    assert!((h.cusum() - 0.17).abs() < 1e-12, "{}", h.cusum());
+    assert!((h.score() - 0.1).abs() < 1e-12);
+    assert!(!h.record(0.5, CUSUM_K, CUSUM_H));
+    // a rise: s = max(0, 0.17 + (0.1 − 0.5) − 0.03) = 0
+    assert_eq!(h.cusum(), 0.0);
+    assert_eq!(h.scored(), 3);
+    // a collapse: reference 0.7/3, s = 0 + (0.2333 + 2.0) − 0.03 > 1.5 → alarm, restart
+    assert!(h.record(-2.0, CUSUM_K, CUSUM_H));
+    assert_eq!(
+        (h.score(), h.scored(), h.cusum(), h.alarms()),
+        (0.0, 0, 0.0, 1)
+    );
+    // the record rebuilds from nothing, the alarm stays counted
+    assert!(!h.record(0.3, CUSUM_K, CUSUM_H));
+    assert_eq!((h.scored(), h.alarms()), (1, 1));
+    assert!((h.score() - 0.3).abs() < 1e-12);
 }
 
 #[test]

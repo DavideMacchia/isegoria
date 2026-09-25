@@ -12,7 +12,7 @@ use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, 
 use scoring::collusion::{correlation_matrix, discount_weights, sublinear_group_weight};
 use scoring::irt::{point_biserial, theta_from_anchors};
 use scoring::reputation::{
-    asymmetric_ema, author_score, difference_scores, loo_baseline, odds_weight, AuthorPrior,
+    author_score, difference_scores, loo_baseline, odds_weight, AuthorPrior, EvaluatorHistory,
 };
 
 // ------------------------------ generators ------------------------------
@@ -206,13 +206,33 @@ proptest! {
         prop_assert!(weight.is_finite() && weight > 0.0, "w = {weight}");
     }
 
-    /// The asymmetric update moves toward the new value without overshooting it.
+    /// The history's mean stays within the scores recorded since its last restart, the
+    /// CUSUM statistic is never negative, and an alarm restarts the record and is counted.
     #[test]
-    fn asymmetric_ema_moves_between_old_and_new(
-        prev in 0.0f64..=1.0, new in 0.0f64..=1.0, up in 0.0f64..=1.0, down in 0.0f64..=1.0,
+    fn evaluator_history_mean_is_within_its_scores_and_alarms_restart_the_record(
+        scores in prop::collection::vec(-1.0f64..=1.0, 1..60),
+        k in 0.0f64..0.1, h in 0.1f64..2.0,
     ) {
-        let next = asymmetric_ema(prev, new, up, down);
-        prop_assert!(next >= prev.min(new) - 1e-12 && next <= prev.max(new) + 1e-12);
+        let mut history = EvaluatorHistory::new();
+        let mut since_restart: Vec<f64> = Vec::new();
+        let mut alarms = 0;
+        for &x in &scores {
+            if history.record(x, k, h) {
+                alarms += 1;
+                since_restart.clear();
+                prop_assert_eq!((history.scored(), history.cusum()), (0, 0.0));
+            } else {
+                since_restart.push(x);
+            }
+            prop_assert!(history.cusum() >= 0.0);
+            prop_assert_eq!(history.scored(), since_restart.len());
+            prop_assert_eq!(history.alarms(), alarms);
+            if !since_restart.is_empty() {
+                let lo = since_restart.iter().cloned().fold(f64::INFINITY, f64::min);
+                let hi = since_restart.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                prop_assert!(history.score() >= lo - 1e-12 && history.score() <= hi + 1e-12);
+            }
+        }
     }
 }
 

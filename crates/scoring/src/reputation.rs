@@ -132,14 +132,81 @@ pub fn odds_weight(score: f64, scored: usize, gamma: f64, k_shrink: f64) -> f64 
     exp(gamma * score * shrink)
 }
 
-// -------------------- C.4 temporal asymmetry & cap --------------------
+// -------------------- C.4 history, change detector & cap --------------------
 
-/// Asymmetric update: rises slowly, falls fast, so a long-con of hoarded reputation
-/// does not pay (`docs/02`, §C.4). `up` ≪ `down`. Superseded by the CUSUM change
-/// detector of D34 (T51).
-pub fn asymmetric_ema(prev: f64, new: f64, up: f64, down: f64) -> f64 {
-    let rate = if new >= prev { up } else { down };
-    prev + rate * (new - prev)
+/// Allowance of the one-sided CUSUM on a reviewer's per-item scores (`docs/01` D34, T51):
+/// a drop of up to `k` below the reviewer's own mean is absorbed per item. Provisional
+/// until T25.
+pub const CUSUM_K: f64 = 0.03;
+/// Alarm threshold of the CUSUM (D34): accumulated drops beyond `h` mean the reviewer
+/// has changed, and it returns to probation. Provisional until T25.
+pub const CUSUM_H: f64 = 1.5;
+
+/// A reviewer's scored history (D33, D34): the long-window mean of its per-item
+/// leave-one-out scores — the evaluator score `S_u` that sets its weight — and a
+/// one-sided CUSUM of the drops below that mean, which raises an alarm on a sustained
+/// fall and restarts the history: the reviewer returns to probation (D36) and rebuilds
+/// its record from nothing. The mean is symmetric, so a cautious reviewer better than the
+/// crowd is not held below a copier, as the retired asymmetric update did (paper §5.5).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EvaluatorHistory {
+    sum: f64,
+    scored: usize,
+    cusum: f64,
+    alarms: usize,
+}
+
+impl EvaluatorHistory {
+    /// A pseudonym with no track record.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records one per-item score `x`. Against the reference — the mean of the items
+    /// recorded before it, so the first item after a (re)start only seeds the mean — the
+    /// CUSUM statistic becomes `max(0, s + (reference − x) − k)`; above `h` the reviewer
+    /// has changed: the alarm is counted, the history restarts, and `true` is returned.
+    pub fn record(&mut self, x: f64, k: f64, h: f64) -> bool {
+        if self.scored > 0 {
+            let reference = self.sum / self.scored as f64;
+            self.cusum = (self.cusum + (reference - x) - k).max(0.0);
+            if self.cusum > h {
+                let alarms = self.alarms + 1;
+                *self = Self::default();
+                self.alarms = alarms;
+                return true;
+            }
+        }
+        self.sum += x;
+        self.scored += 1;
+        false
+    }
+
+    /// The evaluator score `S_u`: the mean of the scores since the last (re)start; 0
+    /// with none.
+    pub fn score(&self) -> f64 {
+        if self.scored == 0 {
+            0.0
+        } else {
+            self.sum / self.scored as f64
+        }
+    }
+
+    /// Scored outcomes since the last (re)start — `k_u` of the shrinkage, and what
+    /// probation counts.
+    pub fn scored(&self) -> usize {
+        self.scored
+    }
+
+    /// The current CUSUM statistic (0 right after a start or an alarm).
+    pub fn cusum(&self) -> f64 {
+        self.cusum
+    }
+
+    /// Alarms raised over the pseudonym's whole life; never reset.
+    pub fn alarms(&self) -> usize {
+        self.alarms
+    }
 }
 
 /// Hard per-node weight cap `3 × median(weights)` (`docs/02`, §C.4).

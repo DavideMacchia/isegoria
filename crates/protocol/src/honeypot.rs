@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use scoring::reputation::{difference_scores, mean_score};
+use scoring::reputation::{difference_scores, mean_score, EvaluatorHistory, CUSUM_H, CUSUM_K};
 
 pub const HONEYPOT_RATE: f64 = 0.05;
 
@@ -56,5 +56,27 @@ pub fn reviewer_skills(
     difference_scores(predictions, weights, known_outcomes)
         .iter()
         .map(|per_item| mean_score(per_item))
+        .collect()
+}
+
+/// Feeds the golden items' per-item scores into each panelist's history (D33, D34, T51):
+/// the long-window mean that sets its weight, and the CUSUM that sends a reviewer whose
+/// scores fall for long enough back to probation. `histories[u]` belongs to
+/// `predictions[u]`. Returns which panelists raised an alarm on this batch (their history
+/// has restarted).
+pub fn record_golden_scores(
+    histories: &mut [EvaluatorHistory],
+    predictions: &[Vec<f64>],
+    weights: &[f64],
+    known_outcomes: &[f64],
+) -> Vec<bool> {
+    difference_scores(predictions, weights, known_outcomes)
+        .iter()
+        .zip(histories.iter_mut())
+        .map(|(per_item, history)| {
+            per_item.iter().fold(false, |alarmed, &x| {
+                history.record(x, CUSUM_K, CUSUM_H) || alarmed
+            })
+        })
         .collect()
 }
