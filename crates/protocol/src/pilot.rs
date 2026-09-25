@@ -22,7 +22,7 @@ use identity::nym::{Nym, Role};
 use network::cid::{cid, Cid};
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
-use scoring::irt::{fit_2pl_item, point_biserial, A_MIN, R_PBIS_MIN};
+use scoring::irt::{fit_2pl_item, kr20, point_biserial, A_MIN, KR20_MIN, R_PBIS_MIN};
 use scoring::LogisticFit;
 
 /// Stage-1 distinct-respondent floor (`docs/02` §B.6: the classic discrimination screen).
@@ -30,13 +30,17 @@ pub const N1_MIN: usize = 300;
 /// Stage-2 (Variant-1, attribute DIF) respondent floor (`docs/02` §B.6).
 pub const N2_MIN: usize = 1500;
 
-/// Why a pilot batch is not admissible (`docs/08` INV-8, §B.6 sample sizes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a pilot batch is not admissible (`docs/08` INV-8, §B.6 sample sizes, D37).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PilotError {
     /// Fewer distinct respondents than the stage requires.
     NotEnoughRespondents { have: usize, need: usize },
     /// A DIF batch below `K_MIN` items — a single item cannot reveal latent bias (INV-8).
     BatchTooSmall { items: usize },
+    /// The anchors' KR-20 on the batch's respondents is below `KR20_MIN` (or undefined):
+    /// the θ proxy is too noisy for the latent-class re-check, which would mistake its
+    /// error for a latent class (`docs/01` D37, DIF-010, T53).
+    UnreliableAnchors { kr20: f64, need: f64 },
     /// The answer rows are not the admitted respondents one to one (T65): a row without a
     /// respondent, or an item column of another length, is refused.
     RowCountMismatch { rows: usize, respondents: usize },
@@ -152,6 +156,23 @@ pub fn admit_dif_batch(
         });
     }
     Ok(())
+}
+
+/// Anchor-reliability precondition of the latent re-check (`docs/01` D37, T53), the
+/// third floor next to the items (`K_MIN`) and the respondents (`N_LATENT_MIN`): the
+/// standardized anchor total stands in for θ only when the anchors' KR-20 on the batch's
+/// own respondents is at least `KR20_MIN`. Returns the KR-20 when acceptable; refused
+/// below the floor and whenever it is undefined (fewer than two anchors, no spread, a
+/// non-finite value). `anchors` is respondents × anchors, 0/1.
+pub fn admit_anchors(anchors: &[Vec<f64>]) -> Result<f64, PilotError> {
+    let r = kr20(anchors);
+    if r.is_nan() || r < KR20_MIN {
+        return Err(PilotError::UnreliableAnchors {
+            kr20: r,
+            need: KR20_MIN,
+        });
+    }
+    Ok(r)
 }
 
 /// Outcome of the attribute-based DIF screen for one item (calibration-only, D20).

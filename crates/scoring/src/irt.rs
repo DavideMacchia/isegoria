@@ -5,12 +5,48 @@ use crate::glm::{fit_logistic, LogisticFit};
 pub const A_MIN: f64 = 0.6;
 pub const B_ABS_MAX: f64 = 2.5;
 pub const R_PBIS_MIN: f64 = 0.20;
+/// Anchor-reliability floor of the latent re-check (`docs/01` D37, T53): the standardized
+/// anchor total stands in for θ only when the anchors' KR-20, on the batch's own
+/// respondents, is at least this — about 40 anchors of the reference design (the paper's
+/// Table: 30 anchors give 0.87, 40 give 0.90, 60 give 0.93). Provisional (T25).
+pub const KR20_MIN: f64 = 0.90;
 
 /// Ability θ from a set of DIF-free anchor items: standardized total score
 /// (`docs/02`, §B.4; matches `th` in `sim/bridging_irt_dif.py`).
 pub fn theta_from_anchors(anchors: &[Vec<f64>]) -> Vec<f64> {
     let totals: Vec<f64> = anchors.iter().map(|row| row.iter().sum()).collect();
     standardize(&totals)
+}
+
+/// Kuder–Richardson 20 of the anchor total: `K/(K−1) · (1 − Σ_j p_j(1−p_j) / Var(T))`,
+/// with `p_j` the proportion answering anchor `j` correctly and `Var(T)` the population
+/// variance of the totals (the paper's `revisions_dif.py`). `anchors` is respondents ×
+/// anchors, one row per respondent (as [`theta_from_anchors`]). It is the reliability of
+/// the θ proxy: below [`KR20_MIN`] the latent-class detector mistakes proxy error for a
+/// latent class (`docs/08` DIF-010). With fewer than two anchors, no respondents or no
+/// spread in the totals there is no reliability to measure: 0, not NaN (T36). A ragged
+/// matrix is read up to its shortest row.
+pub fn kr20(anchors: &[Vec<f64>]) -> f64 {
+    let n = anchors.len();
+    let k = anchors.iter().map(Vec::len).min().unwrap_or(0);
+    if n == 0 || k < 2 {
+        return 0.0;
+    }
+    let nf = n as f64;
+    let totals: Vec<f64> = anchors.iter().map(|row| row[..k].iter().sum()).collect();
+    let mean_t = totals.iter().sum::<f64>() / nf;
+    let var_t = totals.iter().map(|t| (t - mean_t).powi(2)).sum::<f64>() / nf;
+    if var_t.is_nan() || var_t <= 0.0 {
+        return 0.0;
+    }
+    let item_var: f64 = (0..k)
+        .map(|j| {
+            let p = anchors.iter().map(|row| row[j]).sum::<f64>() / nf;
+            p * (1.0 - p)
+        })
+        .sum();
+    let kf = k as f64;
+    kf / (kf - 1.0) * (1.0 - item_var / var_t)
 }
 
 /// `(t − mean) / sd_pop`. With no spread (all totals equal) there is no ability signal

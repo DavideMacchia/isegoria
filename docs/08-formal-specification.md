@@ -87,8 +87,14 @@ paper's snapshot is listed in `paper/README.md`.
   trial items are positively dependent even without DIF (paper Prop 10); on null batches
   at N = 6,000 the production detector flags clean items with 10 or 20 anchors (KR-20
   0.69 / 0.82) and passes at 30 (0.87) by 0.01–0.06. The differential gap is no remedy on
-  its own: with 6 of 8 items biased it inverts the verdict. Status: **OPEN** → D37, T53,
-  T54 (`AT-DIF-11`, `AT-DIF-12`); also bears on DIF-006 and DIF-008.
+  its own: with 6 of 8 items biased it inverts the verdict. Status: **PARTLY RESOLVED** —
+  the precondition is enforced (T53, 2026-09-25): `pilot::admit_anchors` refuses the
+  latent re-check when the anchors' KR-20 on the batch's respondents (`irt::kr20`) is
+  below `KR20_MIN = 0.90`, `revalidate_batch_latent` takes the anchors and computes θ
+  itself, and the differential gap is `MixtureDif::differential`, diagnostic only
+  (`AT-DIF-11` ✓, `anchor_reliability.rs`; the inversion in a campaign,
+  `latent_classes.rs`). θ inside the likelihood is T54 (`AT-DIF-12`); also bears on
+  DIF-006 and DIF-008.
 - **REPUTATION-008 — The evaluator score is not proper.** The ratio-form BSS rewards
   moving toward the crowd: with one scored item `logit p* = logit q + 2 logit b` (paper
   Prop 12). Scoring only items that pass the gate would also be improper. Status:
@@ -312,7 +318,7 @@ The eight invariants of `docs/CLAUDE.md` are restated here as runtime invariants
 | INV-5 | One deterministic, non-rotatable pseudonym per role. | `nym::derive_nym` and `nullifier::prove` are both deterministic in `(secret, role)`. Rotation is prevented only if a second credential is impossible (ID-001…ID-005). | Enforced for derivation; depends on identity layer |
 | INV-6 | The authenticator (state) MUST be distinct from the issuer (committee). | Distinct types (`IdentityDocument` vs `Issuer`). No protocol message separates them; see §3.2. | Asserted |
 | INV-7 | Same input ⇒ bit-identical output. | `tests/reproducibility.rs` (same process, same binary); `tests/golden.rs` pins every output on the fixtures bit for bit, and CI checks it on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC (AT-BR-04); the transcendental functions come from the pure-Rust `libm` crate (`scoring::fmath`), not from the platform's libm. "Input" has no canonical serialization; see REPRO-001/002. | Tested within a process and across platforms and profiles (AT-BR-04) |
-| INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items and a sample below its §B.6 floor, counting admitted respondents (`NullifierSet::len`), never rows (T65); `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
+| INV-8 | Level-B validation MUST run on batches, never a single item. | ENFORCED (T9) at the batch-admission gates: `pilot::{admit_dif_batch, dif_batch}` and `revalidation::revalidate_batch_latent` reject a batch below `K_MIN` items, a sample below its §B.6 floor and — the latent re-check — anchors whose KR-20 is below `KR20_MIN` (D37, T53), counting admitted respondents (`NullifierSet::len`), never rows (T65); `run_epoch` runs the pilot through them. The per-item math (`stage2_dif`, `mixture_dif`) stays available for calibration probes. | Enforced |
 
 Additional invariants this specification introduces (not in `docs/CLAUDE.md`), each derived from a gap found in §10:
 
@@ -697,7 +703,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### PROTO-005 — Pilot stage semantics — Stage 1 = `r_pbis ≥ 0.20 ∧ a ≥ 0.6`; Stage 2 = `|β₂| ≤ 0.40` on a supplied `group`. No `|b| ≤ 2.5`, no `c`, no MH, no mixture in the pilot; the mixture appears only in re-validation. Sample sizes (300/1500/3000) are not parameters of any function. TESTED on synthetic and fixture data.
 
 #### PROTO-006 — Batch enforcement — RESOLVED@T9 (was NOT ENFORCED).
-- The DIF stages run through batch-admission gates that refuse a batch below `K_MIN` items (INV-8) and a sample below its §B.6 floor: `pilot::admit_dif_batch`, the wrappers `pilot::{screen, dif_batch}` (Variant 1) and `revalidation::revalidate_batch_latent` (production Variant 2), with floors `N1_MIN`=300 / `N2_MIN`=1500 / `N_LATENT_MIN`=3000. `end_to_end.rs::run_epoch` runs the pilot through the gates, and `lifecycle::step` independently rejects `Pilot2Batch { batch_size < K_MIN }` (T12). AT-PRO-02 passes (`inv8_batch_min.rs`).
+- The DIF stages run through batch-admission gates that refuse a batch below `K_MIN` items (INV-8) and a sample below its §B.6 floor: `pilot::admit_dif_batch`, the wrappers `pilot::{screen, dif_batch}` (Variant 1) and `revalidation::revalidate_batch_latent` (production Variant 2), with floors `N1_MIN`=300 / `N2_MIN`=1500 / `N_LATENT_MIN`=3000, and — the latent re-check — a third floor on the anchors: KR-20 ≥ `KR20_MIN` = 0.90 on the batch's respondents (`pilot::admit_anchors`, D37, T53). `end_to_end.rs::run_epoch` runs the pilot through the gates, and `lifecycle::step` independently rejects `Pilot2Batch { batch_size < K_MIN }` (T12). AT-PRO-02 passes (`inv8_batch_min.rs`).
 
 #### PROTO-007 — Pseudonym validity is verified by the protocol
 - **Analysis.** `review::Reviewer.nym`, `probation::FounderSet`, and reputation maps are keyed on `nym::Nym` = SHA-256 of a secret, presented without proof. Anyone can mint unlimited `Nym`s. Sybil resistance, non-rotatability, and rate limiting are therefore properties of the *identity crate in isolation*, not of the protocol as wired. `lib.rs` of `identity` lists "unifying the protocol pseudonym with the ZK nullifier" as future work.
@@ -894,7 +900,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
 | `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
-| `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound) | `Retired{EmergingDif}` / stays | — | — |
+| `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound); the batch's anchors reliable: KR-20 ≥ `KR20_MIN` on its respondents (D37, ✓ T53: `revalidate_batch_latent` computes θ from the anchors it admits) | `Retired{EmergingDif}` / stays | — | fewer than `K_MIN` items; fewer than `N_LATENT_MIN` respondents; unreliable anchors (`PilotError::UnreliableAnchors`) |
 | `ActivePool` | `exposure ≥ EXPOSURE_LIMIT (2000)` | — | `Retired{Exposure}` | template rotation | — |
 
 ### 9.2 Reviewer (judge nym) reputation
@@ -1094,7 +1100,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-DIF-08 | purification oscillation | adversarial batch constructed so flags alternate | non-convergence signalled | DIF-007 |
 | AT-DIF-09 | pool-scale mixture | K = 100, NT = 3000 | completes within a stated budget | DIF-009 |
 | AT-DIF-10 ✓ | single item invisible | 1/8 | (documentation claim, not a guard) | DIF-005 |
-| AT-DIF-11 | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 20 vs 60 anchors | 20 anchors (KR-20 ≈ 0.82) refused before fitting; 60 anchors (≈ 0.93) accepted with no flag | DIF-010 |
+| AT-DIF-11 ✓ | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 20 vs 60 anchors | 20 anchors (KR-20 ≈ 0.82) refused before fitting; 60 anchors (≈ 0.93) accepted with no flag — `anchor_reliability.rs` (T53): batches drawn as the paper's `dif_generate`, KR-20 within 0.03 of the paper's table for 10, 20, 30 and 60 anchors; the 20-anchor batch is `UnreliableAnchors` and, through the bare engine, a spurious two-class fit; the 60-anchor batch is accepted with no flag | DIF-010 |
 | AT-DIF-12 | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction | exactly the shifted items flagged in every case (the differential gap alone inverts at 6 of 8) | DIF-010 |
 | AT-NET-01 | consistent rewrite | rewrite entries `i..`, recompute hashes | detected against a stored prior head | NET-004 |
 | AT-NET-02 | leaf duplication | `[x,y,z]` vs `[x,y,z,z]` | distinct roots | NET-003 |
@@ -1307,7 +1313,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | DIF-007 | purification fixed point | `level_b.rs` | TESTED (1 dataset) | convergence signalling | AT-DIF-08 |
 | DIF-008 | FP/FN characterized | — | NOT ESTABLISHED | simulations | AT-DIF-01..04 |
 | DIF-009 | pool-scale feasibility | — | NOT ESTABLISHED | analytic gradient, benchmark | AT-DIF-09 |
-| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py` | OPEN — false flags on null batches with ≤ 20 anchors | anchor gate, θ in the likelihood (D37) | T53, T54, AT-DIF-11/12 |
+| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py`; `irt.rs` (`kr20`), `pilot.rs` (`admit_anchors`), `revalidation.rs`, `anchor_reliability.rs` (AT-DIF-11), `latent_classes.rs` (the differential gap inverts in a campaign) | PARTLY RESOLVED (T53) — a batch whose anchors' KR-20 is below 0.90 is refused before the fit; the differential gap is a diagnostic only | θ inside the likelihood (D37) | T54, AT-DIF-12 |
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
 | REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED | — | — |
@@ -1358,7 +1364,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PROTO-003 | stratified assignment | `lifecycle.rs` | TESTED | new-reviewer path | docs |
 | PROTO-004 | gate + appeal | `lifecycle.rs`, `end_to_end.rs`, `supplementary_redecision.rs`, `appeal_stake.rs`, the model suites | TESTED; a polarized band item keeps the appeal (T59, D26 amendment); the appeal checks the stake and settles the escrow (T61) | the re-decision's extra reviewers | T60 (G-15) |
 | PROTO-005 | pilot stages | `pilot.rs`, `lifecycle.rs`, `end_to_end.rs`, `inv8_batch_min.rs` | TESTED; N/K gating enforced (T9) | — | G-15 |
-| PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor; `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
+| PROTO-006 | batch enforced | `pilot.rs` (`admit_dif_batch`, `admit_anchors`, `screen`, `dif_batch`), `revalidation.rs` (`revalidate_batch_latent`), `lifecycle.rs`, `inv8_batch_min.rs`, `anchor_reliability.rs` | ENFORCED (T9) — the DIF gates reject a batch < `K_MIN` items and a sample below its §B.6 floor, and the latent re-check unreliable anchors (T53); `run_epoch` runs the pilot through them; the state machine also rejects `Pilot2Batch` of one (T12) | — | AT-PRO-02 |
 | PROTO-007 | nym proof verified | `admission.rs`, `deposit.rs`/`review.rs` (entry points), `inv9_nym_proof.rs` | IMPLEMENTED (T6) — entry points verify a role `NullifierProof` and key on `NullifierProof::id()`; AT-PRO-01/AT-ID-05 pass. A replayed deposit is refused before the identity check and the quota charge, and the `Propose` proof is bound to the epoch (T64, `proto007_deposit_replay.rs`) | cryptographic-grade enrollment/replay (T20), external review of the nullifier (§7.4) | G-04 |
 | PROTO-008 | supplementary review | `gate.rs` (`supplementary_review`), `lifecycle.rs` (`Resolve`), `supplementary_redecision.rs` | PARTIAL — defined terminal (T10/T30), but the re-decision re-fits the first panel's ratings, so it relaxes the robust threshold rather than adding reviewers (§0-quinquies) | expanded panel | T60, G-15 |
 | PROTO-009 | honeypot | `lifecycle.rs` | TESTED (mechanics); always injects the first `n` golden items (§0-quinquies) | ground truth; self-review; random golden subset | T67, G-16 |

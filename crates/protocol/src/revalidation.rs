@@ -7,11 +7,12 @@
 
 use crate::admission::NullifierSet;
 use crate::exposure::{should_retire, ExposureLedger, ItemHealth, RetirementReason};
-use crate::pilot::{admit_dif_batch, respondent_rows, PilotError};
+use crate::pilot::{admit_anchors, admit_dif_batch, PilotError};
 use network::cid::Cid;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
 use scoring::dif::{mixture_dif, MixtureDif, MIXTURE_DIF_MAX};
+use scoring::irt::theta_from_anchors;
 use scoring::Convergence;
 
 /// Respondent floor for the latent-class mixture re-check (`docs/02` §B.6): the
@@ -82,34 +83,53 @@ pub fn latent_flags(res: &MixtureDif) -> Vec<bool> {
         .collect()
 }
 
-/// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6): the
-/// pool is re-checked only as a batch of at least `K_MIN` items with at least
+/// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6, D37):
+/// the pool is re-checked only as a batch of at least `K_MIN` items with at least
 /// `N_LATENT_MIN` admitted respondents — persons, counted from the [`NullifierSet`] that
 /// `pilot::submit_response` filled, never rows (T65) — whose rows are those respondents
-/// one to one. A single item is rejected (AT-PRO-02) — it cannot reveal latent bias.
-/// `responses` is respondents × items.
+/// one to one, and only when the anchors those respondents answered are reliable enough
+/// to stand in for θ (`pilot::admit_anchors`: KR-20 ≥ `KR20_MIN`, T53). θ is computed
+/// here, from `anchors` (respondents × anchors, `irt::theta_from_anchors`), so a caller
+/// cannot vouch for a proxy the gate has not measured. A single item is rejected
+/// (AT-PRO-02) — it cannot reveal latent bias. `responses` is respondents × items. The
+/// floors are checked in this order: items, respondents, the rows, the anchors.
 pub fn revalidate_batch_latent(
     respondents: &NullifierSet,
-    theta: &[f64],
+    anchors: &[Vec<f64>],
     responses: &[Vec<f64>],
     seed: u64,
 ) -> Result<Vec<bool>, PilotError> {
+    let n = respondents.len();
     let m = responses.first().map_or(0, |row| row.len());
-    admit_dif_batch(m, respondents.len(), N_LATENT_MIN)?;
-    if responses.len() != respondents.len() {
+    admit_dif_batch(m, n, N_LATENT_MIN)?;
+    if responses.len() != n {
         return Err(PilotError::RowCountMismatch {
             rows: responses.len(),
-            respondents: respondents.len(),
+            respondents: n,
         });
     }
-    respondent_rows(respondents, theta, std::iter::empty())?;
     if let Some(row) = responses.iter().find(|row| row.len() != m) {
         return Err(PilotError::RowCountMismatch {
             rows: row.len(),
             respondents: m,
         });
     }
-    Ok(revalidate_pool_latent(theta, responses, seed))
+    if anchors.len() != n {
+        return Err(PilotError::RowCountMismatch {
+            rows: anchors.len(),
+            respondents: n,
+        });
+    }
+    let k_anchor = anchors.first().map_or(0, Vec::len);
+    if let Some(row) = anchors.iter().find(|row| row.len() != k_anchor) {
+        return Err(PilotError::RowCountMismatch {
+            rows: row.len(),
+            respondents: k_anchor,
+        });
+    }
+    admit_anchors(anchors)?;
+    let theta = theta_from_anchors(anchors);
+    Ok(revalidate_pool_latent(&theta, responses, seed))
 }
 
 /// Composes re-validation health with exposure into the retirement list: for each

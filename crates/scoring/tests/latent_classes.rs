@@ -57,7 +57,52 @@ fn clean_data_selects_a_single_class() {
     let res = mixture_dif(&theta, &x, 8, 0);
     assert_eq!(res.classes, 1, "{:?}", res.candidates);
     assert!(res.dif.iter().all(|&d| d == 0.0));
+    assert!(res.differential.iter().all(|&d| d == 0.0));
     assert_eq!(res.bic_gain, 0.0);
+}
+
+/// The differential gap (D37, T53) is a diagnostic, never the verdict: with 6 of 8 items
+/// shifted the same way, the batch's common shift *is* the campaign, so the differential
+/// gap is small on the shifted items and large on the two clean ones — inverted — while
+/// the raw gap `dif` flags exactly the shifted items (θ known here; with a proxy θ that
+/// is T54's target model).
+#[test]
+fn the_differential_gap_inverts_in_a_campaign() {
+    let (theta, x) = generate(
+        40,
+        &[0.5, 0.5],
+        |_, _| 1.2,
+        |j, c| {
+            difficulty(j)
+                + if j < 6 {
+                    0.9 * (2.0 * c as f64 - 1.0)
+                } else {
+                    0.0
+                }
+        },
+    );
+    let res = mixture_dif(&theta, &x, 8, 0);
+    assert!(res.classes >= 2, "{:?}", res.candidates);
+    for j in 0..6 {
+        assert!(
+            res.dif[j] > 1.2,
+            "shifted item {j}: dif = {:.2}",
+            res.dif[j]
+        );
+        assert!(
+            res.differential[j] < 0.5,
+            "shifted item {j}: differential = {:.2}",
+            res.differential[j]
+        );
+    }
+    for j in 6..8 {
+        assert!(res.dif[j] < 0.5, "clean item {j}: dif = {:.2}", res.dif[j]);
+        assert!(
+            res.differential[j] > 1.2,
+            "clean item {j}: differential = {:.2}",
+            res.differential[j]
+        );
+    }
 }
 
 /// Non-uniform DIF: the same difficulty in both classes, but items 0–2 discriminate at

@@ -197,8 +197,12 @@ tertiles, Mantel–Haenszel with ETS classification:
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
 
 > **Revised by D37 and D38 (T53–T55).** Error in the ability proxy creates spurious latent
-> classes (paper §4.5): the re-check will run only when the anchors' KR-20 is ≥ 0.90, and
-> the target model integrates `θ` with the anchors inside the likelihood. An item whose
+> classes (paper §4.5): the re-check runs only when the anchors' KR-20 on the batch's
+> respondents is ≥ 0.90 (`irt::KR20_MIN`, enforced by `revalidate_batch_latent` — T53,
+> done), and the target model integrates `θ` with the anchors inside the likelihood (T54).
+> The differential gap — each item's class shift less the batch's median shift — is
+> reported as a diagnostic only (`MixtureDif::differential`): it inverts in a campaign. An
+> item whose
 > DIF concerns knowledge of a fact established by a primary source becomes a *contested
 > fact* in a balanced pool instead of being rejected (D38).
 
@@ -256,7 +260,10 @@ otherwise the biased items contaminate the very measure used to judge them:
 ```
 
 In the prototype, `θ` is estimated on 30 anchor items external to the batch under
-validation.
+validation — enough for the reference fixtures, not for the production re-check, which
+requires the anchors' KR-20 on the batch's respondents to reach 0.90 (about 40 anchors of
+this design; `01` D37, T53): the standardized total is a proxy for `θ` only as reliable as
+its anchors, and below that reliability the mixture reads proxy error as a latent class.
 
 ### B.5 Upstream admissibility
 
@@ -316,6 +323,11 @@ per-class item parameters without observing the group. It is far more data-hungr
    (`03`: stylometry, timing, topic choice) becomes easy — a few hundred authors is not
    enough to hide 200 questions from one ID. There is a size below which the system
    *functions* but is no longer *anonymous*.
+
+**A fourth precondition, on the anchors rather than the network.** The latent re-check
+also requires the anchors the batch's respondents answered to be reliable: KR-20 ≥ 0.90
+(`01` D37, T53; `pilot::admit_anchors`). Below it the batch is refused like a short
+sample, because a noisy `θ` proxy is read by the mixture as a latent class (`08` DIF-010).
 
 **Throughput** (a floor on usefulness, not correctness) follows `01` D10:
 `validatable_questions/month ≈ (nodes × answers_per_node_month) / answers_per_question`.

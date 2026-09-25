@@ -37,6 +37,7 @@ fn fit(dif: Vec<f64>, classes: usize, status: Convergence) -> MixtureDif {
         pi: vec![1.0 / classes as f64; classes],
         dif,
         a_gap: vec![0.0; k],
+        differential: vec![0.0; k],
         posterior: Vec::new(),
         bic_gain: if classes > 1 { 10.0 } else { 0.0 },
         candidates: Vec::new(),
@@ -92,6 +93,15 @@ fn the_reported_gap_is_twice_the_class_shift() {
     }
     for (j, d) in res.dif[3..].iter().enumerate() {
         assert!(*d < 0.5, "clean item {}: DIF = {d:.3}", j + 3);
+    }
+    // The diagnostic (D37, T53): with 3 of 8 shifted, the batch's common shift is a
+    // clean item's, so the differential gap tells the same story as the raw gap here.
+    for (j, d) in res.differential.iter().enumerate() {
+        if j < 3 {
+            assert!(*d > 1.0, "biased item {j}: differential = {d:.3}");
+        } else {
+            assert!(*d < 0.5, "clean item {j}: differential = {d:.3}");
+        }
     }
     assert_eq!(
         revalidate_pool_latent(&theta, &x, 0),
