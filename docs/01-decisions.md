@@ -508,6 +508,15 @@ decoys; on the same test the intercept moves from +0.09 to +0.32.
 
 ## D33 — Evaluator score: leave-one-out difference score, odds-scale weights with shrinkage
 
+> **Implemented (2026-09-25, T50):** `reputation::{loo_baseline, loo_scores, mean_score,
+> odds_weight, EvaluatorParams}` (`γ = 35`, `k₀ = 100`, provisional); `honeypot::reviewer_skills`
+> returns the mean leave-one-out difference score on the golden items; the review weight is
+> `min(w_max, exp(γ·S_u·k_u/(k_u+k₀)))` (`probation::effective_review_weight`,
+> `orchestrator::bridging_weights`) with `w_max = 3 × median` over the reviewers who carry
+> weight (`orchestrator::epoch_weight_cap`), where it binds. `evaluator_score` (`σ(γ·BSS)`) is
+> removed; `brier_skill_score` stays as the sim oracle only. AT-REP-02/04/05 pass
+> (`evaluator_score.rs`). The scored items are still the golden ones: D35 is T52.
+
 **Choice.** On every scored item the evaluator score is
 `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, where `p̄_{−u,j}` is the weight-adjusted
 mean forecast of the *other* panelists. `S_u` is its mean over the reviewer's scored
@@ -541,6 +550,15 @@ the reviewer being scored.
 ---
 
 ## D34 — Reputation dynamics: long-window mean plus a change detector
+
+> **Implemented (2026-09-25, T51):** `reputation::{Cusum, CusumParams}` (`k = 0.03`,
+> `h = 1.5`, provisional) and `probation::SkillTrack` — the running mean of the per-item
+> scores is the weight's `S_u`, the CUSUM reads each score against that mean once the
+> reviewer is out of probation, and an alarm restarts the track (probation, weight 0).
+> `asymmetric_ema` is removed. AT-REP-07 passes (`change_detector.rs`): at most one alarm
+> on a seeded honest stream of 10,000 items; a reviewer who starts flipping 20% of
+> forecasts is caught within 100 items on nine of ten seeds (median 25; the tenth after
+> 356 — at `k = 0.03` the drift is small and the tail long, a T25 calibration item).
 
 **Choice.** The score used for the weights is a symmetric long-window mean of the
 per-item scores. The fast fall of the asymmetric update is replaced by a one-sided CUSUM
@@ -602,6 +620,9 @@ of pilot capacity.
 
 ## D36 — Probation: 30 scored outcomes, then shrinkage
 
+> **Implemented (2026-09-25, T50):** `probation::N_PROBATION = 30`; after it the odds weight
+> of D33 is shrunk by `k_u/(k_u + 100)`.
+
 **Choice.** A new evaluator pseudonym has weight 0 until it has 30 scored outcomes (was
 200). After that, the shrinkage of D33 moves its weight away from 1 only as evidence
 accumulates. Founders are unchanged.
@@ -616,6 +637,14 @@ non-rotatable pseudonyms (invariant #5), not by the length of probation.
 ---
 
 ## D37 — Latent DIF: anchor-reliability precondition; θ inside the likelihood as the target model
+
+> **Precondition implemented (2026-09-25, T53):** `pilot::admit_anchors` refuses the
+> latent re-check when the anchors' KR-20 on the batch's respondents (`irt::kr20`) is
+> below `KR20_MIN = 0.90`; `revalidate_batch_latent` takes the anchors and computes θ
+> itself, so a caller cannot vouch for a proxy the gate has not measured. The differential
+> gap is reported as `MixtureDif::differential`, a diagnostic the verdict never reads.
+> AT-DIF-11 passes on null batches drawn as the paper's (20 anchors refused, 60 accepted
+> with no flag). The target model, θ inside the likelihood, is T54.
 
 **Choice.** The latent-class re-check runs only if the anchors' KR-20, computed on the
 batch's respondents, is at least 0.90 (about 40 anchors). Below that the batch is

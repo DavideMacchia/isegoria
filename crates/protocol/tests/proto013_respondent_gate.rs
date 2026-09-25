@@ -60,6 +60,20 @@ fn admitted(n: usize) -> NullifierSet {
     set
 }
 
+/// `n` respondents' answers to 60 clean anchors, a Guttman pattern on evenly spaced
+/// difficulties: a reliable θ proxy (KR-20 ≈ 0.98, above `KR20_MIN`), as the latent
+/// re-check's anchor precondition requires (D37, T53).
+fn anchors(n: usize) -> Vec<Vec<f64>> {
+    (0..n)
+        .map(|i| {
+            let t = (i as f64 + 0.5) / n as f64;
+            (0..60)
+                .map(|j| f64::from(t > (j as f64 + 0.5) / 60.0))
+                .collect()
+        })
+        .collect()
+}
+
 /// `n` respondents' abilities and `m` item columns of `n` answers each, non-degenerate.
 fn sample(n: usize, m: usize) -> (Vec<f64>, Vec<Vec<f64>>) {
     let theta: Vec<f64> = (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect();
@@ -116,12 +130,11 @@ fn three_hundred_rows_from_one_respondent_are_not_enough() {
     );
 
     // The same for the production latent re-check: 3,000 rows, one person.
-    let (theta, _) = sample(N_LATENT_MIN, 0);
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())
         .collect();
     assert_eq!(
-        revalidate_batch_latent(&respondents, &theta, &responses, 0),
+        revalidate_batch_latent(&respondents, &anchors(N_LATENT_MIN), &responses, 0),
         Err(PilotError::NotEnoughRespondents {
             have: 1,
             need: N_LATENT_MIN
@@ -208,12 +221,11 @@ fn rows_without_a_respondent_are_refused() {
 
     // The latent re-check: 3,000 admitted persons, 3,001 rows.
     let respondents = admitted(N_LATENT_MIN);
-    let (theta, _) = sample(N_LATENT_MIN + 1, 0);
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN + 1)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())
         .collect();
     assert_eq!(
-        revalidate_batch_latent(&respondents, &theta, &responses, 0),
+        revalidate_batch_latent(&respondents, &anchors(N_LATENT_MIN + 1), &responses, 0),
         Err(PilotError::RowCountMismatch {
             rows: N_LATENT_MIN + 1,
             respondents: N_LATENT_MIN

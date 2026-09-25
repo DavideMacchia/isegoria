@@ -11,8 +11,8 @@ use network::cid::{cid, Cid};
 use protocol::gate::GateOutcome;
 use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State};
 use protocol::orchestrator::{
-    bridging_weights, review_round, run_item, weighted_ratings, ItemVerdicts, Judgment,
-    ReviewerStanding,
+    bridging_weights, epoch_weight_cap, review_round, run_item, weighted_ratings, ItemVerdicts,
+    Judgment, ReviewerStanding,
 };
 use protocol::probation::N_PROBATION;
 use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
@@ -20,28 +20,63 @@ use scoring::bridging::{fit, side_balanced, BridgingParams, RatingsError};
 // ------------------------------- T5: weights from standing -------------------------------
 
 /// The bridging weight is the review vote weight: 0 on probation, 1 for a bootstrap
-/// founder, `min(w_max, E_u)` once established.
+/// founder, the capped odds weight of the skill once established (D33).
 #[test]
 fn bridging_weights_map_probation_founder_established() {
+    let odds = |s: f64| (35.0 * s * N_PROBATION as f64 / (N_PROBATION as f64 + 100.0)).exp();
     let prev = [
         ReviewerStanding::founder(),
-        ReviewerStanding::established(0.3),
-        ReviewerStanding::established(2.0), // above the cap
+        ReviewerStanding::established(-0.05), // below the crowd: less than 1
+        ReviewerStanding::established(0.5),   // far above the crowd: capped
         // a fresh node with no track record: on probation, weight 0
         ReviewerStanding {
             is_founder: false,
             judgments_with_outcome: 0,
-            e_u: 0.9,
+            skill: 0.9,
         },
         // a founder that has crossed the probation threshold is established, not seeded
         ReviewerStanding {
             is_founder: true,
             judgments_with_outcome: N_PROBATION,
-            e_u: 0.4,
+            skill: 0.01,
         },
     ];
-    let w = bridging_weights(&prev, 1.0);
-    assert_eq!(w, vec![1.0, 0.3, 1.0, 0.0, 0.4]);
+    let w = bridging_weights(&prev, 2.0);
+    assert_eq!(w, vec![1.0, odds(-0.05), 2.0, 0.0, odds(0.01)]);
+    assert!(w[1] < 1.0 && w[4] > 1.0);
+}
+
+/// The epoch's cap is `3 × median` of the weights that count — founders and established
+/// reviewers, not probationers — and it binds on an outlier (AT-REP-04, D33).
+#[test]
+fn the_epoch_cap_is_three_times_the_median_of_the_counted_weights() {
+    let mut prev = vec![ReviewerStanding::founder(); 8];
+    prev.push(ReviewerStanding {
+        is_founder: false,
+        judgments_with_outcome: 400,
+        skill: 0.1, // exp(35·0.1·0.8) ≈ 16: an outlier
+    });
+    prev.push(ReviewerStanding {
+        is_founder: false,
+        judgments_with_outcome: 0,
+        skill: 0.9, // probation: not part of the crowd the cap is relative to
+    });
+    let cap = epoch_weight_cap(&prev);
+    assert!((cap - 3.0).abs() < 1e-12, "cap {cap}");
+    let w = bridging_weights(&prev, cap);
+    assert!(
+        (w[8] - 3.0).abs() < 1e-12,
+        "the outlier is capped: {}",
+        w[8]
+    );
+    assert_eq!(w[9], 0.0);
+    // Nobody carries weight: nothing to cap.
+    let fresh = [ReviewerStanding {
+        is_founder: false,
+        judgments_with_outcome: 0,
+        skill: 0.0,
+    }];
+    assert_eq!(epoch_weight_cap(&fresh), f64::INFINITY);
 }
 
 /// The load-bearing T5 claim at the protocol boundary: a coordinated bloc pushing an
@@ -81,10 +116,11 @@ fn lower_reputation_moves_the_bridge_score_less() {
     // Case A: the bloc are founders (full weight 1).
     let mut trusted = vec![ReviewerStanding::founder(); honest];
     trusted.extend(std::iter::repeat_n(ReviewerStanding::founder(), bloc));
-    // Case B: the bloc are established with a tiny evaluator score (weight ≈ 0.02).
+    // Case B: the bloc are established with a skill well below the crowd's (S_u = −0.5,
+    // an odds weight ≈ 0.02 just past probation).
     let mut discounted = vec![ReviewerStanding::founder(); honest];
     discounted.extend(std::iter::repeat_n(
-        ReviewerStanding::established(0.02),
+        ReviewerStanding::established(-0.5),
         bloc,
     ));
 

@@ -176,6 +176,14 @@ pub struct MixtureDif {
     pub dif: Vec<f64>,
     /// Per-item `max_{g,h} |a_jg − a_jh|` (non-uniform DIF); 0 when `a_j` is shared.
     pub a_gap: Vec<f64>,
+    /// **Diagnostic only** (`docs/01` D37, T53): each item's class shift relative to the
+    /// batch's common shift, `|s_j − median_k s_k|`, where `s_j = b_{j,g₁} − b_{j,g₀}` is
+    /// the signed difficulty shift between the two most populous counted classes
+    /// (`g₀ < g₁`). It removes the shift that error in the θ proxy puts on every item
+    /// (paper §4.5), but it inverts in a campaign — with most of the batch shifted the
+    /// same way the common shift *is* the campaign and the clean items stand out (paper
+    /// §7.3) — so it is never the verdict: the verdict reads `dif`. 0 with one class.
+    pub differential: Vec<f64>,
     /// `posterior[i][g]`: probability that respondent `i` belongs to class `g`.
     pub posterior: Vec<Vec<f64>>,
     /// `BIC(one class) − BIC(selected)`: > 0 when a mixture is preferred.
@@ -443,6 +451,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
     };
     let dif: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.b_idx(g, j), j)).collect();
     let a_gap: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.a_idx(g, j), j)).collect();
+    let differential = differential_gap(&model, &p, &pi, &counted, k);
 
     let ln_pi: Vec<f64> = pi.iter().map(|v| ln(*v)).collect();
     let posterior: Vec<Vec<f64>> = x
@@ -462,11 +471,35 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
         pi,
         dif,
         a_gap,
+        differential,
         posterior,
         bic_gain: bic1 - best_bic,
         candidates,
         status,
     }
+}
+
+/// The diagnostic of [`MixtureDif::differential`]: the signed shift between the two most
+/// populous counted classes (ties by class index; `g₀ < g₁` fixes the sign), less its
+/// median over the batch, in absolute value. Zeros unless two classes are counted.
+fn differential_gap(model: &Model, p: &[f64], pi: &[f64], counted: &[usize], k: usize) -> Vec<f64> {
+    if counted.len() < 2 {
+        return vec![0.0; k];
+    }
+    let mut top: Vec<usize> = counted.to_vec();
+    top.sort_by(|&g, &h| pi[h].total_cmp(&pi[g]).then(g.cmp(&h)));
+    let (g0, g1) = (top[0].min(top[1]), top[0].max(top[1]));
+    let shift: Vec<f64> = (0..k)
+        .map(|j| p[model.b_idx(g1, j)] - p[model.b_idx(g0, j)])
+        .collect();
+    let mut sorted = shift.clone();
+    sorted.sort_by(f64::total_cmp);
+    let common = if k % 2 == 1 {
+        sorted[k / 2]
+    } else {
+        (sorted[k / 2 - 1] + sorted[k / 2]) / 2.0
+    };
+    shift.iter().map(|s| (s - common).abs()).collect()
 }
 
 #[inline]

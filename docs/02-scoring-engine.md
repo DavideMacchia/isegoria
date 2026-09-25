@@ -197,8 +197,12 @@ tertiles, Mantel–Haenszel with ETS classification:
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
 
 > **Revised by D37 and D38 (T53–T55).** Error in the ability proxy creates spurious latent
-> classes (paper §4.5): the re-check will run only when the anchors' KR-20 is ≥ 0.90, and
-> the target model integrates `θ` with the anchors inside the likelihood. An item whose
+> classes (paper §4.5): the re-check runs only when the anchors' KR-20 on the batch's
+> respondents is ≥ 0.90 (`irt::KR20_MIN`, enforced by `revalidate_batch_latent` — T53,
+> done), and the target model integrates `θ` with the anchors inside the likelihood (T54).
+> The differential gap — each item's class shift less the batch's median shift — is
+> reported as a diagnostic only (`MixtureDif::differential`): it inverts in a campaign. An
+> item whose
 > DIF concerns knowledge of a fact established by a primary source becomes a *contested
 > fact* in a balanced pool instead of being rejected (D38).
 
@@ -256,7 +260,10 @@ otherwise the biased items contaminate the very measure used to judge them:
 ```
 
 In the prototype, `θ` is estimated on 30 anchor items external to the batch under
-validation.
+validation — enough for the reference fixtures, not for the production re-check, which
+requires the anchors' KR-20 on the batch's respondents to reach 0.90 (about 40 anchors of
+this design; `01` D37, T53): the standardized total is a proxy for `θ` only as reliable as
+its anchors, and below that reliability the mixture reads proxy error as a latent class.
 
 ### B.5 Upstream admissibility
 
@@ -317,6 +324,11 @@ per-class item parameters without observing the group. It is far more data-hungr
    enough to hide 200 questions from one ID. There is a size below which the system
    *functions* but is no longer *anonymous*.
 
+**A fourth precondition, on the anchors rather than the network.** The latent re-check
+also requires the anchors the batch's respondents answered to be reliable: KR-20 ≥ 0.90
+(`01` D37, T53; `pilot::admit_anchors`). Below it the batch is refused like a short
+sample, because a noisy `θ` proxy is read by the mixture as a latent class (`08` DIF-010).
+
 **Throughput** (a floor on usefulness, not correctness) follows `01` D10:
 `validatable_questions/month ≈ (nodes × answers_per_node_month) / answers_per_question`.
 With 10,000 nodes × 50 answers ÷ 1500 ≈ 333 questions/month. Halving the network halves
@@ -371,40 +383,60 @@ an author files only while `C_a` covers it, so a failed appeal costs the next on
 the evidence has restored the average. There is no additive gain — the reward for being
 right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
 
-### C.2 Evaluator score `E_u`
+### C.2 Evaluator score `S_u` and review weight `w_u`
 
-> **Superseded by D33 and D35 (T50, T52).** The ratio-form BSS below is not a proper
-> scoring rule (paper Prop. 12). It will be replaced by the leave-one-out difference
-> score `S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²`, with weights
-> `exp(γ · S_u · k_u/(k_u + 100))`, `γ ≈ 35`, scored on golden items, on live items that
-> reach Level B, and on a random 5% of gate rejections sent to the pilot (weighted 1/0.05).
+> **Revised by D33 (T50, done) and D35 (T52).** The ratio-form Brier skill score of the
+> first design is not a proper scoring rule (paper Prop. 12): it paid a dissenter to move
+> toward the crowd. Since T50 the score is the leave-one-out difference score below and
+> the weight lives on the odds scale. D35 (T52) will add the live outcomes and the
+> randomized exploration that make the scored items more than the golden ones.
 
 The reviewer does not give a binary judgment: they **declare a probability** `p_uj`
-that the item passes Level B empirical validation. It is scored with a **proper
-scoring rule**, which makes honesty the optimal strategy.
-
-Logarithmic score (very harsh punishment for confident wrongness):
-
-```
-S_uj = o_j · ln(p_uj) + (1 − o_j) · ln(1 − p_uj)      o_j ∈ {0,1} real outcome
-```
-
-Normalization against the crowd baseline `p̄_j` (Brier Skill Score):
+that the item passes Level B empirical validation. On every scored item — a golden item
+(`05` §Golden items) or, after T52, a live item whose outcome `o_j ∈ {0,1}` is known —
+the forecast is scored with a **strictly proper** rule, which makes honesty the optimal
+strategy whatever the crowd says:
 
 ```
-              Σ_j (p_uj − o_j)²
-BSS_u = 1 − ──────────────────────
-              Σ_j (p̄_j − o_j)²
+S_uj = (p̄_{−u,j} − o_j)² − (p_uj − o_j)²      p̄_{−u,j} = Σ_{v≠u} w_v p_vj / Σ_{v≠u} w_v
 ```
 
-**Fundamental property.** Someone who replicates the consensus gets `BSS ≈ 0`. You
+`p̄_{−u,j}` is the weight-adjusted mean forecast of the *other* panelists (`01` D23's
+crowd baseline minus the reviewer scored). The score is the reviewer's Brier improvement
+over the crowd: positive when they are right where the crowd is wrong, exactly 0 for a
+reviewer who reports the crowd's forecast, negative for noise or block voting. Its
+expectation is maximized by the true belief, by exactly `Σ_j (p_uj − q_uj)²` over any
+other report (`08` AT-REP-05).
+
+**Fundamental property.** Someone who replicates the consensus gets `S_u = 0`. You
 gain reputation only by being right **when the crowd is wrong**. This is the incentive
-needed against majority capture. In testing: "follows the peer average" → BSS −1.33
-(worse than the baseline); "psychometric expert" → BSS +0.95.
+needed against majority capture.
 
-Final normalization: `E_u = σ(γ · BSS_u)`, logistic, `E_u ∈ (0,1)`.
+`S_u` is the mean of `S_uj` over the reviewer's `k_u` scored items — the symmetric
+long-window mean of `01` D34 (the change detector on the per-item scores is T51).
 
-**Use.** `E_u` weights the review vote: `w_u = min(w_max, E_u)`.
+**Use.** `S_u` weights the review vote, on the odds scale and shrunk by the number of
+scored items:
+
+```
+w_u = exp( γ · S_u · k_u / (k_u + k₀) )       γ ≈ 35,  k₀ ≈ 100   (provisional, T25)
+w_u ← min(w_max, w_u),   w_max = 3 × median(w)  over the reviewers who carry weight
+```
+
+A crowd-level reviewer weighs 1; one reliably 0.02 better than the crowd weighs about
+double; the cap binds on an outlier (it never did on a score in `(0,1)`, `08` G-12).
+Shrinkage stops luck from buying weight: with 16 scored items one standard error of luck
+(0.025) is worth ×2.4 without it and ×1.13 with it. A new pseudonym has weight 0 until
+30 scored outcomes (`01` D36, `03` P2), then the shrinkage takes over.
+
+*History.* Until T50 the score was the Brier skill score against the crowd's mean
+forecast, `BSS_u = 1 − Σ_j (p_uj − o_j)² / Σ_j (p̄_j − o_j)²`, squashed by
+`E_u = σ(γ·BSS_u)` and used as `w_u = min(w_max, E_u)`. A ratio of two sums is not an
+expectation of a score: with one item the optimal report satisfies
+`logit p* = logit q + 2 logit b` (paper Prop. 12) — a reviewer who believes 0.30 while
+the crowd says 0.65 was best off reporting 0.60. The fixture oracle `levelc_bss.csv`
+still reproduces that function (`08` REPUTATION-002); on it the difference score tells
+the same story (the expert beats the crowd, the followers do not) and stays proper.
 
 ### C.3 Judgments without verifiable truth
 
@@ -426,17 +458,37 @@ own judgment, (b) the expected distribution of the others. The **surprisingly co
 answer is rewarded — more frequent than the group predicted. It extracts information
 from the informed minority.
 
-### C.4 Temporal asymmetry and cap
+### C.4 Temporal dynamics and cap
 
-> **Superseded by D33, D34 and D36 (T50, T51).** The asymmetric update rewards copying the
-> crowd (paper §5.5), and the cap never binds on `E_u ∈ (0,1)`. The weight will follow a
-> symmetric long-window mean with a CUSUM change detector (alarm → probation), the cap
-> will apply on the odds scale, and probation will last 30 scored outcomes instead of 200.
+> **Revised by D33, D34 and D36 (T50, T51 — done).** The cap applies on the odds scale,
+> where it binds, probation lasts 30 scored outcomes, and the asymmetric update of the
+> first design is replaced by the symmetric mean of §C.2 plus a change detector.
 
-- `E_u` rises slowly (average over a long window), falls quickly (immediate reaction
-  to failures). This makes the long-con attack unprofitable.
-- `w_max = 3 × median(w)`, a hard cap recomputed each epoch. Limits the damage of a
-  single event.
+- **Change detector (`01` D34).** The weight reads `S_u`, the mean of the reviewer's
+  per-item scores (`probation::SkillTrack`). Against that mean, a one-sided CUSUM on the
+  per-item scores watches for a sustained *drop* — a reviewer who has built a reputation
+  and starts spending it:
+
+  ```
+  s ← max(0, s + (S_u − S_uj) − k)        alarm when s > h;   k = 0.03, h = 1.5 (provisional, T25)
+  ```
+
+  It runs only once the reviewer is out of probation (a mean over few items is no
+  reference). On an alarm the reviewer returns to probation: the mean, the count and the
+  statistic restart, so the weight is 0 until 30 new scored outcomes and shrunk again
+  afterwards. It reacts to a change, not to variance: a cautious reviewer with noisy
+  scores around a good mean raises nothing. In the paper's simulation, `k = 0.03`,
+  `h = 1.5` give 0.07 false alarms per 1,000 scored items and catch a reviewer who starts
+  flipping 20% of forecasts after a median of 36 items (`08` AT-REP-07).
+- `w_max = 3 × median(w)`, a hard cap recomputed each epoch over the reviewers who
+  carry weight (founders at 1 and established reviewers at their odds weight, not
+  probationers at 0; `orchestrator::epoch_weight_cap`). Limits the damage of a single
+  event.
+
+*History.* Until T51 `E_u` rose slowly and fell fast (an asymmetric moving average),
+meant to make the long-con attack unprofitable. It penalized variance, not error: its
+stationary level sat far below the true mean, and a cautious reviewer who beat the crowd
+(true +0.009) was held at −0.061 while a crowd copier stayed at 0 (paper §5.5).
 
 ---
 

@@ -168,7 +168,7 @@ flowchart TD
 
 - **Author score `C_a`** — how good your proposed questions turn out to be;
   it only controls your **rate limit** on new proposals.
-- **Evaluator score `E_u`** — how good your reviews are; it **weights your review
+- **Evaluator score `S_u`** — how good your reviews are; it **weights your review
   vote**.
 
 They live on **different, unlinkable pseudonyms** and are never merged. The
@@ -316,9 +316,10 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 1. **Mathematics** — done so far: the two severe defects (a replayed deposit drained its
    author's quota, T64; one person could fill a Level B sample, T65), the engine's input
    validation (T62), the side-balanced bridge score (D32, T49), the appeal for
-   polarized band items (T59) and the appeal stake as a pseudo-observation inside the
-   author's average (D27, T61); next, the rest of the mechanism (D33–D41) and the band
-   re-decision with extra reviewers (T60), then the characterization of the thresholds.
+   polarized band items (T59), the appeal stake as a pseudo-observation inside the
+   author's average (D27, T61) and the anchor-reliability gate of the latent re-check
+   (D37, T53); next, the rest of the mechanism (D33–D41) and the band re-decision with
+   extra reviewers (T60), then the characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

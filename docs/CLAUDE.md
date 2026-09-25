@@ -56,8 +56,9 @@ them.
 
 The four crates exist; the work left is ordered in `10-roadmap.md`. Follow its phases in
 order — **mathematics** (T64, T65, T62, the side-balanced score T49, the appeal for
-band items T59 and the appeal stake T61 are done; now the rest of the mechanism,
-D33–D41, and the band re-decision with extra reviewers, T60), then
+band items T59, the appeal stake T61, the anchor-reliability gate T53, the proper
+evaluator score T50 and the change detector T51 are done; next the band re-decision
+with extra reviewers, T60, then the rest of the mechanism), then
 the **P2P network**, then **the rest** (protocol boundary, distributed identity,
 privacy, pilots) — and inside a phase, fix defects in existing code before adding
 features. Every task starts with a test that fails on the current code.

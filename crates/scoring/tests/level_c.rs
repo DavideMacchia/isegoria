@@ -2,8 +2,9 @@
 //! oracle of `sim/bridging_irt_dif.py`; the author score against the docs examples.
 
 use scoring::reputation::{
-    asymmetric_ema, author_score, base_rate_baseline, brier_skill_score, capped_weight,
-    crowd_baseline, dasgupta_ghosh, evaluator_score, proposal_rate, weight_cap, AuthorPrior,
+    author_score, base_rate_baseline, brier_skill_score, capped_weight, crowd_baseline,
+    dasgupta_ghosh, loo_scores, mean_score, odds_weight, proposal_rate, weight_cap, AuthorPrior,
+    Cusum, CusumParams, EvaluatorParams,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -56,39 +57,53 @@ fn evaluator_bss_reproduces_the_oracle() {
 
 #[test]
 fn following_the_crowd_does_not_pay() {
-    // Under the crowd baseline (docs/01 D23): the expert who tracks the outcomes beats
-    // the crowd; the crowd-followers do not.
+    // Under the leave-one-out difference score (docs/01 D33): the expert who tracks the
+    // outcomes beats the crowd; the crowd-followers do not.
     let o = read_vector("levelc_o.csv");
     let p = read_matrix("levelc_p.csv");
-    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
-    let bss = |k: usize| brier_skill_score(&p[k], &o, &baseline);
+    let scores = loo_scores(&p, &vec![1.0; p.len()], &o);
+    let s = |k: usize| mean_score(&scores[k]);
 
     // Profiles: 0 base-rate, 1 follows-peers, 2 follows-bridging, 3 expert, 4 partisan.
-    assert!(bss(3) > 0.0, "the expert should beat the crowd: {}", bss(3));
-    assert!(bss(3) > bss(1), "expert beats peer-following");
-    assert!(bss(3) > bss(2), "expert beats bridging-following");
+    assert!(s(3) > 0.0, "the expert should beat the crowd: {}", s(3));
+    assert!(s(3) > s(1), "expert beats peer-following");
+    assert!(s(3) > s(2), "expert beats bridging-following");
+    // The retired ratio-form skill score told the same story on this fixture; what it
+    // could not do is stay proper (paper Prop. 12, `evaluator_score.rs`).
+    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
+    assert!(brier_skill_score(&p[3], &o, &baseline) > 0.0);
 }
 
 #[test]
 fn at_rep_02_a_consensus_follower_scores_zero() {
-    // docs/08 AT-REP-02 / D23: a reviewer who just predicts the crowd baseline earns
-    // BSS = 0 (numerator = denominator), so E_u = σ(0) = 0.5 — not a reward.
+    // docs/08 AT-REP-02 / D33: a reviewer whose forecast is the other panelists' mean
+    // earns exactly 0 on every item, so their odds weight is exactly 1 — not a reward.
     let o = read_vector("levelc_o.csv");
-    let p = read_matrix("levelc_p.csv");
-    let baseline = crowd_baseline(&p, &vec![1.0; p.len()]);
-    let bss = brier_skill_score(&baseline, &o, &baseline);
-    assert!(bss.abs() < 1e-12, "consensus follower BSS = {bss}");
-    assert!((evaluator_score(bss, 2.0) - 0.5).abs() < 1e-9);
+    let mut p = read_matrix("levelc_p.csv");
+    let n = p.len();
+    let w = vec![1.0; n];
+    // Replace the partisan profile by a copier of the other four.
+    let others: Vec<f64> = (0..o.len())
+        .map(|j| (0..n - 1).map(|u| p[u][j]).sum::<f64>() / (n - 1) as f64)
+        .collect();
+    p[n - 1] = others;
+    let copier = &loo_scores(&p, &w, &o)[n - 1];
+    assert!(copier.iter().all(|&d| d == 0.0), "copier scores {copier:?}");
+    let s = mean_score(copier);
+    assert_eq!(s, 0.0);
+    assert_eq!(odds_weight(s, 400, &EvaluatorParams::default()), 1.0);
 }
 
 #[test]
-fn evaluator_score_is_bounded_and_monotone() {
-    let low = evaluator_score(-1.5, 2.0);
-    let mid = evaluator_score(0.0, 2.0);
-    let high = evaluator_score(0.95, 2.0);
-    assert!(low > 0.0 && high < 1.0);
-    assert!(low < mid && mid < high);
-    assert!((mid - 0.5).abs() < 1e-9);
+fn the_odds_weight_is_positive_and_monotone_in_the_skill() {
+    let p = EvaluatorParams::default();
+    let low = odds_weight(-0.05, 400, &p);
+    let mid = odds_weight(0.0, 400, &p);
+    let high = odds_weight(0.05, 400, &p);
+    assert!(low > 0.0 && low < mid && mid < high);
+    assert!((mid - 1.0).abs() < 1e-12);
+    // Nothing scored yet: weight 1 whatever the skill (D36: shrinkage after probation).
+    assert_eq!(odds_weight(0.5, 0, &p), 1.0);
 }
 
 #[test]
@@ -130,11 +145,24 @@ fn proposal_rate_scales_with_author_score() {
 }
 
 #[test]
-fn reputation_rises_slowly_and_falls_fast() {
-    let up = asymmetric_ema(0.5, 0.9, 0.1, 0.8);
-    let down = asymmetric_ema(0.5, 0.1, 0.1, 0.8);
-    assert!((up - 0.54).abs() < 1e-9, "slow rise: {up}");
-    assert!((down - 0.18).abs() < 1e-9, "fast fall: {down}");
+fn the_cusum_reacts_to_a_sustained_drop_not_to_variance() {
+    // D34: scores alternating ±0.3 around the reference never accumulate (each drop of
+    // 0.3 − k is undone by the rise), while a run of scores 0.1 below the reference
+    // crosses h = 1.5 after ⌈1.5 / (0.1 − 0.03)⌉ = 22 items.
+    let params = CusumParams::default();
+    let mut noisy = Cusum::new();
+    for i in 0..1000 {
+        let score = if i % 2 == 0 { 0.3 } else { -0.3 };
+        assert!(!noisy.observe(0.0, score, &params), "item {i}");
+    }
+    let mut dropped = Cusum::new();
+    let caught = (1..=100).find(|_| dropped.observe(0.0, -0.1, &params));
+    assert_eq!(caught, Some(22));
+    assert_eq!(
+        dropped.statistic(),
+        0.0,
+        "the statistic restarts after an alarm"
+    );
 }
 
 #[test]

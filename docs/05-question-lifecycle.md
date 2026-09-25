@@ -65,7 +65,7 @@ can propose as much as they want; each epoch a drawn subset enters the pipeline.
   is no verifiable receipt.
 
 The reviewer **declares a probability** that the item passes validation (not a
-yes/no): input for the evaluator score `E_u` (`02` C.2).
+yes/no): input for the evaluator score `S_u` (`02` C.2).
 
 ---
 
@@ -156,10 +156,10 @@ An item used a lot gets memorized and circulates: it loses value. Countermeasure
 A simple and powerful mechanism, **always active**, not only at startup. A fraction `η
 ≈ 5%` of the items in the review queue are of known quality (excellent or deliberately
 defective: ambiguous, factually wrong, with known DIF), indistinguishable from the
-rest. They give a **continuous, direct** measure of `E_u` without waiting for the
+rest. They give a **continuous, direct** measure of `S_u` without waiting for the
 empirical cycle, and immediately catch nodes voting at random or in blocks.
 
-**Meta-level defense.** Whoever controls the honeypots controls `E_u`. The golden
+**Meta-level defense.** Whoever controls the honeypots controls `S_u`. The golden
 items must be produced by a committee drawn by **sortition** (stratified on the
 position `f_u`, so it mirrors all positions) and rotated quickly. Sortition is the
 defense against meta-level capture: they must not be choosable by anyone.
@@ -170,9 +170,9 @@ defense against meta-level capture: they must not be choosable by anyone.
 
 - **A founder set** publicly declared, deliberately heterogeneous in orientation and
   provenance, all with identical weight `w = 1`.
-- No differential weight before `≥ 200` judgments with known outcome per node
-  (coincides with the probation period, `03` P2). **Revised by D36 (T50):** 30 scored
-  outcomes, then shrinkage of the evaluator score toward zero.
+- No differential weight before 30 scored outcomes per node (the probation period,
+  `03` P2; `01` D36, T50 — was 200), then the shrinkage of the odds weight toward 1 as
+  evidence accumulates (`02` §C.2).
 - Start from a **low-political-temperature domain** (e.g. verifiable administrative
   procedures) to calibrate `τ`, `λ`, `k`, `ε` on real data before tackling hot
   questions.

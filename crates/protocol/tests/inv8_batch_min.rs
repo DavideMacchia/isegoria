@@ -32,6 +32,20 @@ fn theta(n: usize) -> Vec<f64> {
     (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect()
 }
 
+/// `n` respondents' answers to 60 clean anchors, a Guttman pattern on evenly spaced
+/// difficulties: a reliable θ proxy (KR-20 ≈ 0.98, above `KR20_MIN`), as the latent
+/// re-check's anchor precondition requires (D37, T53).
+fn anchors(n: usize) -> Vec<Vec<f64>> {
+    (0..n)
+        .map(|i| {
+            let t = (i as f64 + 0.5) / n as f64;
+            (0..60)
+                .map(|j| f64::from(t > (j as f64 + 0.5) / 60.0))
+                .collect()
+        })
+        .collect()
+}
+
 /// `n` admitted respondents (T65): the floors count this set, not the rows. The gate that
 /// fills it from `Respond` proofs is tested in `proto013_respondent_gate.rs`.
 fn respondents(n: usize) -> NullifierSet {
@@ -49,14 +63,14 @@ fn respondents(n: usize) -> NullifierSet {
 #[test]
 fn at_pro_02_the_production_latent_recheck_refuses_one_item() {
     // Enough respondents, but a single item: the production DIF re-check must refuse it.
-    let t = theta(N_LATENT_MIN);
+    let a = anchors(N_LATENT_MIN);
     let people = respondents(N_LATENT_MIN);
     assert_eq!(
-        revalidate_batch_latent(&people, &t, &responses(N_LATENT_MIN, 1), 0),
+        revalidate_batch_latent(&people, &a, &responses(N_LATENT_MIN, 1), 0),
         Err(PilotError::BatchTooSmall { items: 1 })
     );
     // A batch of two is admissible.
-    assert!(revalidate_batch_latent(&people, &t, &responses(N_LATENT_MIN, 2), 0).is_ok());
+    assert!(revalidate_batch_latent(&people, &a, &responses(N_LATENT_MIN, 2), 0).is_ok());
 }
 
 #[cfg(feature = "calibration")]
@@ -97,7 +111,7 @@ fn a_stage_below_its_respondent_floor_is_rejected() {
     // The latent re-check needs the largest sample (§B.6): enough items, too few people.
     let n = N_LATENT_MIN - 1;
     assert_eq!(
-        revalidate_batch_latent(&respondents(n), &theta(n), &responses(n, 8), 0),
+        revalidate_batch_latent(&respondents(n), &anchors(n), &responses(n, 8), 0),
         Err(PilotError::NotEnoughRespondents {
             have: n,
             need: N_LATENT_MIN

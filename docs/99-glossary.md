@@ -350,14 +350,19 @@ when overconfidence is the vice to discourage.
 get rejected, someone who always says "it will be rejected" gets an excellent score
 without knowing anything.
 
-**Solution.** You normalize against a reference — here, the crowd's average prediction:
+**Solution.** You score against a reference — here, the average prediction of the
+*other* reviewers of the item (`01` D33):
 
 ```
-BSS = 1 − (your error / baseline error)
+S = (crowd error − your error)        per scored item, Brier errors
 ```
 
-- `BSS = 0` → you add nothing over following the majority
-- `BSS > 0` → you are right **when the crowd is wrong**
+- `S = 0` → you add nothing over following the others
+- `S > 0` → you are right **when the crowd is wrong**
+
+(The first design divided instead of subtracting — a Brier *skill* score, `1 − your
+error / baseline error`. A ratio of two sums is not proper: it paid a dissenter to move
+toward the crowd. The difference keeps the property and the honesty.)
 
 This is the property we need: in a system that must resist majority capture, the correct
 dissenter must be rewarded structurally, not out of the designer's goodwill. The concept

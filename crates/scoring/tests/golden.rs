@@ -89,6 +89,7 @@ fn current() -> Vec<String> {
         record(&mut rows, &format!("{tag}.pi"), &res.pi);
         record(&mut rows, &format!("{tag}.dif"), &res.dif);
         record(&mut rows, &format!("{tag}.a_gap"), &res.a_gap);
+        record(&mut rows, &format!("{tag}.differential"), &res.differential);
         record(&mut rows, &format!("{tag}.bic_gain"), &[res.bic_gain]);
         record(
             &mut rows,
