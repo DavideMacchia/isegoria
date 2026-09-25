@@ -13,7 +13,7 @@ it neutralizes).
       ↓
  [4] Review         k reviewers assigned AT RANDOM, blind, commit-reveal
       ↓
- [5] Bridging       S_j ≥ τ → passes;  S_j in band → supplementary review (re-decision)
+ [5] Bridging       S_j ≥ τ → passes;  S_j in band → k_extra more reviewers, re-decision
       ↓                 │
       │                 └──→ [5b] APPEAL TO EVIDENCE
       ↓                          if discarded for polarization (wide side gap), not for

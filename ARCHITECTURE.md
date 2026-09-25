@@ -160,7 +160,7 @@ steps are seeded for reproducibility.
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
-| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
+| `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60) | `admission`, `identity`, `network::cid` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch`, `admit_anchors` (KR-20 floor, D37/T53) (INV-8, T9) | `scoring::irt`, `scoring::dif` |
@@ -168,8 +168,8 @@ steps are seeded for reproducibility.
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `effective_review_weight` (the capped odds weight, D33), `SkillTrack` (the mean, the count and the CUSUM; an alarm → probation, D34), `FounderSet`, `N_PROBATION` (30, D36) | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `revalidate_batch_latent` (the gated entry: items, respondents, anchor reliability — T9/T65/T53), `items_to_retire` | `scoring::dif`, `scoring::irt`, `exposure` |
-| `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
-| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `epoch_weight_cap` (`3 × median` over the weights that count, D33), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
+| `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30); `SupplementaryReview` carries the extra round, `AssignExtraReviewers` then commit-reveal, `K_EXTRA_MAX` (T60) | `gate`, `review`, `exposure`, `identity::nym` |
+| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `epoch_weight_cap` (`3 × median` over the weights that count, D33), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `ExtraRound`, `extra_round`, `expanded_ratings` (the band's second round and the re-decision's ratings, T60), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -241,8 +241,9 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    (`gate::supplementary_review`, T10/T30): re-run the bridging fit and decide the
    side-balanced score against the plain threshold τ — a bridging decision over the
    latent axis, not a weighted vote — and a polarized item that fails it keeps the
-   appeal channel (D26 amendment, T59). It re-fits the first panel's ratings; the extra
-   reviewers of D26 are roadmap T60.
+   appeal channel (D26 amendment, T59). Since T60 the re-decision fits the first panel's
+   ratings plus a second round of reviewers drawn outside it (`Event::AssignExtraReviewers`,
+   `orchestrator::{extra_round, expanded_ratings}`).
    `supplementary_redecision.rs` pins the improvement: the partisan fixture items 08/09
    are **not** passed (the retired weighted-mean tie-break carried them), while a genuine
    near-threshold item is. The √k anti-collusion stays covered at the scoring layer
@@ -298,9 +299,9 @@ to make the pipeline testable end-to-end.
   drives each item through the `lifecycle` state machine (T12 — **done**). The borderline
   band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide the
   side-balanced score against the plain threshold, and keep the appeal open for a
-  polarized item that fails (`gate::supplementary_review`, T10/T30/T59 — **done** on the
-  first panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
-  tie-break. An appeal's stake is a pseudo-observation inside the author's average
+  polarized item that fails (`gate::supplementary_review`, T10/T30/T59 — **done**, over
+  the first panel's ratings plus the extra round of T60 — **done**), replacing the retired
+  weighted-mean tie-break. An appeal's stake is a pseudo-observation inside the author's average
   (`appeal::AuthorHistory`, D27, T61 — **done**): `run_item` derives the appeal's window
   and reputation checks from the verdicts, and `orchestrator::settle_appeal` replaces the
   escrowed zero with the item's measured quality on `ActivePool` and leaves it otherwise.

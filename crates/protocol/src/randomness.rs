@@ -14,7 +14,7 @@
 //! a signing threshold, or a last depositor who sees the log — can try variants and keep
 //! the seed they prefer. The beacon is not yet separated from the state commitment.
 //!
-//! Seeds are domain-separated per purpose and per index, so the four draws never share a
+//! Seeds are domain-separated per purpose and per index, so the draws never share a
 //! stream. The `_from_beacon` wrappers in `lottery`, `review`, `honeypot` and `governance`
 //! are the sanctioned entry points; the raw draws take a `u64` seed for unit testing.
 
@@ -55,8 +55,11 @@ impl Beacon {
     }
 }
 
-/// Domain tags for the four draws (INV-10), so their seed streams never coincide.
+/// Domain tags for the draws (INV-10), so their seed streams never coincide.
 pub const LOTTERY: &[u8] = b"lottery";
 pub const REVIEW_ASSIGNMENT: &[u8] = b"review-assignment";
+/// The band's extra panel (D26, T60): a stream of its own, so the extra reviewers of an
+/// item are not a function of its first panel's draw.
+pub const EXTRA_REVIEW: &[u8] = b"extra-review";
 pub const HONEYPOT: &[u8] = b"honeypot";
 pub const SORTITION: &[u8] = b"sortition";

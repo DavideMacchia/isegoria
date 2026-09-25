@@ -495,12 +495,58 @@ fn out_of_order_events_are_rejected() {
     );
 }
 
+/// The band's extra panel: four nyms outside the first panel.
+fn extra_panel() -> Vec<Nym> {
+    (20..24).map(nym).collect()
+}
+
+/// A band item whose extra round is complete: the extra panel assigned, every member
+/// committed and revealed (T60).
+fn band_ready() -> State {
+    let (prob, nonce) = (0.3, [5u8; 32]);
+    let mut s = step(
+        scored(GateOutcome::SupplementaryReview),
+        Event::AssignExtraReviewers {
+            panel: extra_panel(),
+        },
+    )
+    .unwrap();
+    for n in extra_panel() {
+        s = step(
+            s,
+            Event::Commit {
+                nym: n,
+                commitment: commit(prob, &nonce, n, item()),
+            },
+        )
+        .unwrap();
+    }
+    s = step(s, Event::CloseCommits).unwrap();
+    for n in extra_panel() {
+        s = step(
+            s,
+            Event::Reveal {
+                nym: n,
+                prob,
+                nonce,
+            },
+        )
+        .unwrap();
+    }
+    s
+}
+
 #[test]
 fn a_band_item_is_resolved_by_the_d26_re_decision() {
     // PROTO-008/PROTO-012 closed (T10/T30): the band has a forward transition — the D26
-    // re-decision (`Resolve`) either lifts it into the pilot or rejects it as borderline.
-    let s = scored(GateOutcome::SupplementaryReview);
-    assert_eq!(s, State::SupplementaryReview);
+    // re-decision (`Resolve`) either lifts it into the pilot or rejects it as borderline —
+    // taken once the extra round is complete (T60).
+    let s = band_ready();
+    assert!(matches!(
+        &s,
+        State::SupplementaryReview { extra_panel, reveals, commits_closed: true, .. }
+            if extra_panel.len() == 4 && reveals.len() == 4
+    ));
     // An out-of-order event is still rejected …
     assert_eq!(
         step(s.clone(), Event::Administer),
@@ -548,5 +594,144 @@ fn a_band_item_is_resolved_by_the_d26_re_decision() {
             }
         ),
         Err(Invalid::UnexpectedEvent)
+    );
+}
+
+/// The extra round's rules (D26, T60): the re-decision waits for a complete round of
+/// reviewers outside the first panel, under the first round's commit-reveal rules.
+#[test]
+fn the_band_re_decision_needs_a_complete_extra_round() {
+    let band = scored(GateOutcome::SupplementaryReview);
+    let resolve = |s: State| {
+        step(
+            s,
+            Event::Resolve {
+                outcome: GateOutcome::Pass,
+            },
+        )
+    };
+    // No extra reviewers yet: nothing to re-decide on.
+    assert_eq!(resolve(band.clone()), Err(Invalid::NoExtraPanel));
+    // Commits, closing and reveals wait for the assignment.
+    let c = commit(0.5, &[0u8; 32], nym(20), item());
+    assert_eq!(
+        step(
+            band.clone(),
+            Event::Commit {
+                nym: nym(20),
+                commitment: c
+            }
+        ),
+        Err(Invalid::UnexpectedEvent)
+    );
+    assert_eq!(
+        step(band.clone(), Event::CloseCommits),
+        Err(Invalid::UnexpectedEvent)
+    );
+    // The extra panel: one to eleven distinct reviewers, none from the first panel.
+    let assign = |s: State, panel: Vec<Nym>| step(s, Event::AssignExtraReviewers { panel });
+    assert_eq!(
+        assign(band.clone(), Vec::new()),
+        Err(Invalid::PanelSizeInvalid)
+    );
+    assert_eq!(
+        assign(band.clone(), (20..32).map(nym).collect()),
+        Err(Invalid::PanelSizeInvalid)
+    );
+    assert_eq!(
+        assign(band.clone(), vec![nym(20), nym(21), nym(20)]),
+        Err(Invalid::DuplicatePanelist)
+    );
+    assert_eq!(
+        assign(band.clone(), vec![nym(20), nym(1)]),
+        Err(Invalid::DuplicatePanelist)
+    );
+    let assigned = assign(band, extra_panel()).unwrap();
+    // Assigned once.
+    assert_eq!(
+        assign(assigned.clone(), vec![nym(30)]),
+        Err(Invalid::UnexpectedEvent)
+    );
+    // Before anyone revealed, the round is partial.
+    assert_eq!(resolve(assigned.clone()), Err(Invalid::PartialEpoch));
+    // Only the extra panel commits, once each; a reveal waits for the deadline.
+    assert_eq!(
+        step(
+            assigned.clone(),
+            Event::Commit {
+                nym: nym(1),
+                commitment: commit(0.5, &[0u8; 32], nym(1), item())
+            }
+        ),
+        Err(Invalid::NotInPanel)
+    );
+    let s = step(
+        assigned,
+        Event::Commit {
+            nym: nym(20),
+            commitment: c,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        step(
+            s.clone(),
+            Event::Commit {
+                nym: nym(20),
+                commitment: c
+            }
+        ),
+        Err(Invalid::AlreadyCommitted)
+    );
+    assert_eq!(
+        step(
+            s.clone(),
+            Event::Reveal {
+                nym: nym(20),
+                prob: 0.5,
+                nonce: [0u8; 32]
+            }
+        ),
+        Err(Invalid::UnexpectedEvent)
+    );
+    let s = step(s, Event::CloseCommits).unwrap();
+    // A reveal that does not open, or with no commit, is refused as in the first round.
+    assert_eq!(
+        step(
+            s.clone(),
+            Event::Reveal {
+                nym: nym(20),
+                prob: 0.6,
+                nonce: [0u8; 32]
+            }
+        ),
+        Err(Invalid::RevealMismatch)
+    );
+    assert_eq!(
+        step(
+            s.clone(),
+            Event::Reveal {
+                nym: nym(21),
+                prob: 0.5,
+                nonce: [0u8; 32]
+            }
+        ),
+        Err(Invalid::NoCommit)
+    );
+    // One of four revealed: still partial.
+    let s = step(
+        s,
+        Event::Reveal {
+            nym: nym(20),
+            prob: 0.5,
+            nonce: [0u8; 32],
+        },
+    )
+    .unwrap();
+    assert_eq!(resolve(s), Err(Invalid::PartialEpoch));
+    // The complete round resolves.
+    assert_eq!(
+        resolve(band_ready()).unwrap(),
+        State::Pilot1 { appealed: false }
     );
 }

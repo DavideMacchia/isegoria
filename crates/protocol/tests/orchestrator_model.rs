@@ -12,8 +12,8 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 use protocol::gate::GateOutcome;
-use protocol::lifecycle::{Invalid, RejectReason, State, K_MIN};
-use protocol::orchestrator::{review_round, run_item, ItemVerdicts, Judgment};
+use protocol::lifecycle::{Invalid, RejectReason, State, K_EXTRA_MAX, K_MIN};
+use protocol::orchestrator::{review_round, run_item, ExtraRound, ItemVerdicts, Judgment};
 use protocol::review::commit;
 use std::collections::HashSet;
 
@@ -62,11 +62,46 @@ fn model_review_round(
     })
 }
 
+/// The band's extra round as one decision (T60), as `model_review_round` for the first:
+/// one to eleven distinct reviewers outside the first panel; every judgment from one of
+/// them, once; an admissible probability; and, for the re-decision, all of them.
+fn model_extra_round(first: &HashSet<Nym>, x: &ExtraRound) -> Result<(), Invalid> {
+    let members: HashSet<Nym> = x.panel.iter().copied().collect();
+    if x.panel.is_empty() || x.panel.len() > K_EXTRA_MAX {
+        return Err(Invalid::PanelSizeInvalid);
+    }
+    if members.len() != x.panel.len() || x.panel.iter().any(|n| first.contains(n)) {
+        return Err(Invalid::DuplicatePanelist);
+    }
+    let mut judged = HashSet::new();
+    for j in &x.judgments {
+        if !members.contains(&j.nym) {
+            return Err(Invalid::NotInPanel);
+        }
+        if !judged.insert(j.nym) {
+            return Err(Invalid::AlreadyCommitted);
+        }
+    }
+    if x.judgments.iter().any(|j| !(0.0..=1.0).contains(&j.prob)) {
+        return Err(Invalid::ProbabilityOutOfRange);
+    }
+    if judged != members {
+        return Err(Invalid::PartialEpoch);
+    }
+    Ok(())
+}
+
 /// `run_item` as one decision: the round must be complete; the gate decides whether the
-/// item enters the pilot (a band item if the D26 re-decision passes, a polarized one —
-/// below the band or failing the re-decision as polarized (T59) — only on appeal); the
-/// pilot's respondent floor and batch minimum refuse, its verdicts reject.
-fn model_run_item(reviewed: &State, v: &ItemVerdicts) -> Result<State, Invalid> {
+/// item enters the pilot (a band item if the D26 re-decision — on a complete extra round
+/// outside the first panel, T60 — passes, a polarized one — below the band or failing the
+/// re-decision as polarized (T59) — only on appeal); the pilot's respondent floor and
+/// batch minimum refuse, its verdicts reject.
+fn model_run_item(
+    reviewed: &State,
+    v: &ItemVerdicts,
+    extra: Option<&ExtraRound>,
+    band_outcome: GateOutcome,
+) -> Result<State, Invalid> {
     let State::Revealing { panel, reveals, .. } = reviewed else {
         return Err(Invalid::UnexpectedEvent);
     };
@@ -75,13 +110,20 @@ fn model_run_item(reviewed: &State, v: &ItemVerdicts) -> Result<State, Invalid> 
     if revealed != panel {
         return Err(Invalid::PartialEpoch);
     }
-    // The band re-decision has three outcomes; a second band is not one of them.
+    // The band re-decision needs a complete extra round and has three outcomes; a second
+    // band is not one of them.
     let effective = match v.gate {
-        GateOutcome::SupplementaryReview => match v.band_outcome {
-            GateOutcome::SupplementaryReview => return Err(Invalid::UnexpectedEvent),
-            GateOutcome::Reject => return Ok(State::Rejected(RejectReason::Borderline)),
-            other => other,
-        },
+        GateOutcome::SupplementaryReview => {
+            let Some(x) = extra else {
+                return Err(Invalid::NoExtraPanel);
+            };
+            model_extra_round(&panel, x)?;
+            match band_outcome {
+                GateOutcome::SupplementaryReview => return Err(Invalid::UnexpectedEvent),
+                GateOutcome::Reject => return Ok(State::Rejected(RejectReason::Borderline)),
+                other => other,
+            }
+        }
         other => other,
     };
     let left_at_the_gate = match effective {
@@ -131,6 +173,11 @@ fn outsider(i: u8) -> Nym {
     Nym([100 + i % 100; 32])
 }
 
+/// A nym of the band's extra panel (T60): outside the universe of first panels.
+fn extra_nym(i: usize) -> Nym {
+    Nym([50 + (i % 40) as u8; 32])
+}
+
 /// The probabilities a judgment may carry: the first `IN_RANGE` are in `[0, 1]`.
 const PROBS: [f64; 10] = [
     0.5,
@@ -175,6 +222,62 @@ enum Extra {
     Again { at: u8, of: u8, prob: u8, nonce: u8 },
 }
 
+/// The band's extra round (T60): `size` nyms `extra_nym(offset..)`, a first-round
+/// panelist among them if `overlap`, a repeat if `dup`; `judges`, `probs` and `nonces`
+/// as for the first round; `outsiders` judgments from outside.
+#[derive(Clone, Debug)]
+struct ExtraSpec {
+    size: usize,
+    offset: u8,
+    overlap: bool,
+    dup: Option<(u8, u8)>,
+    judges: Option<u8>,
+    outsiders: Vec<u8>,
+    /// `Some(a)`: judgment `a` is submitted a second time.
+    again: Option<u8>,
+    probs: Vec<u8>,
+    nonces: Vec<u8>,
+}
+
+impl ExtraSpec {
+    fn round(&self, first: &[Nym]) -> ExtraRound {
+        let mut panel: Vec<Nym> = (0..self.size)
+            .map(|i| extra_nym(self.offset as usize + i))
+            .collect();
+        if let (Some((from, to)), true) = (self.dup, self.size > 1) {
+            panel[to as usize % self.size] = panel[from as usize % self.size];
+        }
+        if let (true, Some(&member), true) = (self.overlap, first.first(), self.size > 0) {
+            panel[0] = member;
+        }
+        let mut judges: Vec<Nym> = panel.clone();
+        if let Some(t) = self.judges {
+            judges.truncate(t as usize % (panel.len() + 1));
+        }
+        let mut judgments: Vec<Judgment> = judges
+            .iter()
+            .enumerate()
+            .map(|(i, &nym)| Judgment {
+                nym,
+                prob: prob(self.probs[i % self.probs.len()]),
+                nonce: nonce(self.nonces[i % self.nonces.len()]),
+            })
+            .collect();
+        for &who in &self.outsiders {
+            judgments.push(Judgment {
+                nym: outsider(who),
+                prob: 0.5,
+                nonce: nonce(0),
+            });
+        }
+        if let (Some(a), false) = (self.again, judgments.is_empty()) {
+            let again = judgments[a as usize % judgments.len()];
+            judgments.push(again);
+        }
+        ExtraRound { panel, judgments }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Round {
     start: Start,
@@ -191,6 +294,10 @@ struct Round {
     probs: Vec<u8>,
     nonces: Vec<u8>,
     verdicts: ItemVerdicts,
+    /// The band's extra round, if the item is scored to the band (T60).
+    extra: Option<ExtraSpec>,
+    /// What the re-decision says on a complete extra round.
+    band_outcome: GateOutcome,
 }
 
 impl Round {
@@ -305,15 +412,7 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
             GateOutcome::AppealEligible,
             GateOutcome::Reject,
         ]),
-        (
-            any::<bool>(),
-            prop::sample::select(vec![
-                GateOutcome::Pass,
-                GateOutcome::AppealEligible,
-                GateOutcome::Reject,
-                GateOutcome::SupplementaryReview,
-            ]),
-        ),
+        any::<bool>(),
         (prop::bool::weighted(0.8), prop::bool::weighted(0.8)),
         prop::bool::weighted(0.85),
         prop::bool::weighted(0.75),
@@ -321,25 +420,46 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
         prop_oneof![1 => 0..K_MIN, 5 => K_MIN..K_MIN + 10],
     )
         .prop_map(
-            |(
-                gate,
-                (appealed, band_outcome),
-                (within_window, covers),
-                enough,
-                screen,
-                dif,
-                batch,
-            )| ItemVerdicts {
+            |(gate, appealed, (within_window, covers), enough, screen, dif, batch)| ItemVerdicts {
                 gate,
                 appealed,
                 appeal_within_window: within_window,
                 author_reputation: if covers { 0.6 } else { 0.3 },
                 appeal_floor: 0.4,
-                band_outcome,
                 enough_respondents: enough,
                 screen_passed: screen,
                 dif_passed: dif,
                 pilot2_batch_size: batch,
+            },
+        )
+}
+
+/// The extra round's detours are drawn more often than the first round's: they matter
+/// only in the rounds that reach the band, a quarter of the complete ones.
+fn extra_spec() -> impl Strategy<Value = ExtraSpec> {
+    let prob = prop_oneof![10 => 0..IN_RANGE, 1 => any::<u8>()];
+    (
+        prop_oneof![6 => 1usize..=4, 1 => Just(0usize), 1 => 12usize..=13],
+        any::<u8>(),
+        prop::bool::weighted(0.15),
+        prop::option::weighted(0.15, any::<(u8, u8)>()),
+        prop::option::weighted(0.3, any::<u8>()),
+        prop_oneof![6 => Just(Vec::new()), 1 => prop::collection::vec(any::<u8>(), 1..=2)],
+        prop::option::weighted(0.1, any::<u8>()),
+        prop::collection::vec(prob, 1..=13),
+        prop::collection::vec(any::<u8>(), 1..=13),
+    )
+        .prop_map(
+            |(size, offset, overlap, dup, judges, outsiders, again, probs, nonces)| ExtraSpec {
+                size,
+                offset,
+                overlap,
+                dup,
+                judges,
+                outsiders,
+                again,
+                probs,
+                nonces,
             },
         )
 }
@@ -380,6 +500,15 @@ fn round() -> impl Strategy<Value = Round> {
         prop::collection::vec(prob, UNIVERSE),
         prop::collection::vec(any::<u8>(), UNIVERSE),
         verdicts(),
+        (
+            prop::option::weighted(0.85, extra_spec()),
+            prop::sample::select(vec![
+                GateOutcome::Pass,
+                GateOutcome::AppealEligible,
+                GateOutcome::Reject,
+                GateOutcome::SupplementaryReview,
+            ]),
+        ),
     )
         .prop_map(
             |(
@@ -394,6 +523,7 @@ fn round() -> impl Strategy<Value = Round> {
                 probs,
                 nonces,
                 verdicts,
+                (extra, band_outcome),
             )| {
                 Round {
                     start,
@@ -407,6 +537,8 @@ fn round() -> impl Strategy<Value = Round> {
                     probs,
                     nonces,
                     verdicts,
+                    extra,
+                    band_outcome,
                 }
             },
         )
@@ -428,13 +560,19 @@ fn outcome(r: &Result<State, Invalid>) -> String {
 fn check_round(r: &Round) -> Result<Vec<String>, TestCaseError> {
     let (start, item, panel) = (r.start_state(), r.item(), r.panel());
     let judgments = r.judgments(&panel);
+    let extra = r.extra.as_ref().map(|x| x.round(&panel));
     let expected = model_review_round(&start, item, &panel, &judgments);
     let got = review_round(start.clone(), item, panel, &judgments);
     prop_assert_eq!(&got, &expected);
     let mut seen = vec![format!("round: {}", outcome(&got))];
     for reviewed in got.iter().chain([&start]) {
-        let scored = run_item(reviewed.clone(), &r.verdicts);
-        prop_assert_eq!(&scored, &model_run_item(reviewed, &r.verdicts));
+        let scored = run_item(reviewed.clone(), &r.verdicts, extra.as_ref(), |_| {
+            r.band_outcome
+        });
+        prop_assert_eq!(
+            &scored,
+            &model_run_item(reviewed, &r.verdicts, extra.as_ref(), r.band_outcome)
+        );
         // Independently of the model: only a round every panelist revealed is scored.
         if scored.is_ok() {
             let complete = match reviewed {
@@ -461,13 +599,14 @@ proptest! {
 }
 
 /// The rounds are not vacuous: over a fixed sample, `review_round` meets every way a round
-/// can fail and succeed, and `run_item` reaches every end of the pipeline.
+/// can fail and succeed, and `run_item` reaches every end of the pipeline — including,
+/// through the band's extra round, every way that round can fail (T60).
 #[test]
 fn the_rounds_cover_every_outcome() {
     let mut runner = TestRunner::deterministic();
     let strategy = round();
     let mut seen = HashSet::new();
-    for _ in 0..512 {
+    for _ in 0..2048 {
         let r = strategy.new_tree(&mut runner).unwrap().current();
         seen.extend(check_round(&r).unwrap());
     }
@@ -488,6 +627,12 @@ fn the_rounds_cover_every_outcome() {
         "Rejected(Screen)",
         "Rejected(Dif)",
         "PartialEpoch",
+        "NoExtraPanel",
+        "PanelSizeInvalid",
+        "DuplicatePanelist",
+        "NotInPanel",
+        "AlreadyCommitted",
+        "ProbabilityOutOfRange",
         "NotEnoughRespondents",
         "BatchTooSmall",
         "UnexpectedEvent",

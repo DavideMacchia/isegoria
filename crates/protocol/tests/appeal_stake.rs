@@ -11,6 +11,11 @@ use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State};
 use protocol::orchestrator::{review_round, run_item, settle_appeal, ItemVerdicts, Judgment};
 use scoring::reputation::AuthorPrior;
 
+/// `run_item` for an item that is not in the band: no extra round, no re-decision.
+fn run(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
+    run_item(reviewed, v, None, |_| unreachable!("no band item here"))
+}
+
 fn prior() -> AuthorPrior {
     AuthorPrior::default()
 }
@@ -110,7 +115,6 @@ fn appealed() -> ItemVerdicts {
         appeal_within_window: true,
         author_reputation: 0.6,
         appeal_floor: 0.4,
-        band_outcome: GateOutcome::Reject,
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
@@ -120,12 +124,9 @@ fn appealed() -> ItemVerdicts {
 
 #[test]
 fn run_item_derives_the_appeal_checks_from_the_verdicts() {
+    assert_eq!(run(reviewed(), &appealed()).unwrap(), State::ActivePool);
     assert_eq!(
-        run_item(reviewed(), &appealed()).unwrap(),
-        State::ActivePool
-    );
-    assert_eq!(
-        run_item(
+        run(
             reviewed(),
             &ItemVerdicts {
                 appeal_within_window: false,
@@ -135,7 +136,7 @@ fn run_item_derives_the_appeal_checks_from_the_verdicts() {
         Err(Invalid::AppealWindowClosed)
     );
     assert_eq!(
-        run_item(
+        run(
             reviewed(),
             &ItemVerdicts {
                 author_reputation: 0.3,
@@ -146,7 +147,7 @@ fn run_item_derives_the_appeal_checks_from_the_verdicts() {
     );
     // Exactly at the floor covers the stake.
     assert_eq!(
-        run_item(
+        run(
             reviewed(),
             &ItemVerdicts {
                 author_reputation: 0.4,
@@ -166,7 +167,7 @@ fn the_terminal_state_settles_the_escrow() {
 
     // Promoted: the item reached the pool, its measured quality replaces the zero.
     let escrow = author.file_appeal(&prior()).unwrap();
-    let terminal = run_item(reviewed(), &appealed()).unwrap();
+    let terminal = run(reviewed(), &appealed()).unwrap();
     settle_appeal(&mut author, escrow, &terminal, 0.85);
     assert_eq!(author.qualities(), &[0.9, 0.85]);
     assert!(author.reputation(&prior()) > before);
@@ -176,7 +177,7 @@ fn the_terminal_state_settles_the_escrow() {
     author.record(0.9, 6.0);
     let before = author.reputation(&prior());
     let escrow = author.file_appeal(&prior()).unwrap();
-    let terminal = run_item(
+    let terminal = run(
         reviewed(),
         &ItemVerdicts {
             dif_passed: false,

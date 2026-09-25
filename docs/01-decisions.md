@@ -372,9 +372,19 @@ exactly where guessing matters. Resolves Q-6 / G-07.
 > is `Rejected(Borderline)`. Before, `Resolve { passed: false }` ended every failing band
 > item in a terminal reject, so a true-but-divisive item that happened to land in the band
 > lost the correction channel of `docs/05` [5b] that an item scored clearly below the band
-> keeps (third review, `docs/08` PROTO-004). The re-decision itself still re-fits the first
-> panel's ratings, so it relaxes the robust threshold instead of adding reviewers; the
-> extra round is roadmap T60.
+> keeps (third review, `docs/08` PROTO-004).
+>
+> **Extra round implemented (2026-09-25, T60):** a band item gets `k_extra` reviewers
+> drawn from the beacon outside its first panel (`review::assign_extra_from_beacon`,
+> `K_EXTRA = 4`, provisional), who commit and reveal on the same item under the first
+> round's rules (`Event::AssignExtraReviewers`, then `Commit`/`CloseCommits`/`Reveal` in
+> `SupplementaryReview`); `Event::Resolve` is refused until every extra panelist revealed
+> (`NoExtraPanel`, `PartialEpoch`), and the re-decision fits the first panel's ratings
+> *plus* the extra round's (`orchestrator::{extra_round, expanded_ratings}`,
+> `gate::supplementary_review`). Before, the re-decision re-fitted the first panel's
+> ratings alone, which relaxed the robust threshold instead of adding evidence
+> (`docs/08` PROTO-008). A band item nine reviewers approve just above `τ` is now
+> rejected when four extra reviewers disapprove (`supplementary_redecision.rs`).
 
 **Choice.** An item that lands in the uncertainty band at the bridging gate goes to an
 additional round of reviewers and is then re-decided against the plain threshold,

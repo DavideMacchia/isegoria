@@ -9,9 +9,11 @@
 //! opaque commitments, with out-of-range or NaN probabilities. Independently of the model,
 //! every walk is checked against the lifecycle invariants:
 //!
-//! - a `Score` succeeds only once every panelist has revealed;
+//! - a `Score` succeeds only once every panelist has revealed, and a `Resolve` only once
+//!   every extra panelist of the band's second round has (T60);
 //! - no nym commits twice or reveals twice, and only a committer reveals;
-//! - the panel is distinct, of odd size in `[7, 11]`;
+//! - the panel is distinct, of odd size in `[7, 11]`; the extra panel is distinct, of
+//!   size in `[1, 11]`, and outside the first panel;
 //! - a rejected event leaves the state as it was: the accepted events alone replay the walk;
 //! - `Rejected` and `Retired` are never left;
 //! - `ActivePool` is entered only from `Pilot2`, and `Pilot2` only from `Pilot1`.
@@ -23,7 +25,7 @@ use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 use protocol::exposure::RetirementReason;
 use protocol::gate::GateOutcome;
-use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State, K_MIN};
+use protocol::lifecycle::{deposit, step, Event, Invalid, RejectReason, State, K_EXTRA_MAX, K_MIN};
 use protocol::review::{commit, Commit};
 use std::collections::HashSet;
 
@@ -113,6 +115,32 @@ impl Round {
     }
 }
 
+/// The band as the model keeps it (T60): the first panel, and the extra round once it is
+/// assigned — its `Round` carries the extra panel — with its commit deadline.
+#[derive(Clone, Debug)]
+struct BandRound {
+    item: Cid,
+    first: Vec<Nym>,
+    extra: Option<Round>,
+    closed: bool,
+}
+
+impl BandRound {
+    fn extra_panel(&self) -> HashSet<Nym> {
+        self.extra
+            .as_ref()
+            .map(|r| r.panel.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
+    fn revealed(&self) -> HashSet<Nym> {
+        self.extra
+            .as_ref()
+            .map(|r| r.reveals.iter().map(|(n, _)| *n).collect())
+            .unwrap_or_default()
+    }
+}
+
 /// The model's phases, one per §9.1 state.
 #[derive(Clone, Debug)]
 enum Phase {
@@ -120,7 +148,7 @@ enum Phase {
     Admitted,
     Committing(Round),
     Revealing(Round),
-    Band,
+    Band(BandRound),
     Appealable,
     Pilot1 { appealed: bool },
     Pilot2 { appealed: bool },
@@ -216,21 +244,106 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             guard(&[(revealed != panel, PartialEpoch)])?;
             Ok(match outcome {
                 GateOutcome::Pass => Pilot1 { appealed: false },
-                GateOutcome::SupplementaryReview => Band,
+                GateOutcome::SupplementaryReview => Band(BandRound {
+                    item: r.item,
+                    first: r.panel.clone(),
+                    extra: None,
+                    closed: false,
+                }),
                 GateOutcome::AppealEligible => Appealable,
                 GateOutcome::Reject => Rejected(RejectReason::Defect),
             })
         }
 
-        // The D26 re-decision, amended by T59: pass → pilot; below the threshold, the
-        // below-band rule — polarized → appealable, defect → borderline reject; a second
-        // band is not an outcome.
-        (Band, Event::Resolve { outcome }) => match outcome {
-            GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
-            GateOutcome::AppealEligible => Ok(Appealable),
-            GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
-            GateOutcome::SupplementaryReview => Err(UnexpectedEvent),
-        },
+        // The band's extra round (D26, T60): assigned once, outside the first panel, one
+        // to eleven distinct reviewers; then the first round's commit-reveal rules.
+        (Band(b), Event::AssignExtraReviewers { panel }) => {
+            let distinct: HashSet<Nym> = panel.iter().copied().collect();
+            guard(&[
+                (b.extra.is_some(), UnexpectedEvent),
+                (
+                    panel.is_empty() || panel.len() > K_EXTRA_MAX,
+                    PanelSizeInvalid,
+                ),
+                (
+                    distinct.len() != panel.len() || panel.iter().any(|n| b.first.contains(n)),
+                    DuplicatePanelist,
+                ),
+            ])?;
+            let mut b = b.clone();
+            b.extra = Some(Round {
+                item: b.item,
+                panel: panel.clone(),
+                commits: Vec::new(),
+                reveals: Vec::new(),
+            });
+            Ok(Band(b))
+        }
+        (Band(b), Event::Commit { nym, commitment }) => {
+            let Some(r) = &b.extra else {
+                return Err(UnexpectedEvent);
+            };
+            guard(&[
+                (b.closed, UnexpectedEvent),
+                (!r.panel.contains(nym), NotInPanel),
+                (r.commitment_of(nym).is_some(), AlreadyCommitted),
+            ])?;
+            let mut b = b.clone();
+            b.extra
+                .as_mut()
+                .expect("assigned")
+                .commits
+                .push((*nym, *commitment, preimage));
+            Ok(Band(b))
+        }
+        (Band(b), Event::CloseCommits) => {
+            guard(&[(b.extra.is_none() || b.closed, UnexpectedEvent)])?;
+            let mut b = b.clone();
+            b.closed = true;
+            Ok(Band(b))
+        }
+        (Band(b), Event::Reveal { nym, prob, nonce }) => {
+            let Some(r) = &b.extra else {
+                return Err(UnexpectedEvent);
+            };
+            let stored = r.commitment_of(nym);
+            let opening = Preimage::Of {
+                prob_bits: prob.to_bits(),
+                nonce: *nonce,
+                committer: *nym,
+                item: r.item,
+            };
+            guard(&[
+                (!b.closed, UnexpectedEvent),
+                (stored.is_none(), NoCommit),
+                (r.has_revealed(nym), AlreadyRevealed),
+                (!(0.0..=1.0).contains(prob), ProbabilityOutOfRange),
+                (stored != Some(opening), RevealMismatch),
+            ])?;
+            let mut b = b.clone();
+            b.extra
+                .as_mut()
+                .expect("assigned")
+                .reveals
+                .push((*nym, *prob));
+            Ok(Band(b))
+        }
+
+        // The D26 re-decision, amended by T59, once the extra round is complete (T60):
+        // pass → pilot; below the threshold, the below-band rule — polarized →
+        // appealable, defect → borderline reject; a second band is not an outcome.
+        (Band(b), Event::Resolve { outcome }) => {
+            guard(&[
+                (b.extra.is_none(), NoExtraPanel),
+                (b.revealed() != b.extra_panel(), PartialEpoch),
+            ])?;
+            match outcome {
+                GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
+                GateOutcome::AppealEligible => Ok(Appealable),
+                GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
+                GateOutcome::SupplementaryReview => Err(UnexpectedEvent),
+            }
+        }
 
         (
             Appealable,
@@ -306,7 +419,17 @@ fn concrete(phase: &Phase) -> State {
             commits: commits(r),
             reveals: r.reveals.clone(),
         },
-        Phase::Band => State::SupplementaryReview,
+        Phase::Band(b) => State::SupplementaryReview {
+            item: b.item,
+            panel: b.first.clone(),
+            extra_panel: b.extra.as_ref().map_or_else(Vec::new, |r| r.panel.clone()),
+            commits: b.extra.as_ref().map_or_else(Vec::new, commits),
+            commits_closed: b.closed,
+            reveals: b
+                .extra
+                .as_ref()
+                .map_or_else(Vec::new, |r| r.reveals.clone()),
+        },
         Phase::Appealable => State::AppealEligible,
         Phase::Pilot1 { appealed } => State::Pilot1 {
             appealed: *appealed,
@@ -384,6 +507,14 @@ enum Op {
     CloseCommits,
     Reveal(Who, Disclosure),
     Score(GateOutcome),
+    /// The band's extra panel (T60): `size` nyms from `start`, drawn outside the first
+    /// panel when the phase is the band, else from the universe; `overlap` puts a
+    /// first-round panelist in it.
+    AssignExtra {
+        size: usize,
+        start: u8,
+        overlap: bool,
+    },
     Resolve(GateOutcome),
     Appeal {
         within_window: bool,
@@ -461,7 +592,7 @@ fn next_op(
             Op::Reveal(Who::Pending(pick), Disclosure::Opening)
         }
         Phase::Revealing(_) => Op::Score(outcome),
-        Phase::Band => Op::Resolve(outcome),
+        Phase::Band(b) => band_next(b, derail, stray, pick, outcome, honest),
         Phase::Appealable if stray => Op::Appeal {
             within_window: bit(0),
             covers_stake: !bit(0),
@@ -503,6 +634,69 @@ fn next_op(
     }
 }
 
+/// The event the band expects next (T60): the extra panel, then its commits, the close,
+/// its reveals, then the re-decision — or a detour: a bad or overlapping extra panel, an
+/// outsider's commit or reveal, an early re-decision.
+fn band_next(
+    b: &BandRound,
+    derail: bool,
+    stray: bool,
+    pick: u8,
+    outcome: GateOutcome,
+    honest: Seal,
+) -> Op {
+    let bit = |k: u8| (pick >> k) & 1 == 1;
+    let Some(r) = &b.extra else {
+        return if stray {
+            Op::AssignExtra {
+                size: pick as usize % 14,
+                start: pick,
+                overlap: bit(0),
+            }
+        } else {
+            Op::AssignExtra {
+                size: 1 + pick as usize % 4,
+                start: pick,
+                overlap: false,
+            }
+        };
+    };
+    if stray && bit(0) {
+        return Op::Resolve(outcome);
+    }
+    if !b.closed {
+        if derail {
+            return Op::CloseCommits;
+        }
+        if stray {
+            return Op::Commit(Who::Anyone(pick), honest);
+        }
+        return if r.commits.len() < r.panel.len() {
+            Op::Commit(Who::Pending(pick), honest)
+        } else {
+            Op::CloseCommits
+        };
+    }
+    if stray {
+        return Op::Reveal(
+            if bit(1) {
+                Who::Anyone(pick)
+            } else {
+                Who::Pending(pick)
+            },
+            Disclosure::Value {
+                prob: pick,
+                nonce: pick / 3,
+            },
+        );
+    }
+    if r.reveals.len() < r.commits.len() {
+        Op::Reveal(Who::Pending(pick), Disclosure::Opening)
+    } else {
+        Op::Resolve(outcome)
+    }
+}
+
 /// The nym `who` names in `phase`.
 fn actor(who: Who, phase: &Phase) -> Nym {
     let pick = |candidates: Vec<Nym>, i: u8| match candidates.len() {
@@ -527,6 +721,30 @@ fn actor(who: Who, phase: &Phase) -> Nym {
             i,
         ),
         (Who::Panelist(i), Phase::Committing(r) | Phase::Revealing(r)) => pick(r.panel.clone(), i),
+        // The band's extra round: pending among the extra panel (T60).
+        (Who::Pending(i), Phase::Band(b)) => match &b.extra {
+            Some(r) if !b.closed => pick(
+                r.panel
+                    .iter()
+                    .filter(|n| r.commitment_of(n).is_none())
+                    .copied()
+                    .collect(),
+                i,
+            ),
+            Some(r) => pick(
+                r.commits
+                    .iter()
+                    .map(|&(n, ..)| n)
+                    .filter(|n| !r.has_revealed(n))
+                    .collect(),
+                i,
+            ),
+            None => nym_at(i as usize),
+        },
+        (Who::Panelist(i), Phase::Band(b)) => pick(
+            b.extra.as_ref().map_or_else(Vec::new, |r| r.panel.clone()),
+            i,
+        ),
         (Who::Pending(i) | Who::Panelist(i) | Who::Anyone(i), _) => nym_at(i as usize),
     }
 }
@@ -548,9 +766,14 @@ fn sealed(p: u8, n: u8, committer: Nym, item: Cid) -> (Commit, Preimage) {
 fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
     let round = match phase {
         Phase::Committing(r) | Phase::Revealing(r) => Some(r),
+        Phase::Band(b) => b.extra.as_ref(),
         _ => None,
     };
-    let round_item = round.map_or(item(false), |r| r.item);
+    let round_item = match phase {
+        Phase::Committing(r) | Phase::Revealing(r) => r.item,
+        Phase::Band(b) => b.item,
+        _ => item(false),
+    };
     let plain = |event| (event, Preimage::Opaque);
     match *op {
         Op::Next(knob) => plan(&next_op(knob, phase), phase),
@@ -601,6 +824,27 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
             plain(Event::Reveal { nym, prob, nonce })
         }
         Op::Score(outcome) => plain(Event::Score { outcome }),
+        Op::AssignExtra {
+            size,
+            start,
+            overlap,
+        } => {
+            let first: Vec<Nym> = match phase {
+                Phase::Band(b) => b.first.clone(),
+                _ => Vec::new(),
+            };
+            let pool: Vec<Nym> = (0..UNIVERSE)
+                .map(nym_at)
+                .filter(|n| !first.contains(n))
+                .collect();
+            let mut panel: Vec<Nym> = (0..size)
+                .map(|i| pool[(start as usize + i) % pool.len().max(1)])
+                .collect();
+            if let (true, Some(&member), true) = (overlap, first.first(), size > 0) {
+                panel[0] = member;
+            }
+            plain(Event::AssignExtraReviewers { panel })
+        }
         Op::Resolve(outcome) => plain(Event::Resolve { outcome }),
         Op::Appeal {
             within_window,
@@ -669,6 +913,13 @@ fn arbitrary_op() -> impl Strategy<Value = Op> {
         Just(Op::CloseCommits),
         (who(), disclosure()).prop_map(|(w, d)| Op::Reveal(w, d)),
         prop::sample::select(OUTCOMES.to_vec()).prop_map(Op::Score),
+        (0usize..=13, any::<u8>(), any::<bool>()).prop_map(|(size, start, overlap)| {
+            Op::AssignExtra {
+                size,
+                start,
+                overlap,
+            }
+        }),
         prop::sample::select(OUTCOMES.to_vec()).prop_map(Op::Resolve),
         any::<(bool, bool)>().prop_map(|(within_window, covers_stake)| Op::Appeal {
             within_window,
@@ -699,17 +950,33 @@ fn walk() -> impl Strategy<Value = ([bool; 4], Vec<Op>)> {
 
 // ------------------------------------------ the checks ------------------------------------------
 
-/// The round invariants, on every state a walk reaches.
+/// The round invariants, on every state a walk reaches: the first round's, and the
+/// band's extra round's (T60) — an extra panel of one to eleven distinct nyms outside
+/// the first panel, whose commits and reveals follow the same rules.
 fn well_formed(s: &State) -> Result<(), TestCaseError> {
     let none: Vec<(Nym, f64)> = Vec::new();
-    let (panel, commits, reveals) = match s {
-        State::InReview { panel, commits, .. } => (panel, commits, &none),
+    let no_commits: Vec<(Nym, Commit)> = Vec::new();
+    let (panel, commits, reveals, extra) = match s {
+        State::InReview { panel, commits, .. } => (panel, commits, &none, None),
         State::Revealing {
             panel,
             commits,
             reveals,
             ..
-        } => (panel, commits, reveals),
+        } => (panel, commits, reveals, None),
+        State::SupplementaryReview {
+            panel,
+            extra_panel,
+            commits,
+            commits_closed,
+            reveals,
+            ..
+        } => (
+            panel,
+            &no_commits,
+            &none,
+            Some((extra_panel, commits, *commits_closed, reveals)),
+        ),
         _ => return Ok(()),
     };
     let panelists: HashSet<Nym> = panel.iter().copied().collect();
@@ -719,13 +986,39 @@ fn well_formed(s: &State) -> Result<(), TestCaseError> {
         panel.len()
     );
     prop_assert_eq!(panelists.len(), panel.len(), "a repeated panelist");
-    let committers: HashSet<Nym> = commits.iter().map(|(n, _)| *n).collect();
-    prop_assert_eq!(committers.len(), commits.len(), "a nym committed twice");
-    prop_assert!(committers.is_subset(&panelists), "a commit from outside");
-    let revealers: HashSet<Nym> = reveals.iter().map(|(n, _)| *n).collect();
-    prop_assert_eq!(revealers.len(), reveals.len(), "a nym revealed twice");
-    prop_assert!(revealers.is_subset(&committers), "a reveal with no commit");
-    prop_assert!(reveals.iter().all(|(_, p)| (0.0..=1.0).contains(p)));
+    let round = |members: &HashSet<Nym>,
+                 commits: &Vec<(Nym, Commit)>,
+                 reveals: &Vec<(Nym, f64)>|
+     -> Result<(), TestCaseError> {
+        let committers: HashSet<Nym> = commits.iter().map(|(n, _)| *n).collect();
+        prop_assert_eq!(committers.len(), commits.len(), "a nym committed twice");
+        prop_assert!(committers.is_subset(members), "a commit from outside");
+        let revealers: HashSet<Nym> = reveals.iter().map(|(n, _)| *n).collect();
+        prop_assert_eq!(revealers.len(), reveals.len(), "a nym revealed twice");
+        prop_assert!(revealers.is_subset(&committers), "a reveal with no commit");
+        prop_assert!(reveals.iter().all(|(_, p)| (0.0..=1.0).contains(p)));
+        Ok(())
+    };
+    round(&panelists, commits, reveals)?;
+    if let Some((extra_panel, commits, closed, reveals)) = extra {
+        let extra: HashSet<Nym> = extra_panel.iter().copied().collect();
+        if extra_panel.is_empty() {
+            prop_assert!(commits.is_empty() && reveals.is_empty() && !closed);
+        } else {
+            prop_assert!(
+                extra_panel.len() <= K_EXTRA_MAX,
+                "extra panel of {}",
+                extra_panel.len()
+            );
+            prop_assert_eq!(extra.len(), extra_panel.len(), "a repeated extra panelist");
+            prop_assert!(
+                extra.is_disjoint(&panelists),
+                "an extra panelist from the first panel"
+            );
+            prop_assert!(closed || reveals.is_empty(), "a reveal before the deadline");
+        }
+        round(&extra, commits, reveals)?;
+    }
     Ok(())
 }
 
@@ -752,6 +1045,25 @@ fn legal_transition(
         };
         prop_assert!(everyone, "scored before every panelist revealed");
     }
+    if let (Event::Resolve { .. }, Ok(_)) = (event, got) {
+        let everyone = match before {
+            State::SupplementaryReview {
+                extra_panel,
+                reveals,
+                ..
+            } => {
+                !extra_panel.is_empty()
+                    && extra_panel
+                        .iter()
+                        .all(|p| reveals.iter().any(|(n, _)| n == p))
+            }
+            _ => false,
+        };
+        prop_assert!(
+            everyone,
+            "re-decided before every extra panelist revealed (T60)"
+        );
+    }
     match got {
         Ok(State::ActivePool) if *before != State::ActivePool => {
             let from_pilot2 = matches!(before, State::Pilot2 { .. });
@@ -775,6 +1087,7 @@ fn label(s: &State) -> String {
     match s {
         State::InReview { .. } => "InReview".into(),
         State::Revealing { .. } => "Revealing".into(),
+        State::SupplementaryReview { .. } => "SupplementaryReview".into(),
         other => format!("{other:?}"),
     }
 }
@@ -893,6 +1206,7 @@ fn the_walks_cover_every_state_and_every_rejection() {
         "RevealMismatch",
         "ProbabilityOutOfRange",
         "PartialEpoch",
+        "NoExtraPanel",
         "AppealWindowClosed",
         "InsufficientReputation",
         "NotEnoughRespondents",

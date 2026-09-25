@@ -37,6 +37,33 @@ pub fn assign_from_beacon(
     )
 }
 
+/// Extra reviewers of the band's second round (`docs/01` D26, T60): drawn from the
+/// beacon like the first panel, stratified on `f_u`, and never from the first panel —
+/// the re-decision must add evidence, not re-weigh the same. Provisional size
+/// [`K_EXTRA`] (T25); `slot` is the item's admitted slot, as for the first panel.
+pub fn assign_extra_from_beacon(
+    reviewers: &[Reviewer],
+    first_panel: &[Nym],
+    k_extra: usize,
+    beacon: &crate::randomness::Beacon,
+    slot: u64,
+) -> Vec<Reviewer> {
+    let outside: Vec<Reviewer> = reviewers
+        .iter()
+        .filter(|r| !first_panel.contains(&r.nym))
+        .copied()
+        .collect();
+    assign_reviewers(
+        &outside,
+        k_extra,
+        beacon.seed(crate::randomness::EXTRA_REVIEW, slot),
+    )
+}
+
+/// The provisional size of the band's extra panel (D26, T60): four more reviewers — a
+/// panel of nine grows by almost half — to be calibrated with the band width (T25).
+pub const K_EXTRA: usize = 4;
+
 /// Picks `k` reviewers stratified across f_u: sort by position, split into `k`
 /// strata, draw one per stratum. Deterministic per `(item_seed)`.
 pub fn assign_reviewers(reviewers: &[Reviewer], k: usize, item_seed: u64) -> Vec<Reviewer> {
