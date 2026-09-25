@@ -159,7 +159,7 @@ any pool item.
 A fact whose DIF has gone returns to the active pool; one still showing DIF stays,
 measured on the new fit — which gives contested facts from different batches one set of
 classes, where they can balance each other; one whose source no longer passes the check
-(the act was amended or repealed) retires.
+(the act was amended) retires, as does one made obsolete (the act was repealed, [9]).
 
 **Scores.** A contested fact is admitted to the bank: the reviewers who judged it are
 scored as for an item that reaches the pool (`o_j = 1`, `01` D35), and an appeal that

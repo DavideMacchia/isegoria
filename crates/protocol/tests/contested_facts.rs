@@ -354,11 +354,13 @@ fn the_pool_refuses_malformed_records_and_selections() {
     assert!(pool.is_empty());
     pool.record(curves, &[(fact("p"), 0), (fact("q"), 1)])
         .unwrap();
+    assert!(!pool.is_empty() && pool.contains(&fact("p")) && !pool.contains(&fact("r")));
     assert_eq!(pool.dtf(&[fact("p"), fact("p")]), None);
     assert_eq!(pool.dtf(&[fact("r")]), None);
     assert!(pool.remove(&fact("p")) && !pool.remove(&fact("p")));
-    assert!(pool.contains(&fact("q")) && pool.len() == 1);
+    assert!(!pool.contains(&fact("p")) && pool.contains(&fact("q")) && pool.len() == 1);
     assert_eq!(pool.draw(0, DTF_MAX, 0), Ok(Vec::new()));
+    assert!(pool.remove(&fact("q")) && pool.is_empty());
 }
 
 /// The contested pool on batches fitted by the target model (paper scale, `calibration`).

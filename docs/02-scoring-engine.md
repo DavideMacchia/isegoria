@@ -338,7 +338,8 @@ interpretation of the source — something a reader must judge rather than a fun
 compute — fails step 4, and the item is rejected on DIF as before. Step 4 limits the
 contested pool to data-bound facts (dates, figures, votes, the text of a provision),
 which the taxonomy above already favours. The check runs only on flagged items, at the
-pilot and at each re-validation (an act amended or repealed since fails step 3). The
+pilot and at each re-validation (an act amended since no longer holds the cited passage
+and fails step 3; a repealed one makes the item obsolete, `05` [9]). The
 protocol takes its verdict as an input (`source_verified` in `lifecycle::Event`); the
 check itself in code — the citation type, the registry list, the template's key rule — is
 Phase 3 work (`10` T68).

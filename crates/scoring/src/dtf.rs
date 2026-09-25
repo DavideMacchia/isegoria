@@ -135,7 +135,7 @@ impl ClassCurves {
         }
         let mut worst = 0.0_f64;
         for g in 0..self.classes {
-            for h in g + 1..self.classes {
+            for h in 0..g {
                 let total: f64 = self
                     .weights
                     .iter()
