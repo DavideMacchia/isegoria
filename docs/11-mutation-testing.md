@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector). |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up). |
 
 ## Why this was needed
 
@@ -149,6 +149,38 @@ the gap over three or more classes, which needed data where the BIC really selec
 |---|---|
 | `dif.rs:283` `lo > 0` → `>=` | At `lo = 0` both branches give `softplus = ln 2`, `σ = ½`. |
 | `dif.rs:410` `fit.0 < f` → `<=`; `dif.rs:420` `b < best` → `<=` | Exact ties of two fitted likelihoods or BICs. |
+
+## Run 6 — the T55 contested-facts pool
+
+`cargo mutants --in-diff` on the T55 diff, file by file with the suites that exercise
+each (the `mutants` profile, `calibration` on, `--cargo-test-arg=--test=…`):
+`scoring/src/dtf.rs` with `dtf.rs` and `golden.rs`; `protocol/src/revalidation.rs` with
+`latent_revalidation.rs`, `anchor_reliability.rs`, `inv8_batch_min.rs` and
+`proto013_respondent_gate.rs`; every other changed line of `protocol` with
+`contested_facts.rs` (the fitted scenario skipped), the lifecycle and orchestrator suites
+and their reference models, `appeal_stake.rs`, `exploration.rs` and `exact_outcomes.rs`.
+115 mutants: 101 caught, 9 unviable, 5 missed. Two were real and are killed: `is_empty`
+and `contains` of `ContestedPool` were only ever asserted true (the malformed-records test
+now checks both answers). One was equivalent and is gone: `dtf.rs` iterated the pairs of
+classes as `h in g + 1..`, and `g * 1` only added the pair `(g, g)`, whose DTF is 0; the
+loop is now `h in 0..g` — the same unordered pairs, the same bits (the golden rows did not
+move) — and the re-run of `dtf.rs` has no survivor (30 mutants, 29 caught, 1 unviable).
+The other two are equivalent:
+
+| Mutant(s) | Why it is equivalent |
+|---|---|
+| `contested.rs:207` `members.len() < n` → `<=` in `candidates` | Also enumerates subsets of `n + 1` facts, which neither the table nor the draw ever reads: both take only subsets of at most `left ≤ n` members. |
+| `contested.rs:208` `k + 1` → `k * 1` in `candidates` | Also enumerates sequences that repeat a member; `ClassCurves::dtf` refuses a repeated index, so they are dropped, and the valid subsets come out in the same order. |
+
+## Run 7 — the T55 follow-up: the pool's canonical order
+
+`cargo mutants --in-diff` on the follow-up's diff of `protocol/src/contested.rs` (the
+`mutants` profile, `calibration` on, `--cargo-test-arg=--test=contested_facts`, the fitted
+scenario skipped): 4 mutants — `record` to `Ok(())`, `remove` to `true` and to `false`,
+`canonicalize` to `()` — 4 caught, none missed, none unviable. The last is the one the
+follow-up adds, killed by the history test of `contested_facts.rs` (`docs/08` AT-PRO-08):
+without the canonical order the same fits recorded last to first draw another test on 46
+of 50 seeds (another set on 43).
 
 ## Keeping it this way
 

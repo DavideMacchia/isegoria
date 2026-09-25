@@ -40,5 +40,6 @@ pub const LOTTERY: &[u8] = b"lottery";
 pub const REVIEW_ASSIGNMENT: &[u8] = b"review-assignment";
 pub const EXTRA_REVIEW: &[u8] = b"extra-review";
 pub const EXPLORATION: &[u8] = b"exploration";
+pub const CONTESTED: &[u8] = b"contested";
 pub const HONEYPOT: &[u8] = b"honeypot";
 pub const SORTITION: &[u8] = b"sortition";

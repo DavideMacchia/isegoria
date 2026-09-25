@@ -1,6 +1,6 @@
 //! Item lifecycle state machine (`docs/08` §9.1, `docs/05`): rejects every invalid
 //! transition (PC-1). Preconditions from other tasks (identity nullifier T6, quota
-//! proof T11, checkpoint seed T8) enter as explicit `bool` inputs.
+//! proof T11, checkpoint seed T8, source check T68) enter as explicit `bool` inputs.
 
 use crate::exposure::RetirementReason;
 use crate::gate::GateOutcome;
@@ -16,7 +16,7 @@ pub enum RejectReason {
     Polarized,
     /// Failed the pilot's discrimination screen (stage 1).
     Screen,
-    /// Failed the DIF check (stage 2).
+    /// Failed the DIF check (stage 2), the source check not establishing the key (D38).
     Dif,
     /// D26 supplementary re-decision did not lift `b_j` over the threshold.
     Borderline,
@@ -70,6 +70,8 @@ pub enum State {
         appealed: bool,
     },
     ActivePool,
+    /// In the contested-facts pool (D38): DIF, with a key its primary source establishes.
+    Contested,
     Rejected(RejectReason),
     /// A gate rejection drawn for exploration (D35), piloted for measurement only until
     /// `screened` once stage 1 passes.
@@ -184,14 +186,22 @@ pub enum Event {
         enough_respondents: bool,
         passed: bool,
     },
-    /// Pilot stage 2 batch of `batch_size` items; `passed` = DIF (Variant 2).
-    Pilot2Batch { batch_size: usize, passed: bool },
+    /// Pilot stage 2 batch of `batch_size` items; `passed` = DIF (Variant 2); on a DIF
+    /// failure `source_verified` = the source check's verdict (`docs/02` §B.5, D38).
+    Pilot2Batch {
+        batch_size: usize,
+        passed: bool,
+        source_verified: bool,
+    },
     /// The beacon's exploration draw (D35) sends this rejection to the pilot for measurement.
     Explore { seed_from_checkpoint: bool },
     /// The item is administered (adds exposure).
     Administer,
-    /// Periodic re-validation; `emerging_dif` retires it if set.
-    Revalidate { emerging_dif: bool },
+    /// Periodic re-validation: `emerging_dif` = DIF flagged, `source_verified` as for stage 2.
+    Revalidate {
+        emerging_dif: bool,
+        source_verified: bool,
+    },
     /// Exposure reached the limit.
     ExposureLimit,
 }
@@ -495,11 +505,20 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        (Pilot2 { .. }, Pilot2Batch { batch_size, passed }) => {
+        (
+            Pilot2 { .. },
+            Pilot2Batch {
+                batch_size,
+                passed,
+                source_verified,
+            },
+        ) => {
             if batch_size < K_MIN {
                 Err(Invalid::BatchTooSmall)
             } else if passed {
                 Ok(ActivePool)
+            } else if source_verified {
+                Ok(Contested)
             } else {
                 Ok(Rejected(RejectReason::Dif))
             }
@@ -552,22 +571,35 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
                 reason,
                 screened: true,
             },
-            Pilot2Batch { batch_size, passed },
+            Pilot2Batch {
+                batch_size,
+                passed,
+                source_verified,
+            },
         ) => {
             if batch_size < K_MIN {
                 Err(Invalid::BatchTooSmall)
             } else {
-                Ok(Measured { reason, passed })
+                Ok(Measured {
+                    reason,
+                    passed: passed || source_verified,
+                })
             }
         }
 
-        (ActivePool, Administer) => Ok(ActivePool),
-        (ActivePool, Revalidate { emerging_dif }) => Ok(if emerging_dif {
-            Retired(RetirementReason::EmergingDif)
-        } else {
-            ActivePool
+        (pool @ (ActivePool | Contested), Administer) => Ok(pool),
+        (
+            ActivePool | Contested,
+            Revalidate {
+                emerging_dif,
+                source_verified,
+            },
+        ) => Ok(match (emerging_dif, source_verified) {
+            (false, _) => ActivePool,
+            (true, true) => Contested,
+            (true, false) => Retired(RetirementReason::EmergingDif),
         }),
-        (ActivePool, ExposureLimit) => Ok(Retired(RetirementReason::Exposure)),
+        (ActivePool | Contested, ExposureLimit) => Ok(Retired(RetirementReason::Exposure)),
 
         _ => Err(Invalid::UnexpectedEvent),
     }

@@ -411,6 +411,7 @@ fn a_band_item_whose_extra_reviewers_disapprove_is_rejected() {
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
+        source_verified: false,
         pilot2_batch_size: 8,
         explored: false,
     };

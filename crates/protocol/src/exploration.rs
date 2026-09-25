@@ -34,11 +34,11 @@ pub enum Scored {
     Pending,
 }
 
-/// Reads `state` as a scored outcome at exploration `rate`: pool/pilot-reject certain,
-/// `Measured` observed at `rate`, an unpicked gate rejection unobserved.
+/// Reads `state` as a scored outcome at exploration `rate`: pool (contested too) and pilot
+/// rejection certain, `Measured` observed at `rate`, an unpicked gate rejection unobserved.
 pub fn outcome_of(state: &State, rate: f64) -> Scored {
     match state {
-        State::ActivePool | State::Retired(_) => Scored::Observed(Observation {
+        State::ActivePool | State::Contested | State::Retired(_) => Scored::Observed(Observation {
             outcome: 1.0,
             inclusion: 1.0,
         }),

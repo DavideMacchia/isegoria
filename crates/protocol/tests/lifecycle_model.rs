@@ -141,6 +141,8 @@ enum Phase {
         appealed: bool,
     },
     Pool,
+    /// The contested-facts pool (D38): a DIF item whose source passed the check.
+    Contested,
     Rejected(RejectReason),
     /// A gate rejection the exploration draw picked (T52), before and after the screen.
     Explored {
@@ -373,12 +375,19 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             })
         }
 
-        (Pilot2 { .. }, Event::Pilot2Batch { batch_size, passed }) => {
+        (
+            Pilot2 { .. },
+            Event::Pilot2Batch {
+                batch_size,
+                passed,
+                source_verified,
+            },
+        ) => {
             guard(&[(*batch_size < K_MIN, BatchTooSmall)])?;
-            Ok(if *passed {
-                Pool
-            } else {
-                Rejected(RejectReason::Dif)
+            Ok(match (passed, source_verified) {
+                (true, _) => Pool,
+                (false, true) => Contested,
+                (false, false) => Rejected(RejectReason::Dif),
             })
         }
 
@@ -427,26 +436,34 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
                 reason,
                 screened: true,
             },
-            Event::Pilot2Batch { batch_size, passed },
+            Event::Pilot2Batch {
+                batch_size,
+                passed,
+                source_verified,
+            },
         ) => {
             guard(&[(*batch_size < K_MIN, BatchTooSmall)])?;
             Ok(Measured {
                 reason: *reason,
-                passed: *passed,
+                passed: *passed || *source_verified,
             })
         }
 
+        // The two pools (D38): administered alike, re-validated into each other or retired.
         (Pool, Event::Administer) => Ok(Pool),
+        (Contested, Event::Administer) => Ok(Contested),
         (
-            Pool,
+            Pool | Contested,
             Event::Revalidate {
-                emerging_dif: false,
+                emerging_dif,
+                source_verified,
             },
-        ) => Ok(Pool),
-        (Pool, Event::Revalidate { emerging_dif: true }) => {
-            Ok(Retired(RetirementReason::EmergingDif))
-        }
-        (Pool, Event::ExposureLimit) => Ok(Retired(RetirementReason::Exposure)),
+        ) => Ok(match (emerging_dif, source_verified) {
+            (false, _) => Pool,
+            (true, true) => Contested,
+            (true, false) => Retired(RetirementReason::EmergingDif),
+        }),
+        (Pool | Contested, Event::ExposureLimit) => Ok(Retired(RetirementReason::Exposure)),
 
         _ => Err(UnexpectedEvent),
     }
@@ -488,6 +505,7 @@ fn concrete(phase: &Phase) -> State {
             appealed: *appealed,
         },
         Phase::Pool => State::ActivePool,
+        Phase::Contested => State::Contested,
         Phase::Rejected(why) => State::Rejected(*why),
         Phase::Explored { reason, screened } => State::Explored {
             reason: *reason,
@@ -586,11 +604,13 @@ enum Op {
     Pilot2Batch {
         batch: usize,
         passed: bool,
+        verified: bool,
     },
     /// The exploration draw of a gate rejection (T52), on the checkpoint's seed or not.
     Explore(bool),
     Administer,
-    Revalidate(bool),
+    /// The re-validation's DIF flag and the source check's verdict (D38).
+    Revalidate(bool, bool),
     ExposureLimit,
 }
 
@@ -676,11 +696,12 @@ fn next_op(
                 K_MIN + pick as usize % 8
             },
             passed: pick % 4 != 0,
+            verified: bit(5),
         },
-        Phase::Pool => match pick % 8 {
+        Phase::Pool | Phase::Contested => match pick % 8 {
             0..=4 => Op::Administer,
-            5 => Op::Revalidate(false),
-            6 => Op::Revalidate(true),
+            5 => Op::Revalidate(false, bit(4)),
+            6 => Op::Revalidate(true, bit(4)),
             _ => Op::ExposureLimit,
         },
         // A gate rejection: the exploration draw (T52), half of the time, else a detour.
@@ -924,15 +945,23 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
             enough_respondents: enough,
             passed,
         }),
-        Op::Pilot2Batch { batch, passed } => plain(Event::Pilot2Batch {
+        Op::Pilot2Batch {
+            batch,
+            passed,
+            verified,
+        } => plain(Event::Pilot2Batch {
             batch_size: batch,
             passed,
+            source_verified: verified,
         }),
         Op::Explore(seed_from_checkpoint) => plain(Event::Explore {
             seed_from_checkpoint,
         }),
         Op::Administer => plain(Event::Administer),
-        Op::Revalidate(emerging_dif) => plain(Event::Revalidate { emerging_dif }),
+        Op::Revalidate(emerging_dif, source_verified) => plain(Event::Revalidate {
+            emerging_dif,
+            source_verified,
+        }),
         Op::ExposureLimit => plain(Event::ExposureLimit),
     }
 }
@@ -996,10 +1025,16 @@ fn arbitrary_op() -> impl Strategy<Value = Op> {
         }),
         Just(Op::AppealExpires),
         any::<(bool, bool)>().prop_map(|(enough, passed)| Op::Pilot1Batch { enough, passed }),
-        (0usize..=4, any::<bool>()).prop_map(|(batch, passed)| Op::Pilot2Batch { batch, passed }),
+        (0usize..=4, any::<bool>(), any::<bool>()).prop_map(|(batch, passed, verified)| {
+            Op::Pilot2Batch {
+                batch,
+                passed,
+                verified,
+            }
+        }),
         any::<bool>().prop_map(Op::Explore),
         Just(Op::Administer),
-        any::<bool>().prop_map(Op::Revalidate),
+        any::<(bool, bool)>().prop_map(|(dif, verified)| Op::Revalidate(dif, verified)),
         Just(Op::ExposureLimit),
     ]
 }
@@ -1156,12 +1191,15 @@ fn legal_transition(
             "re-decided before every extra panelist revealed (T60)"
         );
     }
+    // Either pool (D38) is entered from `Pilot2` after `Pilot1`, or from the other pool.
     match got {
-        Ok(State::ActivePool) if *before != State::ActivePool => {
-            let from_pilot2 = matches!(before, State::Pilot2 { .. });
+        Ok(pool @ (State::ActivePool | State::Contested)) if before != pool => {
+            let from_pilot2 = matches!(before, State::Pilot2 { .. }) && pilot1_seen;
+            let from_pool = matches!(before, State::ActivePool | State::Contested);
             prop_assert!(
-                from_pilot2 && pilot1_seen,
-                "the pool entered from {:?}",
+                from_pilot2 || from_pool,
+                "{:?} entered from {:?}",
+                pool,
                 before
             );
         }
@@ -1308,6 +1346,7 @@ fn the_walks_cover_every_state_and_every_rejection() {
         "Pilot2 { appealed: false }",
         "Pilot2 { appealed: true }",
         "ActivePool",
+        "Contested",
         "Rejected(Defect)",
         "Rejected(Polarized)",
         "Rejected(Screen)",

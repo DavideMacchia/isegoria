@@ -4,6 +4,7 @@
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::dif::mixture_dif;
+use scoring::dtf::ClassCurves;
 use scoring::latent::{latent_dif_with, LatentParams};
 use std::fs;
 use std::path::PathBuf;
@@ -158,6 +159,11 @@ fn current() -> Vec<String> {
     record(&mut rows, "latent.item_b", &res.item_b.concat());
     record(&mut rows, "latent.bic_gain", &[res.bic_gain]);
     record(&mut rows, "latent.posterior", &res.posterior.concat());
+
+    let curves = ClassCurves::of(&res).unwrap();
+    let sets: [&[usize]; 4] = [&[0], &[1], &[0, 1], &[2, 3, 4, 5, 6, 7]];
+    let dtf: Vec<f64> = sets.iter().map(|s| curves.dtf(s).unwrap()).collect();
+    record(&mut rows, "dtf", &dtf);
     rows
 }
 

@@ -14,6 +14,8 @@
 | Coordinated cartel | Detection on the correlation of model residuals over long histories — a jittered cartel is flagged, like-minded honest reviewers are not (D39, T56); a detected cluster is never seated twice on a panel (D40, T57); the √k discount stays in the engine for analysis | `02` anti-collusion, `05` [4] |
 | Long-con (reputation accumulated and spent) | the CUSUM change detector on the per-item scores sends the reviewer back to probation (D34, T51); `w_max` cap on the odds scale (D33, T50); continuous honeypots | `02` C.4, `05` |
 | Biased item passing peer review | Field-data DIF (does not depend on opinions) | `02` B.3 |
+| Biased item passed off as a contested fact | The source check: the key must follow, by a declared rule, from a primary source cited at deposit — an interpretive key is rejected on DIF as before; and a contested fact reaches a test only in a set whose DTF is within the tolerance, balanced by facts leaning the other way measured in the same fit (D38) | `02` §B.5, §B.7 |
+| Profiling a respondent's camp from the contested facts they miss, joined across batches | **Open** (`10` T69): the respondent pseudonym is the same on every batch, and contested facts are administered continuously since D38; a batch-scoped nullifier, sheets never kept with the id, or a per-epoch rate limit are the options, none chosen | `08` §8.2 PRIV-P8, `10` T69 |
 | Vote-buying | Random assignment + no verifiable receipt | `05` [4] |
 | Author drawn onto their own item's panel | Accepted residual risk: the author's judge pseudonym is unlinkable by design, so it cannot be excluded; random assignment makes it one vote in 7–11, bridging needs agreement across camps, and honeypots measure reviewers | `05` [4], `08` §9.1 |
 | Item leakage (exposure) | Broad pool, rotation, parametric items, retirement on detection | `05` [9] |
@@ -65,7 +67,10 @@ defects.
 
 Bridging does not tell a true, polarizing fact from one-sided propaganda: they produce
 the same voting pattern, and **no threshold saves it**. This is the most serious
-limitation. Partial mitigation: the appeal-to-evidence channel (`05` [5b]).
+limitation. Partial mitigation: the appeal-to-evidence channel (`05` [5b]); when the
+division lies in knowledge of a sourced fact rather than in opinions about the item,
+Level B shows DIF too, and the contested-facts pool keeps such a fact in the bank, drawn
+only in balanced sets (`05` [7b], `01` D38).
 
 ### L2 — Bias of the pool, not of the single item
 

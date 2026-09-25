@@ -137,6 +137,7 @@ fn passing() -> ItemVerdicts {
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
+        source_verified: false,
         pilot2_batch_size: 8,
         explored: false,
     }
@@ -219,6 +220,7 @@ fn the_screen_and_the_dif_stage_each_stop_an_item() {
     );
     let dif = ItemVerdicts {
         dif_passed: false,
+        source_verified: false,
         ..passing()
     };
     assert_eq!(

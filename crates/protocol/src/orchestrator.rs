@@ -111,6 +111,8 @@ pub struct ItemVerdicts {
     pub enough_respondents: bool,
     pub screen_passed: bool,
     pub dif_passed: bool,
+    /// The source check's verdict on a DIF failure: a contested fact if set (D38).
+    pub source_verified: bool,
     pub pilot2_batch_size: usize,
     /// The beacon's exploration draw for this item (D35): measurement only, never the pool.
     pub explored: bool,
@@ -307,6 +309,7 @@ pub fn run_item(
             Event::Pilot2Batch {
                 batch_size: v.pilot2_batch_size,
                 passed: v.dif_passed,
+                source_verified: v.source_verified,
             },
         )?;
     }
@@ -314,10 +317,10 @@ pub fn run_item(
     Ok(s)
 }
 
-/// Settles an appeal's escrow on the item's terminal state (D27): reaching the pool
-/// promotes it via `quality`; any other terminal keeps the zero standing.
+/// Settles an appeal's escrow on the item's terminal state (D27): the pool, or the contested
+/// pool (D38), promotes it via `quality`; any other terminal keeps the zero standing.
 pub fn settle_appeal(author: &mut AuthorHistory, escrow: Escrow, terminal: &State, quality: f64) {
-    let outcome = if matches!(terminal, State::ActivePool) {
+    let outcome = if matches!(terminal, State::ActivePool | State::Contested) {
         AppealOutcome::Promoted { quality }
     } else {
         AppealOutcome::Failed

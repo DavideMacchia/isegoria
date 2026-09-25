@@ -327,6 +327,7 @@ fn run_epoch(
             enough_respondents: respondents.len() >= N1_MIN,
             screen_passed: *screen_passed.get(&j).unwrap_or(&false),
             dif_passed: *dif_passed.get(&j).unwrap_or(&false),
+            source_verified: false,
             pilot2_batch_size,
             explored: explored.contains(&j),
         };

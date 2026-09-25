@@ -132,7 +132,8 @@ fn a_pilot2_batch_of_exactly_k_min_is_admitted() {
             pilot2.clone(),
             Event::Pilot2Batch {
                 batch_size: K_MIN,
-                passed: true
+                passed: true,
+                source_verified: false,
             }
         ),
         Ok(State::ActivePool)
@@ -142,7 +143,8 @@ fn a_pilot2_batch_of_exactly_k_min_is_admitted() {
             pilot2,
             Event::Pilot2Batch {
                 batch_size: K_MIN - 1,
-                passed: true
+                passed: true,
+                source_verified: false,
             }
         ),
         Err(Invalid::BatchTooSmall)

@@ -84,6 +84,17 @@ pub fn revalidate_batch_latent(
     responses: &[Vec<f64>],
     seed: u64,
 ) -> Result<Vec<bool>, PilotError> {
+    latent_batch(respondents, anchors, responses, seed).map(|fit| target_flags(&fit))
+}
+
+/// The fit [`revalidate_batch_latent`] flags from, behind the same gates: the contested pool
+/// records its curves (`scoring::dtf::ClassCurves::of`, D38).
+pub fn latent_batch(
+    respondents: &NullifierSet,
+    anchors: &[Vec<f64>],
+    responses: &[Vec<f64>],
+    seed: u64,
+) -> Result<LatentDif, PilotError> {
     let n = respondents.len();
     let m = responses.first().map_or(0, |row| row.len());
     admit_dif_batch(m, n, N_LATENT_MIN)?;
@@ -113,7 +124,7 @@ pub fn revalidate_batch_latent(
         });
     }
     admit_anchors(anchors)?;
-    Ok(target_flags(&latent_dif(anchors, responses, seed)))
+    Ok(latent_dif(anchors, responses, seed))
 }
 
 pub fn items_to_retire(

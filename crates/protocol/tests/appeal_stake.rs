@@ -115,6 +115,7 @@ fn appealed() -> ItemVerdicts {
         enough_respondents: true,
         screen_passed: true,
         dif_passed: true,
+        source_verified: false,
         pilot2_batch_size: 8,
         explored: false,
     }
@@ -179,6 +180,7 @@ fn the_terminal_state_settles_the_escrow() {
         reviewed(),
         &ItemVerdicts {
             dif_passed: false,
+            source_verified: false,
             ..appealed()
         },
     )
@@ -187,4 +189,26 @@ fn the_terminal_state_settles_the_escrow() {
     settle_appeal(&mut author, escrow, &terminal, 0.85);
     assert_eq!(author.qualities(), &[0.9, 0.0]);
     assert!(author.reputation(&prior()) < before);
+}
+
+/// An appeal whose item ends in the contested pool is promoted (D38, `docs/05` [5b]).
+#[test]
+fn an_appeal_that_ends_in_the_contested_pool_is_promoted() {
+    let mut author = AuthorHistory::new();
+    author.record(0.9, 6.0);
+    let before = author.reputation(&prior());
+    let escrow = author.file_appeal(&prior()).unwrap();
+    let terminal = run(
+        reviewed(),
+        &ItemVerdicts {
+            dif_passed: false,
+            source_verified: true,
+            ..appealed()
+        },
+    )
+    .unwrap();
+    assert_eq!(terminal, State::Contested);
+    settle_appeal(&mut author, escrow, &terminal, 0.85);
+    assert_eq!(author.qualities(), &[0.9, 0.85]);
+    assert!(author.reputation(&prior()) > before);
 }

@@ -720,6 +720,21 @@ as the verdict (inverted in a campaign). A threshold tuned to one anchor set.
 
 ## D38 — DIF is not bias: contested facts go to a balanced pool
 
+> **Implemented (2026-09-25, T55).** Specified in `docs/02` §B.5 (the source check: four
+> steps from the citation committed at deposit, the last a declared key rule on the cited
+> data — a key resting on an interpretation fails it) and §B.7 (the DTF), `docs/05` [7b].
+> A flagged item whose source passes the check is `lifecycle::State::Contested`, kept in
+> `protocol::contested::ContestedPool` by the fit that last measured it. The DTF within a
+> fit is the unsigned expected-score gap at the worst pair of classes over the batch's
+> ability density (`scoring::dtf`); classes of different fits are not identified, so a
+> test's DTF is bounded by the sum of its per-fit DTFs, and a test draws contested facts
+> from the beacon only among the selections with a bound of at most `DTF_MAX = 0.10`
+> score points (provisional). The draw is exact: it fails only when no balanced selection
+> exists, and a function of the pool's content and the seed, whatever the order of
+> recording. AT-PRO-08 passes, on hand-built fits and on two batches fitted through the
+> production gate. A contested fact scores `o_j = 1` and promotes an appeal. The source
+> check's verdict enters the protocol as an input until T68 computes it.
+
 **Choice.** Some items show DIF although their key is established by a primary source:
 the dispute concerns knowledge of the fact, not the wording. Such an item is classified
 as a *contested fact* instead of being discarded. Its classification follows the

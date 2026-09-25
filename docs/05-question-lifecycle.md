@@ -22,7 +22,11 @@ it neutralizes).
  [6] Pilot 1        ~300 respondents: kills broken and non-discriminating questions
       ↓
  [7] Pilot 2        ~1500–3000 respondents, IN BATCHES: IRT + multi-axis DIF
-      ↓
+      ↓                 │
+      │                 └──→ [7b] CONTESTED FACT
+      │                          DIF, but the cited primary source establishes the key
+      │                          (`02` §B.5): a separate pool, drawn into a test only in
+      ↓                          balanced sets (`01` D38)
  [8] Active pool    usable; periodic re-validation of the whole pool
       ↓
  [9] Retirement     exposure, drift, obsolescence, emerging DIF
@@ -88,9 +92,10 @@ author's initiative, **skip review and go straight to the pilot**:
 - filing escrows a zero-quality pseudo-observation in the author's history, so `C_a`
   falls at once; an author whose `C_a` is below the stake floor — the prior mean of
   `02` §C.1 — cannot file (`01` D27, T61)
-- if the Level B psychometrics **promote** it, the pseudo-observation is replaced by the
-  item's real quality: the author gains a real, good observation, having been right
-  against the opinion filter — there is no additive bonus
+- if the Level B psychometrics **promote** it — to the active pool, or to the contested
+  pool when its DIF concerns a sourced fact ([7b]) — the pseudo-observation is replaced
+  by the item's real quality: the author gains a real, good observation, having been
+  right against the opinion filter — there is no additive bonus
 - if it **fails**, the zero stands — it is the item's real result — and it costs the
   next appeal until the author's average has recovered
 
@@ -120,7 +125,8 @@ Requirements:
 Respondents are the scarce resource: they can be the same nodes under the third
 pseudonym (`nym_answer`), or a separate panel-style sample. Each respondent proves that
 pseudonym for the batch and the epoch before its answers count, and the sample floors
-count those pseudonyms, not answer sheets: one person cannot fill a sample.
+count those pseudonyms, not answer sheets: one person cannot fill a sample. The proof
+does not yet cover the sheet itself, so a forwarder could alter it (`10` T70).
 
 **Administration**: the question under pilot is mixed with already-validated ones and
 the answer does not count toward the respondent's score. Whoever answers does not know
@@ -128,11 +134,47 @@ which one is on trial.
 
 ---
 
+## [7b] Contested facts (`01` D38)
+
+DIF does not always mean a biased item. When one camp is systematically misinformed
+about a true fact, an item stating that fact shows DIF by construction. Rejecting it
+would bar every fact a camp disputes from the bank, and the appeal of [5b] could never
+recover it: Level B would reject it for the same reason Level A did.
+
+**Classification, not a vote.** An item the batch flags for DIF (`02` §B.3) goes through
+the source check (`02` §B.5): four steps anyone can redo from the citation committed at
+deposit. If the cited primary source establishes the key, the item is a *contested
+fact* and enters the contested pool; otherwise it is rejected, as before. The same rule
+applies at re-validation ([8]): an active item whose DIF emerges moves to the contested
+pool if its source passes the check, and retires otherwise.
+
+**Use: only in balanced sets.** A test draws its contested facts from the beacon among
+the selections whose differential test functioning stays within the tolerance (`02`
+§B.7): facts leaning one way are drawn only with facts leaning the other way that cancel
+them, measured in the same fit — the classes of different batches are not comparable,
+so across batches their DTF only adds up. The test as a whole favours no latent class. A
+contested fact is administered, counts exposure and retires at the exposure limit like
+any pool item. The balance protects the score, not the respondent: which contested facts
+a person misses reveals their latent class, and with a respondent pseudonym that is the
+same on every batch the answer sheets can be joined into a profile — open, `10` T69.
+
+**Re-measurement.** The contested pool is re-validated in batches like the active pool.
+A fact whose DIF has gone returns to the active pool; one still showing DIF stays,
+measured on the new fit — which gives contested facts from different batches one set of
+classes, where they can balance each other; one whose source no longer passes the check
+(the act was amended) retires, as does one made obsolete (the act was repealed, [9]).
+
+**Scores.** A contested fact is admitted to the bank: the reviewers who judged it are
+scored as for an item that reaches the pool (`o_j = 1`, `01` D35), and an appeal that
+ends in the contested pool is promoted ([5b], `01` D27).
+
+---
+
 ## [8] Active pool and re-validation
 
-- **Periodic re-validation of the whole pool**: scattered distortions add up over time
-  until they become visible; an item accepted today can develop DIF as the context
-  changes.
+- **Periodic re-validation of the whole pool**, the contested pool included ([7b]):
+  scattered distortions add up over time until they become visible; an item accepted
+  today can develop DIF as the context changes.
 - **Topic coverage**: DIF removes the bias of a single item, not that of the *pool*.
   You can build a test in which every item passes DIF but the choice of topics is
   skewed. Constrain coverage upstream with a **blueprint of fixed quotas per domain**,

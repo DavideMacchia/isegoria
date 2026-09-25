@@ -69,7 +69,9 @@ the same person.
       ↓
  [6] Pilot 2        ~1500–3000 respondents: IRT + DIF on latent axes
                     (in batches, never a single item)
-      ↓
+      ↓                 │
+      │                 └──→ contested fact: DIF, but the primary source establishes
+      ↓                      the key → a separate pool, drawn only in balanced sets
  [7] Active pool    usable; periodic re-validation of the whole pool
       ↓
  [8] Retirement     for exposure, drift, obsolescence, or emerging DIF

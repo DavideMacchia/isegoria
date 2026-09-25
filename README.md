@@ -312,7 +312,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit across platforms and build profiles (CI), matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
-| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition, residual-based coordination detection (`docs/01` D32–D41) | Decided; the side-balanced score is done (T49), the rest is roadmap Phase 1, the first priority |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition and target model, contested facts in a balanced pool, residual-based coordination detection (`docs/01` D32–D41) | D32–D40 done (T49–T57); D41, the beacon, is Phase 2 (T37); thresholds provisional until T24/T25 |
 | Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64), respondent gate (T65), band items without appeal (T59) and the appeal stake (T61) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
@@ -328,9 +328,10 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    (D37, T53), the proper evaluator score with the change detector (D33/D34/D36,
    T50/T51), the band re-decision with real extra reviewers (D26, T60), the
    coordination detector on model residuals with panel diversification (D39/D40,
-   T56/T57), live outcomes with randomized exploration (D35, T52) and the latent DIF
-   target model with θ inside the likelihood (D37, T54); next, the rest of the
-   mechanism (D38, D41), then the characterization of the thresholds.
+   T56/T57), live outcomes with randomized exploration (D35, T52), the latent DIF
+   target model with θ inside the likelihood (D37, T54) and the contested-facts pool,
+   drawn into a test only in sets whose differential test functioning stays within a
+   tolerance (D38, T55); next, the characterization of the thresholds (T24/T25).
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot
