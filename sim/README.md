@@ -68,6 +68,19 @@ seeds and dumps the datasets and the full-fit results as CSV. Run it as:
 python export_fixtures.py <output_dir>
 ```
 
+### `oracle_bridging.py`, `oracle_mixture.py`
+
+Differential oracles on random datasets (`docs/08` REPRO-003, T45): the paper's
+NumPy/SciPy implementations of the bridging fit and of the two-class mixture
+(`paper/scripts/common.py`) on a dataset the Rust tests write, seeded multi-starts, the
+lowest objective kept. `crates/scoring/tests/differential_oracle.rs` runs them and
+compares; it self-skips without the pinned environment (`requirements.txt`).
+
+```
+python oracle_bridging.py <dir>    # reads R.csv, mask.csv, weights.csv; writes oracle.csv
+python oracle_mixture.py <dir>     # reads theta.csv, X.csv; writes oracle.csv
+```
+
 ## What these prototypes demonstrate
 
 The structural limits documented in `docs/06-threat-model.md`:

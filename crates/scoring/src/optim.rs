@@ -428,6 +428,63 @@ mod tests {
         assert!(grads.get() <= 80, "{} gradient evaluations", grads.get());
     }
 
+    /// What a stall-reported `Converged` guarantees (T45; `docs/08` OPT-001). The run
+    /// stops on a relative progress below `1e-12 · (1 + |f|)` even while `‖g‖_∞ ≫ g_tol`;
+    /// for a quadratic model the last step's decrease is at least `‖g‖² / (2 λ_max)`, so
+    /// at a stall `‖g‖_∞ ≤ √(2 λ_max · 1e-12 · (1 + |f|))` — about `1.4e-4 · √λ_max` near
+    /// `f = 0`, not `g_tol`. Pinned on the condition-10² to 10⁶ quadratics and on
+    /// Rosenbrock (λ_max ≈ 1.0e3 at the minimum) with an unattainable `g_tol`: the
+    /// gradient at the reported convergence stays within that bound, and the minimizer is
+    /// reached to the precision the bound allows.
+    #[test]
+    fn a_stall_convergence_leaves_the_gradient_within_its_bound() {
+        let bound = |lam_max: f64, f: f64| (2.0 * lam_max * 1e-12 * (1.0 + f.abs())).sqrt();
+        for cond in [2.0, 4.0, 6.0] {
+            let dim = 20;
+            let lam: Vec<f64> = (0..dim)
+                .map(|i| 10f64.powf(cond * i as f64 / (dim - 1) as f64))
+                .collect();
+            let cost = |x: &[f64]| 0.5 * x.iter().zip(&lam).map(|(v, l)| l * v * v).sum::<f64>();
+            let grad = |x: &[f64]| x.iter().zip(&lam).map(|(v, l)| l * v).collect::<Vec<f64>>();
+            let m = lbfgs(vec![1.0; dim], cost, grad, 10, 20_000, 1e-300);
+            assert_eq!(m.status, Convergence::Converged, "condition 1e{cond}");
+            let g = inf_norm(&grad(&m.x));
+            let lam_max = 10f64.powf(cond);
+            assert!(
+                g <= bound(lam_max, cost(&m.x)),
+                "condition 1e{cond}: ‖g‖ {g:e} beyond the stall bound {:e}",
+                bound(lam_max, cost(&m.x))
+            );
+            assert!(
+                inf_norm(&m.x) <= 10.0 * bound(lam_max, 0.0),
+                "condition 1e{cond}: x {:e}",
+                inf_norm(&m.x)
+            );
+        }
+        let cost = |x: &[f64]| (1.0 - x[0]).powi(2) + 100.0 * (x[1] - x[0] * x[0]).powi(2);
+        let grad = |x: &[f64]| {
+            vec![
+                -2.0 * (1.0 - x[0]) - 400.0 * x[0] * (x[1] - x[0] * x[0]),
+                200.0 * (x[1] - x[0] * x[0]),
+            ]
+        };
+        for start in [vec![-1.2, 1.0], vec![2.0, 2.0], vec![0.0, 0.0]] {
+            let m = lbfgs(start.clone(), cost, grad, 10, 20_000, 1e-300);
+            assert_eq!(m.status, Convergence::Converged, "from {start:?}");
+            let g = inf_norm(&grad(&m.x));
+            assert!(
+                g <= bound(1.0e3, cost(&m.x)),
+                "from {start:?}: ‖g‖ {g:e} beyond the stall bound {:e}",
+                bound(1.0e3, cost(&m.x))
+            );
+            assert!(
+                (m.x[0] - 1.0).abs() < 1e-5 && (m.x[1] - 1.0).abs() < 1e-5,
+                "from {start:?}: {:?}",
+                m.x
+            );
+        }
+    }
+
     /// Started at the minimizer, the gradient test stops the run before any step: no
     /// cost is evaluated beyond the initial one and `x` is returned unchanged.
     #[test]
