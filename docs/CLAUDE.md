@@ -44,7 +44,8 @@ them.
 7. **Score computation is deterministic and reproducible.** The scoring engine,
    given the same input (ratings + answers), produces the same output bit-for-bit.
    No unseeded sources of non-determinism (dictionary iteration order, uncontrolled
-   floating point, timestamps in the computation). Reproducibility is the defense
+   floating point, the platform's libm — transcendental functions go through
+   `scoring::fmath` — timestamps in the computation). Reproducibility is the defense
    that unmasks a dishonest signer.
 
 8. **Empirical validation happens in batches, never on a single question.** An
@@ -54,11 +55,12 @@ them.
 ## Current priorities
 
 The four crates exist; the work left is ordered in `10-roadmap.md`. Follow its phases in
-order — **mathematics** (the severe boundary defect T65 first, T64 being done; then the
-scoring mechanism and the decisions built on it: D32–D41, band and appeal), then the
-**P2P network**, then **the rest** (protocol boundary, distributed identity, privacy,
-pilots) — and inside a phase, fix defects in existing code before adding features. Every
-task starts with a test that fails on the current code.
+order — **mathematics** (T64, T65, T62, the side-balanced score T49, the appeal for
+band items T59 and the appeal stake T61 are done; now the rest of the mechanism,
+D33–D41, and the band re-decision with extra reviewers, T60), then
+the **P2P network**, then **the rest** (protocol boundary, distributed identity,
+privacy, pilots) — and inside a phase, fix defects in existing code before adding
+features. Every task starts with a test that fails on the current code.
 
 ## Original build order (done)
 

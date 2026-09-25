@@ -15,13 +15,14 @@
 //!   `run_item` scores the state it leaves: the machine itself checks that every
 //!   panelist revealed (T33), so an epoch cannot be scored on a partial round.
 
+use crate::appeal::{AppealOutcome, AuthorHistory, Escrow};
 use crate::gate::GateOutcome;
 use crate::lifecycle::{step, Event, Invalid, State};
 use crate::probation::effective_review_weight;
 use crate::review::commit;
 use identity::nym::Nym;
 use network::cid::Cid;
-use scoring::bridging::Ratings;
+use scoring::bridging::{Ratings, RatingsError};
 
 /// A reviewer's standing carried from the previous epoch, in the same order as the
 /// ratings rows the fit will see. `e_u` is the evaluator score from that epoch
@@ -58,7 +59,7 @@ impl ReviewerStanding {
 /// Per-reviewer bridging weight `w_u` from the previous epoch's standing (T5,
 /// BRIDGE-007). This is exactly the review vote weight — 0 on probation, 1 for a
 /// bootstrap founder, `min(w_max, E_u)` once established — so the same reputation that
-/// weights the aggregation also weights the fit that produces `b_j`.
+/// weights the aggregation also weights the fit that produces the bridge score.
 pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
     prev.iter()
         .map(|r| effective_review_weight(r.is_founder, r.judgments_with_outcome, r.e_u, w_max))
@@ -66,14 +67,17 @@ pub fn bridging_weights(prev: &[ReviewerStanding], w_max: f64) -> Vec<f64> {
 }
 
 /// Builds the current epoch's [`Ratings`] with the per-reviewer weights derived from the
-/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`.
+/// previous epoch (T5). `prev` is indexed like the rows of `r`/`mask`: a standing count
+/// that differs from the rows, or a malformed matrix, is refused (`RatingsError`, T62).
 pub fn weighted_ratings(
     r: &[Vec<f64>],
     mask: &[Vec<bool>],
     prev: &[ReviewerStanding],
     w_max: f64,
-) -> Ratings {
-    Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max))
+) -> Result<Ratings, RatingsError> {
+    let ratings = Ratings::from_dense(r, mask).with_weights(bridging_weights(prev, w_max));
+    ratings.validate()?;
+    Ok(ratings)
 }
 
 /// The gate and pilot verdicts an epoch computes for one item, handed to the state
@@ -84,9 +88,17 @@ pub struct ItemVerdicts {
     pub gate: GateOutcome,
     /// The author appealed a polarization rejection.
     pub appealed: bool,
-    /// D26 supplementary re-decision result (`gate::supplementary_review`, T10/T30):
-    /// consulted only when `gate == SupplementaryReview`.
-    pub band_advances: bool,
+    /// The appeal was filed inside the appeal window.
+    pub appeal_within_window: bool,
+    /// The author's `C_a` when the appeal was filed (`appeal::AuthorHistory::reputation`),
+    /// and the floor it must cover (`appeal::appeal_floor`): `run_item` derives
+    /// `reputation_covers_stake` from the two, it is never asserted by the caller (T61).
+    pub author_reputation: f64,
+    pub appeal_floor: f64,
+    /// D26 supplementary re-decision outcome (`gate::supplementary_review`, T10/T30/T59):
+    /// `Pass`, `AppealEligible` or `Reject`; consulted only when
+    /// `gate == SupplementaryReview`.
+    pub band_outcome: GateOutcome,
     /// Pilot stage 1 (discrimination screen) had enough distinct respondents (INV-8).
     pub enough_respondents: bool,
     /// Pilot stage 1 verdict.
@@ -145,10 +157,17 @@ pub fn review_round(
 /// `lifecycle::step` (T12). `reviewed` is the state [`review_round`] left; scoring it is
 /// refused unless every panelist revealed. `ActivePool` means it reached the pool.
 ///
+/// An appealed item's `Appeal` event carries what the verdicts say: filed within the
+/// window, and an author reputation that covers the stake (`appeal_floor`); the escrow
+/// the filing left in the author's history is settled by [`settle_appeal`] on the
+/// terminal state (D27, T61).
+///
 /// A band item is scored to `SupplementaryReview` and then resolved by the D26 mechanism
-/// (T10/T30): `band_advances` is the outcome of `gate::supplementary_review` — a re-run
-/// bridging fit re-deciding `b_j` against the plain threshold — so a passing band item
-/// advances to the pilot and a failing one is a `Borderline` reject, not a dead end.
+/// (T10/T30, amended by T59): `band_outcome` is the outcome of
+/// `gate::supplementary_review` — a re-run bridging fit re-deciding the side-balanced
+/// score against the plain threshold — so a passing band item advances to the pilot, a
+/// polarized failing one keeps the appeal channel, and a defect is a `Borderline`
+/// reject, never a dead end.
 pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
     let mut s = step(reviewed, Event::Score { outcome: v.gate })?;
 
@@ -156,7 +175,7 @@ pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
         s = step(
             s,
             Event::Resolve {
-                passed: v.band_advances,
+                outcome: v.band_outcome,
             },
         )?;
     }
@@ -166,8 +185,8 @@ pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
             step(
                 s,
                 Event::Appeal {
-                    within_window: true,
-                    reputation_covers_stake: true,
+                    within_window: v.appeal_within_window,
+                    reputation_covers_stake: v.author_reputation >= v.appeal_floor,
                 },
             )?
         } else {
@@ -196,4 +215,17 @@ pub fn run_item(reviewed: State, v: &ItemVerdicts) -> Result<State, Invalid> {
     }
 
     Ok(s)
+}
+
+/// Settles an appeal's escrow on the item's terminal state (D27, T61): reaching the pool
+/// promotes the item, and its measured `quality` replaces the zero-quality
+/// pseudo-observation in the author's history; any other terminal leaves the zero
+/// standing — the item's real result.
+pub fn settle_appeal(author: &mut AuthorHistory, escrow: Escrow, terminal: &State, quality: f64) {
+    let outcome = if matches!(terminal, State::ActivePool) {
+        AppealOutcome::Promoted { quality }
+    } else {
+        AppealOutcome::Failed
+    };
+    author.settle(escrow, outcome);
 }

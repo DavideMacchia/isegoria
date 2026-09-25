@@ -7,6 +7,8 @@
 //! production INV-8 gate is on the latent re-check (`revalidate_batch_latent`), tested
 //! unconditionally below.
 
+use identity::nym::Nym;
+use protocol::admission::NullifierSet;
 use protocol::pilot::{admit_dif_batch, screen, PilotError, N1_MIN, N2_MIN};
 use protocol::revalidation::{revalidate_batch_latent, N_LATENT_MIN};
 
@@ -17,8 +19,29 @@ fn responses(n: usize, m: usize) -> Vec<Vec<f64>> {
         .collect()
 }
 
+/// The same answers item-major: one column of `n` answers per item, as `screen` and
+/// `dif_batch` take them.
+fn columns(n: usize, m: usize) -> Vec<Vec<f64>> {
+    let rows = responses(n, m);
+    (0..m)
+        .map(|j| rows.iter().map(|r| r[j]).collect())
+        .collect()
+}
+
 fn theta(n: usize) -> Vec<f64> {
     (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect()
+}
+
+/// `n` admitted respondents (T65): the floors count this set, not the rows. The gate that
+/// fills it from `Respond` proofs is tested in `proto013_respondent_gate.rs`.
+fn respondents(n: usize) -> NullifierSet {
+    let mut set = NullifierSet::new();
+    for i in 0..n {
+        let mut id = [0u8; 32];
+        id[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        set.spend(Nym(id)).unwrap();
+    }
+    set
 }
 
 // -------------------------------- AT-PRO-02: batch of one --------------------------------
@@ -27,12 +50,13 @@ fn theta(n: usize) -> Vec<f64> {
 fn at_pro_02_the_production_latent_recheck_refuses_one_item() {
     // Enough respondents, but a single item: the production DIF re-check must refuse it.
     let t = theta(N_LATENT_MIN);
+    let people = respondents(N_LATENT_MIN);
     assert_eq!(
-        revalidate_batch_latent(&t, &responses(N_LATENT_MIN, 1), 0),
+        revalidate_batch_latent(&people, &t, &responses(N_LATENT_MIN, 1), 0),
         Err(PilotError::BatchTooSmall { items: 1 })
     );
     // A batch of two is admissible.
-    assert!(revalidate_batch_latent(&t, &responses(N_LATENT_MIN, 2), 0).is_ok());
+    assert!(revalidate_batch_latent(&people, &t, &responses(N_LATENT_MIN, 2), 0).is_ok());
 }
 
 #[cfg(feature = "calibration")]
@@ -46,33 +70,36 @@ fn at_pro_02_the_attribute_dif_stage_refuses_one_item() {
             .collect()
     };
     let t = theta(N2_MIN);
+    let people = respondents(N2_MIN);
     let group: Vec<f64> = (0..N2_MIN).map(|i| (i % 2) as f64).collect();
     assert_eq!(
-        dif_batch(&t, &group, &items(1)),
+        dif_batch(&people, &t, &group, &items(1)),
         Err(PilotError::BatchTooSmall { items: 1 })
     );
-    assert!(dif_batch(&t, &group, &items(2)).is_ok());
+    assert!(dif_batch(&people, &t, &group, &items(2)).is_ok());
 }
 
 // -------------------------------- sample-size floors --------------------------------
 
 #[test]
 fn a_stage_below_its_respondent_floor_is_rejected() {
-    // Stage 1: one fewer respondent than the screen floor.
+    // Stage 1: one fewer admitted respondent than the screen floor.
+    let n = N1_MIN - 1;
     assert_eq!(
-        screen(&theta(N1_MIN - 1), &responses(N1_MIN - 1, 3)),
+        screen(&respondents(n), &theta(n), &columns(n, 3)),
         Err(PilotError::NotEnoughRespondents {
-            have: N1_MIN - 1,
+            have: n,
             need: N1_MIN
         })
     );
-    assert!(screen(&theta(N1_MIN), &responses(N1_MIN, 3)).is_ok());
+    assert!(screen(&respondents(N1_MIN), &theta(N1_MIN), &columns(N1_MIN, 3)).is_ok());
 
     // The latent re-check needs the largest sample (§B.6): enough items, too few people.
+    let n = N_LATENT_MIN - 1;
     assert_eq!(
-        revalidate_batch_latent(&theta(N_LATENT_MIN - 1), &responses(N_LATENT_MIN - 1, 8), 0),
+        revalidate_batch_latent(&respondents(n), &theta(n), &responses(n, 8), 0),
         Err(PilotError::NotEnoughRespondents {
-            have: N_LATENT_MIN - 1,
+            have: n,
             need: N_LATENT_MIN
         })
     );

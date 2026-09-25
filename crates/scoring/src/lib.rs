@@ -6,6 +6,7 @@
 pub mod bridging;
 pub mod collusion;
 pub mod dif;
+mod fmath;
 mod glm;
 pub mod irt;
 mod optim;

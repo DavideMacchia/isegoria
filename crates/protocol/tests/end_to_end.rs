@@ -24,37 +24,39 @@ use identity::nym::{Nym, Role};
 #[cfg(feature = "calibration")]
 use network::log::TransparencyLog;
 #[cfg(feature = "calibration")]
+use protocol::admission::NullifierSet;
+#[cfg(feature = "calibration")]
 use protocol::admission::QuotaLedger;
+#[cfg(feature = "calibration")]
+use protocol::appeal::{appeal_floor, AuthorHistory};
 #[cfg(feature = "calibration")]
 use protocol::deposit::{deposit_context, deposit_with_identity, Draft};
 #[cfg(feature = "calibration")]
-use protocol::gate::{bridging_gate, supplementary_review, GateOutcome};
+use protocol::gate::{bridging_gate, supplementary_review, GateOutcome, APPEAL_GAP, EPS, TAU};
 #[cfg(feature = "calibration")]
 use protocol::lifecycle::{deposit, step, Event, State};
 #[cfg(feature = "calibration")]
 use protocol::orchestrator::{
-    review_round, run_item, weighted_ratings, ItemVerdicts, Judgment, ReviewerStanding,
+    review_round, run_item, settle_appeal, weighted_ratings, ItemVerdicts, Judgment,
+    ReviewerStanding,
 };
 use protocol::pilot::stage1_screen;
 #[cfg(feature = "calibration")]
-use protocol::pilot::{dif_batch, screen, stage2_dif, DifVerdict, N1_MIN};
+use protocol::pilot::{
+    batch_id, dif_batch, response_context, screen, stage2_dif, submit_response, DifVerdict, N1_MIN,
+};
 use protocol::revalidation::revalidate_pool_latent;
 #[cfg(feature = "calibration")]
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
+use scoring::bridging::{bridge_scores, BridgingParams, Ratings};
 use scoring::irt::theta_from_anchors;
+#[cfg(feature = "calibration")]
+use scoring::reputation::AuthorPrior;
 #[cfg(feature = "calibration")]
 use std::collections::BTreeSet;
 #[cfg(feature = "calibration")]
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-
-#[cfg(feature = "calibration")]
-const TAU: f64 = 0.08;
-#[cfg(feature = "calibration")]
-const EPS: f64 = 0.008;
-#[cfg(feature = "calibration")]
-const APPEAL_THRESHOLD: f64 = 0.5;
 
 // Items that reach the pool under the docs-faithful retention criteria (both
 // r_pbis >= 0.20 AND 2PL a >= 0.6): 01 and 07 (0-indexed 0 and 6).
@@ -70,7 +72,7 @@ const WRONG_KEY: usize = 5; // negative point-biserial, dies in the pilot
 #[cfg(feature = "calibration")]
 const REAL_HEALTH: usize = 2; // true-but-divisive: rejected by bridging, saved by appeal
 #[cfg(feature = "calibration")]
-const CONSTITUTIONAL: usize = 1; // hard item with a guessing floor; see the pool test
+const CONSTITUTIONAL: usize = 1; // passes Level A; too flat a 2PL slope (0.47) in the screen
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scoring/tests/fixtures")
@@ -109,8 +111,9 @@ fn load_ratings() -> Ratings {
 /// production build does not compile. In production the pilot has no attribute-DIF
 /// stage; a lone ESM item like this fixture's is caught only by the batched latent
 /// re-validation (`revalidate_pool_latent`, exercised by `pool_revalidation_flags_latent_bias`).
+/// Returns the pool and the author's reputation after the epoch (appeals settled, D27).
 #[cfg(feature = "calibration")]
-fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
+fn run_epoch(appeals: &BTreeSet<usize>) -> (BTreeSet<usize>, f64) {
     let m = 10;
 
     // --- identity: one real person enrolls once; a duplicate is refused ---
@@ -196,29 +199,42 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .map(|row| row.iter().map(|&v| v != 0.0).collect())
         .collect();
     let standings = vec![ReviewerStanding::founder(); r_dense.len()];
-    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0);
+    let ratings = weighted_ratings(&r_dense, &mask_bool, &standings, 1.0).unwrap();
 
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
 
-    // Gate every item and record whether it advances: a straight pass, a band item the
-    // D26 re-decision carries (a re-run bridging fit vs the plain threshold τ — a bridging
-    // decision, not a vote), or a polarization reject whose author appeals.
+    // Gate every item on its robust side-balanced score and side gap (D32) and record
+    // whether it advances: a straight pass, a band item the D26 re-decision carries (a
+    // re-run bridging fit vs the plain threshold τ — a bridging decision, not a vote), or
+    // a polarization reject whose author appeals.
     let gate: Vec<GateOutcome> = (0..m)
-        .map(|j| bridging_gate(bridge[j], f.f_j[j], TAU, EPS, APPEAL_THRESHOLD))
+        .map(|j| bridging_gate(bridge.robust[j], bridge.full.gap[j], TAU, EPS, APPEAL_GAP))
         .collect();
-    let band_advances: Vec<bool> = (0..m)
+    // A band item is re-decided (D26, amended by T59): pass, appeal-eligible if polarized,
+    // or a borderline reject. Its effective outcome is then gated like any other.
+    let band_outcome: Vec<GateOutcome> = (0..m)
         .map(|j| {
-            matches!(gate[j], GateOutcome::SupplementaryReview)
-                && supplementary_review(&ratings, &params, j, TAU) == GateOutcome::Pass
+            if matches!(gate[j], GateOutcome::SupplementaryReview) {
+                supplementary_review(&ratings, &params, j, TAU, APPEAL_GAP).unwrap()
+            } else {
+                GateOutcome::Reject
+            }
+        })
+        .collect();
+    let effective: Vec<GateOutcome> = (0..m)
+        .map(|j| {
+            if matches!(gate[j], GateOutcome::SupplementaryReview) {
+                band_outcome[j]
+            } else {
+                gate[j]
+            }
         })
         .collect();
     let advancing: Vec<usize> = (0..m)
         .filter(|&j| {
-            matches!(gate[j], GateOutcome::Pass)
-                || band_advances[j]
-                || (matches!(gate[j], GateOutcome::AppealEligible) && appeals.contains(&j))
+            matches!(effective[j], GateOutcome::Pass)
+                || (matches!(effective[j], GateOutcome::AppealEligible) && appeals.contains(&j))
         })
         .collect();
 
@@ -229,8 +245,36 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
     let grp = read_vector("levelb_grp.csv");
     let x = read_matrix("levelb_X.csv");
 
+    // --- identity: every respondent is one person (INV-9, T65) ---
+    // Each fixture row is a respondent who proves a `Respond` nullifier bound to this
+    // pilot batch and epoch (`submit_response`); the floors count the admitted set, not
+    // the rows, so one person cannot fill a sample (PROTO-013, AT-PRO-09).
+    let batch = batch_id(&advancing.iter().map(|&j| item_cid[j]).collect::<Vec<_>>());
+    let mut respondents = NullifierSet::new();
+    for i in 0..theta.len() as u32 {
+        let mut secret = [0u8; 32];
+        secret[..4].copy_from_slice(&i.to_le_bytes());
+        secret[4] = 0xA5;
+        let mut label = [0u8; 32];
+        label[..4].copy_from_slice(&i.to_le_bytes());
+        label[4] = 0x5A;
+        let holder = Credential::from_secret(secret);
+        let (req, pending) = holder.request_issuance(&Label(label), &issuer.public());
+        let cred = pending.finalize(issuer.issue(&req).unwrap());
+        let proof = nullifier::prove(
+            &cred,
+            &issuer.public(),
+            Role::Respond,
+            &response_context(batch, EPOCH),
+        );
+        submit_response(&proof, &issuer.public(), batch, EPOCH, &mut respondents)
+            .expect("each fixture row is a distinct person");
+    }
+    assert_eq!(respondents.len(), theta.len());
+
     let cols: Vec<Vec<f64>> = advancing.iter().map(|&j| column(&x, j)).collect();
-    let keep1 = screen(&theta, &cols).expect("stage-1 respondent floor met on the fixtures");
+    let keep1 =
+        screen(&respondents, &theta, &cols).expect("stage-1 respondent floor met on the fixtures");
     let screen_passed: HashMap<usize, bool> = advancing
         .iter()
         .copied()
@@ -243,7 +287,8 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         .collect();
 
     let cols2: Vec<Vec<f64>> = after1.iter().map(|&j| column(&x, j)).collect();
-    let keep2 = dif_batch(&theta, &grp, &cols2).expect("stage-2 batch and respondent floors met");
+    let keep2 = dif_batch(&respondents, &theta, &grp, &cols2)
+        .expect("stage-2 batch and respondent floors met");
     // Only a clean Pass advances; a Reject or an Undetermined (separated) fit does not.
     let dif_passed: HashMap<usize, bool> = after1
         .iter()
@@ -278,26 +323,55 @@ fn run_epoch(appeals: &BTreeSet<usize>) -> BTreeSet<usize> {
         let panel = judgments.iter().map(|jd| jd.nym).collect();
         review_round(admitted, item_cid[j], panel, &judgments).unwrap()
     };
-    (0..m)
-        .filter(|&j| {
-            let verdicts = ItemVerdicts {
-                gate: gate[j],
-                appealed: appeals.contains(&j),
-                band_advances: band_advances[j],
-                enough_respondents: theta.len() >= N1_MIN,
-                screen_passed: *screen_passed.get(&j).unwrap_or(&false),
-                dif_passed: *dif_passed.get(&j).unwrap_or(&false),
-                pilot2_batch_size,
-            };
-            run_item(reviewed(j), &verdicts).unwrap() == State::ActivePool
-        })
-        .collect()
+    // --- the author's standing: two accepted items on record, so an appeal's stake is
+    // covered; each appeal escrows a zero-quality pseudo-observation and the terminal
+    // state settles it (D27, T61) ---
+    let prior = AuthorPrior::default();
+    let mut author = AuthorHistory::new();
+    author.record(0.9, 6.0);
+    author.record(0.8, 12.0);
+
+    let mut pool = BTreeSet::new();
+    for j in 0..m {
+        let reputation = author.reputation(&prior);
+        let escrow = if appeals.contains(&j) && matches!(effective[j], GateOutcome::AppealEligible)
+        {
+            Some(
+                author
+                    .file_appeal(&prior)
+                    .expect("the author's standing covers the stake"),
+            )
+        } else {
+            None
+        };
+        let verdicts = ItemVerdicts {
+            gate: gate[j],
+            appealed: appeals.contains(&j),
+            appeal_within_window: true,
+            author_reputation: reputation,
+            appeal_floor: appeal_floor(&prior),
+            band_outcome: band_outcome[j],
+            enough_respondents: respondents.len() >= N1_MIN,
+            screen_passed: *screen_passed.get(&j).unwrap_or(&false),
+            dif_passed: *dif_passed.get(&j).unwrap_or(&false),
+            pilot2_batch_size,
+        };
+        let terminal = run_item(reviewed(j), &verdicts).unwrap();
+        if let Some(escrow) = escrow {
+            // The item's measured quality is its later pool record; 0.8 stands in for it.
+            settle_appeal(&mut author, escrow, &terminal, 0.8);
+        }
+        if terminal == State::ActivePool {
+            pool.insert(j);
+        }
+    }
+    (pool, author.reputation(&prior))
 }
 
 #[cfg(feature = "calibration")]
 #[test]
 fn full_epoch_filters_each_item_at_the_right_stage() {
-    let pool = run_epoch(&BTreeSet::new());
+    let (pool, _) = run_epoch(&BTreeSet::new());
 
     // The clean, cross-cutting quality items reach the pool.
     for good in EXPECTED_POOL {
@@ -307,9 +381,19 @@ fn full_epoch_filters_each_item_at_the_right_stage() {
         );
     }
     // Everything the two filters must stop is absent, each for its own reason:
-    // ESM (DIF), capital (no discrimination), wrong key (negative point-biserial),
-    // and the un-appealed polarized items 08/09 and real-health.
-    for bad in [ESM, CAPITAL, WRONG_KEY, REAL_HEALTH, 7, 8, 9] {
+    // ESM (DIF), capital (no discrimination), wrong key (negative point-biserial), the
+    // constitutional-majority item (too flat a 2PL slope in the screen), and the
+    // un-appealed polarized items 08/09 and real-health.
+    for bad in [
+        CONSTITUTIONAL,
+        ESM,
+        CAPITAL,
+        WRONG_KEY,
+        REAL_HEALTH,
+        7,
+        8,
+        9,
+    ] {
         assert!(!pool.contains(&bad), "item {bad} should not reach the pool");
     }
     // The "constitutional majority" item is a hard item with a guessing floor: fitting
@@ -327,10 +411,15 @@ fn esm_passes_bridging_and_is_stopped_by_dif_not_review() {
     // review does not see the bias, the data does.
     let ratings = load_ratings();
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
     assert_eq!(
-        bridging_gate(bridge[ESM], f.f_j[ESM], TAU, EPS, APPEAL_THRESHOLD),
+        bridging_gate(
+            bridge.robust[ESM],
+            bridge.full.gap[ESM],
+            TAU,
+            EPS,
+            APPEAL_GAP
+        ),
         GateOutcome::Pass,
         "ESM should pass peer review"
     );
@@ -364,27 +453,32 @@ fn appeal_recovers_a_true_but_divisive_item() {
     // lost, but the evidence vindicates it, so the appeal channel brings it back.
     let ratings = load_ratings();
     let params = BridgingParams::default();
-    let bridge = bridge_scores(&ratings, &params, 10, 0.85);
-    let f = fit(&ratings, &params);
+    let bridge = bridge_scores(&ratings, &params, 10, 0.85).unwrap();
     assert_eq!(
         bridging_gate(
-            bridge[REAL_HEALTH],
-            f.f_j[REAL_HEALTH],
+            bridge.robust[REAL_HEALTH],
+            bridge.full.gap[REAL_HEALTH],
             TAU,
             EPS,
-            APPEAL_THRESHOLD
+            APPEAL_GAP
         ),
         GateOutcome::AppealEligible,
         "a polarized item should be appeal-eligible, not a plain reject"
     );
 
-    let without = run_epoch(&BTreeSet::new());
+    let (without, reputation_without) = run_epoch(&BTreeSet::new());
     assert!(!without.contains(&REAL_HEALTH), "lost without an appeal");
 
-    let with = run_epoch(&BTreeSet::from([REAL_HEALTH]));
+    let (with, reputation_with) = run_epoch(&BTreeSet::from([REAL_HEALTH]));
     assert!(
         with.contains(&REAL_HEALTH),
         "recovered through the appeal channel"
+    );
+    // The stake was escrowed and, the item promoted, replaced by its measured quality: a
+    // good observation the author would not have without the appeal (D27, T61).
+    assert!(
+        reputation_with > reputation_without,
+        "reputation {reputation_with:.4} after a successful appeal vs {reputation_without:.4}"
     );
 }
 

@@ -41,8 +41,8 @@ fn permuted(base: &Ratings, shift: usize) -> Ratings {
 fn fit_is_bit_identical_under_input_permutation() {
     let p = BridgingParams::default();
     let base = sample();
-    let a = fit(&base, &p);
-    let b = fit(&permuted(&base, 7), &p);
+    let a = fit(&base, &p).unwrap();
+    let b = fit(&permuted(&base, 7), &p).unwrap();
     assert_eq!(a.b_j, b.b_j, "b_j must be permutation-invariant");
     assert_eq!(a.f_j, b.f_j, "f_j must be permutation-invariant");
     assert_eq!(a.mu, b.mu, "mu must be permutation-invariant");
@@ -52,10 +52,10 @@ fn fit_is_bit_identical_under_input_permutation() {
 fn bridge_scores_are_bit_identical_under_input_permutation() {
     let p = BridgingParams::default();
     let base = sample();
-    let s0 = bridge_scores(&base, &p, 10, 0.85);
-    let s1 = bridge_scores(&permuted(&base, 13), &p, 10, 0.85);
+    let s0 = bridge_scores(&base, &p, 10, 0.85).unwrap();
+    let s1 = bridge_scores(&permuted(&base, 13), &p, 10, 0.85).unwrap();
     assert_eq!(
         s0, s1,
-        "the bootstrap-min bridge scores must be permutation-invariant"
+        "the robust and full side-balanced scores must be permutation-invariant"
     );
 }

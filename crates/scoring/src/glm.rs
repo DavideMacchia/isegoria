@@ -1,5 +1,7 @@
 //! Logistic regression by maximum likelihood, shared by IRT item fits and DIF.
 
+use crate::fmath::{exp, ln_1p};
+
 use crate::optim::{lbfgs, Convergence};
 
 /// Whether a logistic fit's coefficients can be trusted (docs/08 OPT-001, IQ-1).
@@ -25,9 +27,9 @@ const SEPARATION_LOGIT: f64 = 30.0;
 #[inline]
 pub fn sigmoid(z: f64) -> f64 {
     if z >= 0.0 {
-        1.0 / (1.0 + (-z).exp())
+        1.0 / (1.0 + exp(-z))
     } else {
-        let e = z.exp();
+        let e = exp(z);
         e / (1.0 + e)
     }
 }
@@ -35,9 +37,9 @@ pub fn sigmoid(z: f64) -> f64 {
 #[inline]
 fn softplus(z: f64) -> f64 {
     if z > 0.0 {
-        z + (-z).exp().ln_1p()
+        z + ln_1p(exp(-z))
     } else {
-        z.exp().ln_1p()
+        ln_1p(exp(z))
     }
 }
 

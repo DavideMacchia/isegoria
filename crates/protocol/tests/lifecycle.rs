@@ -10,7 +10,7 @@ use protocol::deposit::{deposit, DepositRejected, Draft};
 use protocol::exposure::{
     least_exposed_variant, should_retire, ExposureLedger, ItemHealth, RetirementReason, Template,
 };
-use protocol::gate::{bridging_gate, settle_appeal, GateOutcome};
+use protocol::gate::{bridging_gate, GateOutcome, APPEAL_GAP, EPS, TAU};
 use protocol::governance::{change_approved, stratified_sortition, Candidate};
 use protocol::honeypot::{inject, reviewer_skills, HONEYPOT_RATE};
 use protocol::lottery::admit;
@@ -22,9 +22,6 @@ use protocol::revalidation::items_to_retire;
 #[cfg(feature = "calibration")]
 use protocol::revalidation::revalidate_pool;
 use protocol::review::{assign_reviewers, commit, reveal, Reviewer};
-
-const TAU: f64 = 0.08;
-const EPS: f64 = 0.008;
 
 #[test]
 fn deposit_requires_a_primary_source_and_records_on_the_log() {
@@ -145,30 +142,25 @@ fn commit_reveal_binds_the_judgment() {
 #[test]
 fn bridging_gate_covers_pass_band_reject_and_appeal() {
     // clearly above the band → pass
-    assert_eq!(bridging_gate(0.20, 0.0, TAU, EPS, 0.5), GateOutcome::Pass);
+    assert_eq!(
+        bridging_gate(0.90, 0.0, TAU, EPS, APPEAL_GAP),
+        GateOutcome::Pass
+    );
     // inside the band → supplementary review
     assert_eq!(
-        bridging_gate(TAU, 0.0, TAU, EPS, 0.5),
+        bridging_gate(TAU, 0.0, TAU, EPS, APPEAL_GAP),
         GateOutcome::SupplementaryReview
     );
-    // below band, low polarization → plain reject (defect)
+    // below band, the two sides agree → plain reject (defect)
     assert_eq!(
-        bridging_gate(-0.30, 0.1, TAU, EPS, 0.5),
+        bridging_gate(0.30, 0.1, TAU, EPS, APPEAL_GAP),
         GateOutcome::Reject
     );
-    // below band, high polarization → appeal eligible (true-but-divisive)
+    // below band, the two sides disagree → appeal eligible (true-but-divisive)
     assert_eq!(
-        bridging_gate(-0.30, 1.6, TAU, EPS, 0.5),
+        bridging_gate(0.30, 0.6, TAU, EPS, APPEAL_GAP),
         GateOutcome::AppealEligible
     );
-}
-
-#[test]
-fn appeal_refunds_when_evidence_promotes_the_item() {
-    // Promoted: stake refunded and the author gains for being right against opinion.
-    assert!((settle_appeal(1.0, 0.3, true, 0.2) - 1.2).abs() < 1e-9);
-    // Rejected: stake lost.
-    assert!((settle_appeal(1.0, 0.3, false, 0.2) - 0.7).abs() < 1e-9);
 }
 
 #[test]

@@ -7,12 +7,16 @@ implement first; the simulations in `sim/` are its executable spec.
 Notation: `u,v` nodes/reviewers; `j` questions (items); `i` respondents; `θ_i` the
 respondent's latent competence.
 
-> **Pending revisions (decided 2026-09-24, not yet implemented).** The working paper
-> (`paper/`) found properties of this specification that `docs/01` D32–D41 correct; the
-> tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap. Until they land, the text below describes the
-> implemented behaviour, and the marked sections are superseded by the decisions:
-> §A.3 score and threshold (D32), §B.3 latent-class DIF (D37, D38), §C.2 evaluator score
-> (D33, D35), §C.4 temporal asymmetry and cap (D33, D34, D36), anti-collusion (D39, D40).
+> **Revisions from the working paper (decided 2026-09-24).** The working paper
+> (`paper/`, version 0.2) found properties of this specification that `docs/01` D32–D41
+> correct; the tasks are `docs/10` Phase 1.1 (T49–T57), the first phase of the roadmap.
+> D32 is implemented (T49, 2026-09-24): §A.3 below describes the side-balanced score as
+> built, with the amendment (appeal eligibility by the side gap) and the measured limits
+> the paper does not have. Until the others land, the text describes the implemented
+> behaviour, and the marked sections are superseded by the decisions: §B.3 latent-class
+> DIF (D37, D38), §C.2 evaluator score (D33, D35), §C.4 temporal asymmetry and cap (D33,
+> D34, D36), anti-collusion (D39, D40). `paper/README.md` lists what changed since the
+> paper's snapshot.
 
 ---
 
@@ -29,7 +33,8 @@ r̂_uj = μ + b_u + b_j + ⟨f_u , f_j⟩          f ∈ ℝ^d,  d = 1 or 2
 
 - `μ` : global mean
 - `b_u` : reviewer bias (individual severity/generosity)
-- `b_j` : **question intercept — this is the score we care about**
+- `b_j` : question intercept, reported by the fit; the score the gate reads is the
+  side-balanced approval of §A.3 (D32)
 - `f_u` : reviewer latent position (ideological axis, discovered from the data)
 - `f_j` : how much the question "speaks" to that axis
 
@@ -47,28 +52,58 @@ By penalizing the intercepts heavily, the model is forced to explain approval *f
 through the polarization factors `⟨f_u,f_j⟩`. Only approval that **cannot** be
 explained as "my faction likes it" survives in `b_j`.
 
-- A question that one camp likes a lot → large `f_j`, small `b_j` → **discarded**.
-- A question approved by reviewers with opposite-sign `f_u` → large `b_j` → **passes**.
+- A question that one camp likes a lot → large `f_j`: the two sides' predicted approval
+  differs and its mean stays low → **discarded**.
+- A question approved by reviewers with opposite-sign `f_u` → both sides' predicted
+  approval is high → **passes**.
 
 ### A.3 Score and threshold
 
-**Bridge score:** `B_j = b_j`. Accepted if `B_j ≥ τ`.
+**Bridge score (D32, T49): the side-balanced predicted approval.** After the fit, the
+reviewers are split into two sides by a deterministic one-dimensional 2-means on `f_u`,
+initialized at its minimum and maximum. For each question the model's predicted ratings
+`r̂_uj` — every reviewer's, whether or not they rated it — are averaged within each
+side, `A_j` and `B_j`, and the score is
 
-> **Superseded by D32 (T49).** `b_j` sums to zero over the batch and keeps 53–87% of the
-> camp-size effect (paper §3.3–3.4). The gate will read the *side-balanced predicted
-> approval*: reviewers split into two sides by 2-means on `f_u`, predicted ratings `r̂_uj`
-> averaged per side, the two sides averaged with equal weight; absolute threshold
-> `τ ≈ 0.80` on the probability scale (provisional).
+```
+S_j = (A_j + B_j) / 2
+```
 
-**The threshold must be calibrated on real data**, not fixed a priori. In testing,
-the Community Notes reference value (0.40, on binary votes) proved inadequate at this
-scale; the useful value was around `τ = 0.08`. Always recalibrate during the pilot.
+so each side counts once, whatever its size, and the score lives on the scale of the
+declared probability. Accepted if `S_j ≥ τ`, with `τ ≈ 0.80` **provisional**: on the
+reference simulation the consensus items score 0.83–0.86, the partisan items 0.53–0.56
+and the mildly partisan one 0.70 (`sim/bridging_irt_dif.py`). Calibrate on the pilot
+(T25).
+
+*Why not the intercept.* `b_j` is relative to its batch (`Σ_j b_j = 0` at every
+stationary point, with `μ` unpenalized) and partly majoritarian: its origin is a gauge
+fixed only by the penalties, which at the default `λ_b / λ_f` leaves 53–87% of the
+camp-size effect in the score (paper §3.3–3.4, `docs/08` BRIDGE-008/009). The
+predictions depend on neither. On mirror-image partisan items the side-balanced score
+leaks at most 0.1 of the camp-size effect from 200 reviewers up (`AT-BR-08`); with
+50–100 reviewers — a handful of minority ratings per item — the fit shrinks `f` and a
+residual leak of 0.1–0.2 remains, a fraction of the intercept's. With a minority side of
+about ten reviewers the side means are noisy: on the review's dataset at 95/5 one
+consensus item in eight fell to 0.78. A floor on the minority side is a calibration
+item (T25).
+
+**Polarization.** The gap `|A_j − B_j|` between the two sides is the question's
+polarization. It feeds the appeal rule of `docs/05` [5b] — a question rejected with a
+wide gap was rejected for polarization, not for a defect — with a provisional threshold
+of 0.25, between the reference simulation's consensus items (≤ 0.02) and its mildly
+partisan one (0.30). It replaces `|f_j|`, which *falls* as the camps become unequal
+(`docs/08` §0-quinquies, BRIDGE-009).
 
 **Uncertainty band (correction from testing).** Scores cluster near the threshold:
 questions separated by thousandths end up one inside and one outside for pure noise.
 Do not use a hard cut: define a band `[τ−ε, τ+ε]` in which questions go to
-supplementary review instead of being decided by the exact value. `ε` to be tuned (in
-testing the critical band was ~0.008 wide).
+supplementary review instead of being decided by the exact value. `ε ≈ 0.02`
+provisional, about three times the bootstrap spread of `S_j` on the reference fixtures
+(≤ 0.006); to be tuned (T25).
+
+*History.* Until T49 the gate read the intercept `b_j` against `τ ≈ 0.08` with
+`ε ≈ 0.008`: the Community Notes reference value (0.40, on binary votes) proved
+inadequate at this scale, and the useful value on the intercept was around 0.08.
 
 ### A.4 Robustness
 
@@ -77,8 +112,8 @@ testing the critical band was ~0.008 wide).
   starts (8 in the reference implementation) and keep the lowest objective; report `f`
   in a canonical sign (it is identified only up to sign).
 - Run the fit on `m = 10` bootstrap subsamples (random removal of ~15% of judgments)
-  and take `B_j = min_s b_j^(s)` (pessimistic estimate): a question must pass in all
-  repetitions.
+  and take the minimum of the side-balanced score over them, `min_s S_j^(s)`
+  (pessimistic estimate): a question must pass in all repetitions.
 - `d = 2` if society has more than one fracture axis (e.g. right/left + urban/rural).
   `d` chosen empirically by maximizing explained variance on historical data. Note:
   Community Notes essentially bridges on a binary axis; `d=2` is the generalization.
@@ -89,7 +124,11 @@ testing the critical band was ~0.008 wide).
 
 L-BFGS-B with an analytic gradient. The gradient with respect to each parameter block
 is in the prototype (`sim/bridging_irt_dif.py`, function `fit`). Attention point for
-reproducibility: fix the initialization seed and the iteration order.
+reproducibility: fix the initialization seed and the iteration order. The transcendental
+functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from one pure-Rust implementation
+(the `libm` crate, `scoring::fmath`), not from the platform's libm, so the same input
+gives the same bits on every platform and in every build profile (INV-7, `docs/08`
+AT-BR-04).
 
 ---
 
@@ -265,7 +304,9 @@ per-class item parameters without observing the group. It is far more data-hungr
 1. **Evidence-filter correctness (the binding one).** Each batch needs ~1500–3000
    *distinct* respondents — not many answers from few people: DIF needs different people
    spread across competence and latent groups. Below ~1500–2000 active answerers in the
-   validation window, Level B cannot run as specified.
+   validation window, Level B cannot run as specified. The floors are enforced on
+   persons: the protocol counts the `Respond` nullifiers admitted to the batch, never the
+   answer rows (T65).
 2. **Level A identifiability.** The matrix factorization recovers the axis `f` only with
    enough overlapping judgments; the spec already sets `n_min = 30` reviews per node to
    enter the `f`-space (§A.4) and `k = 7–11` reviewers per item. This needs at least a
@@ -321,6 +362,14 @@ author B (180/200) → 182/205 ≈ 89%.
 ```
 q_a = q_min + (q_max − q_min) · C_a
 ```
+
+**Appeal stake (`01` D27, `05` [5b]).** An appeal is a pseudo-observation *inside* this
+average, not a deduction from it: filing appends `q = 0` at `Δt = 0` (the escrow); the
+verdict replaces it with the item's real `q_j` if the pilot promotes the item and leaves
+it otherwise. The stake floor is the prior mean `α₀ / (α₀ + β₀)` (0.4 with `Beta(2,3)`):
+an author files only while `C_a` covers it, so a failed appeal costs the next one until
+the evidence has restored the average. There is no additive gain — the reward for being
+right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
 
 ### C.2 Evaluator score `E_u`
 
@@ -421,8 +470,9 @@ conservatively.
 | Parameter | Value | Notes |
 |---|---|---|
 | `λ_b / λ_f` | 0.15 / 0.03 | ratio ≈ 5:1, recalibrate |
-| `τ` (bridging threshold) | ~0.08 | **calibrate on the pilot**, not fixed |
-| `ε` (uncertainty band) | ~0.008 | questions in the band → supplementary review |
+| `τ` (bridging threshold, on `S_j`) | ~0.80 (provisional, D32) | absolute, on the probability scale; **calibrate on the pilot**, not fixed |
+| `ε` (uncertainty band) | ~0.02 (provisional) | questions in the band → supplementary review; ≈ 3× the bootstrap spread of `S_j` |
+| `γ_appeal` (side gap for appeal) | 0.25 (provisional) | a rejected question with a wider gap was rejected for polarization: appealable (`05` [5b]) |
 | `d` (factors) | 1 → 2 | start from 1 |
 | `k` (reviewers/item) | 7–11 | odd, random assignment stratified on `f_u` |
 | `N` pilot stage 1 | ~300 | cheap classical screen (see §B.6) |

@@ -48,8 +48,9 @@ pub enum State {
         reveals: Vec<(Nym, f64)>,
     },
     /// Borderline band: awaiting the D26 re-decision (`Event::Resolve`), which re-runs
-    /// bridging over the expanded panel and re-decides `b_j` against the plain threshold
-    /// (PROTO-008/PROTO-012 closed, roadmap T10/T30).
+    /// bridging over the expanded panel and re-decides the side-balanced score against
+    /// the plain threshold (PROTO-008/PROTO-012 closed, roadmap T10/T30); a polarized
+    /// item that fails it keeps the appeal channel (D26 amendment, T59).
     SupplementaryReview,
     AppealEligible,
     Pilot1 {
@@ -152,9 +153,12 @@ pub enum Event {
     /// Reveal deadline reached; the epoch is scored. Refused unless every panelist has
     /// revealed (checked against the state, not asserted by the caller).
     Score { outcome: GateOutcome },
-    /// The D26 supplementary re-decision of a band item: `passed` is `gate::
-    /// supplementary_review` (a re-run bridging fit, `b_j` vs the plain threshold).
-    Resolve { passed: bool },
+    /// The D26 supplementary re-decision of a band item: `outcome` is
+    /// `gate::supplementary_review` (a re-run bridging fit, the side-balanced score vs
+    /// the plain threshold) — `Pass`, or, below it, the below-band rule of the gate:
+    /// `AppealEligible` for a polarized item, `Reject` for a defect (D26 amendment,
+    /// T59). `SupplementaryReview` is not an outcome of a re-decision and is refused.
+    Resolve { outcome: GateOutcome },
     /// The author appeals a polarization rejection.
     Appeal {
         within_window: bool,
@@ -296,13 +300,16 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             })
         }
 
-        // SupplementaryReview → the D26 re-decision (T10/T30): the re-run bridging fit
-        // either lifts b_j over the threshold (→ pilot) or it does not (→ borderline reject).
-        (SupplementaryReview, Resolve { passed }) => Ok(if passed {
-            Pilot1 { appealed: false }
-        } else {
-            Rejected(RejectReason::Borderline)
-        }),
+        // SupplementaryReview → the D26 re-decision (T10/T30, amended by T59): the re-run
+        // bridging fit lifts the score over the plain threshold (→ pilot) or it does not —
+        // then a polarized item keeps the appeal channel (→ AppealEligible) and a defect is
+        // a borderline reject. A second band is not an outcome of a re-decision.
+        (SupplementaryReview, Resolve { outcome }) => match outcome {
+            GateOutcome::Pass => Ok(Pilot1 { appealed: false }),
+            GateOutcome::AppealEligible => Ok(AppealEligible),
+            GateOutcome::Reject => Ok(Rejected(RejectReason::Borderline)),
+            GateOutcome::SupplementaryReview => Err(Invalid::UnexpectedEvent),
+        },
 
         // AppealEligible: appeal within the window with reputation to cover the stake.
         (

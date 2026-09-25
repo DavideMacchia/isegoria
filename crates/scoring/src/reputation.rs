@@ -4,6 +4,8 @@
 //! score `C_a` gates the proposal rate limit; the evaluator score `E_u` weights the
 //! review vote. They live on separate, unlinkable pseudonyms.
 
+use crate::fmath::exp;
+
 use crate::glm::sigmoid;
 
 // -------------------------- C.1 author score --------------------------
@@ -32,7 +34,7 @@ pub fn author_score(qualities: &[f64], ages_months: &[f64], prior: &AuthorPrior)
     let mut sum_wq = 0.0;
     let mut sum_w = 0.0;
     for (q, age) in qualities.iter().zip(ages_months.iter()) {
-        let w = (-age / prior.decay_months).exp();
+        let w = exp(-age / prior.decay_months);
         sum_wq += w * q;
         sum_w += w;
     }

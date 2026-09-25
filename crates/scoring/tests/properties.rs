@@ -8,7 +8,7 @@
 //! about the start point, not the model (`docs/10` T40).
 
 use proptest::prelude::*;
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Obs, Ratings};
+use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, Ratings};
 use scoring::collusion::{correlation_matrix, discount_weights, sublinear_group_weight};
 use scoring::irt::{point_biserial, theta_from_anchors};
 use scoring::reputation::{
@@ -52,7 +52,7 @@ proptest! {
     #[test]
     fn bridging_is_deterministic(data in ratings()) {
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&data, &p), &fit(&data, &p)));
+        prop_assert!(same_fit(&fit(&data, &p).unwrap(), &fit(&data, &p).unwrap()));
     }
 
     /// INV-13: the order observations arrive in cannot change the result.
@@ -64,7 +64,7 @@ proptest! {
             (o.u as u64 ^ key).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (o.j as u64)
         });
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&data, &p), &fit(&shuffled, &p)));
+        prop_assert!(same_fit(&fit(&data, &p).unwrap(), &fit(&shuffled, &p).unwrap()));
     }
 
     /// Weight 0 (probation) means absent: zeroing a reviewer's weight gives exactly the
@@ -81,13 +81,13 @@ proptest! {
         let mut absent = data.clone().with_weights(w);
         absent.obs.retain(|o| o.u != u);
         let p = BridgingParams::default();
-        prop_assert!(same_fit(&fit(&zeroed, &p), &fit(&absent, &p)));
+        prop_assert!(same_fit(&fit(&zeroed, &p).unwrap(), &fit(&absent, &p).unwrap()));
     }
 
     /// Finite ratings and weights give finite scores.
     #[test]
     fn bridging_outputs_are_finite(data in ratings()) {
-        let f = fit(&data, &BridgingParams::default());
+        let f = fit(&data, &BridgingParams::default()).unwrap();
         prop_assert!(f.mu.is_finite());
         for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
             prop_assert!(v.is_finite());
@@ -98,20 +98,38 @@ proptest! {
     /// non-negative, so draws that order reviewers by `f_u` do not flip with the start.
     #[test]
     fn the_latent_axis_has_a_canonical_sign(data in ratings()) {
-        let f = fit(&data, &BridgingParams::default());
+        let f = fit(&data, &BridgingParams::default()).unwrap();
         let lead = f.f_j.iter().copied().fold(0.0_f64, |b, v| if v.abs() > b.abs() { v } else { b });
         prop_assert!(lead >= 0.0, "leading f_j = {lead}");
     }
 
-    /// The robust score is pessimistic: never above the full-data fit.
+    /// The robust score is pessimistic: never above the full-data fit's side-balanced
+    /// score, which travels with it.
     #[test]
     fn the_bootstrap_minimum_never_exceeds_the_full_fit(data in ratings()) {
         let p = BridgingParams::default();
-        let full = fit(&data, &p);
-        let robust = bridge_scores(&data, &p, 5, 0.85);
-        for (j, (b, f)) in robust.iter().zip(&full.b_j).enumerate() {
+        let full = side_balanced(&fit(&data, &p).unwrap());
+        let bridge = bridge_scores(&data, &p, 5, 0.85).unwrap();
+        prop_assert_eq!(&bridge.full, &full);
+        for (j, (b, f)) in bridge.robust.iter().zip(&full.score).enumerate() {
             prop_assert!(b <= f, "item {j}: bootstrap {b} > full {f}");
         }
+    }
+
+    /// The side-balanced score is symmetric in the sign of `f` (D32): negating the axis
+    /// swaps the two sides and leaves the score and the gap bit for bit (T49).
+    #[test]
+    fn the_side_balanced_score_is_symmetric_in_the_sign_of_f(data in ratings()) {
+        let f = fit(&data, &BridgingParams::default()).unwrap();
+        let mut flipped = f.clone();
+        for v in flipped.f_u.iter_mut().chain(flipped.f_j.iter_mut()) {
+            *v = -*v;
+        }
+        let (a, b) = (side_balanced(&f), side_balanced(&flipped));
+        prop_assert_eq!(bits(&a.score), bits(&b.score));
+        prop_assert_eq!(bits(&a.gap), bits(&b.gap));
+        prop_assert_eq!(bits(&a.side_a), bits(&b.side_b));
+        prop_assert_eq!(bits(&a.side_b), bits(&b.side_a));
     }
 }
 

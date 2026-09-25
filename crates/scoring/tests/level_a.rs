@@ -1,8 +1,11 @@
 //! Level A acceptance tests, run on the same dataset as `sim/bridging_irt_dif.py`
-//! (exported by `sim/export_fixtures.py`). Oracle: μ=0.7552, |corr(axis)|=0.9898,
-//! b_j=[0.108, 0.081, -0.117, 0.092, 0.104, 0.080, 0.084, -0.155, -0.262, -0.020].
+//! (exported by `sim/export_fixtures.py`). Oracle: μ=0.7551, |corr(axis)|=0.9898,
+//! b_j=[0.108, 0.081, -0.117, 0.092, 0.105, 0.080, 0.084, -0.155, -0.262, -0.020]; the
+//! side-balanced score (D32, T49) S_j=[0.862, 0.835, 0.569, 0.841, 0.858, 0.835, 0.839,
+//! 0.527, 0.562, 0.705] with side gaps [0.01, 0.02, 0.67, 0.06, 0.02, 0.01, 0.00, 0.71,
+//! 0.67, 0.30]; sides of 80 (camp A) and 120 (camp B) reviewers.
 
-use scoring::bridging::{bridge_scores, fit, BridgingParams, Obs, Ratings};
+use scoring::bridging::{bridge_scores, fit, side_balanced, BridgingParams, Obs, Ratings, Side};
 use scoring::Convergence;
 use std::fs;
 use std::path::PathBuf;
@@ -28,14 +31,27 @@ fn read_vector(name: &str) -> Vec<f64> {
     read_matrix(name).into_iter().map(|row| row[0]).collect()
 }
 
-fn read_expected_bj() -> Vec<f64> {
+/// Column `col` of `expected_levelA.csv`: 4 = `bj_full`, 6..=9 = `side_a_full`,
+/// `side_b_full`, `side_full`, `gap_full`.
+fn read_expected(col: usize) -> Vec<f64> {
     let path = fixtures_dir().join("expected_levelA.csv");
     let text = fs::read_to_string(&path).unwrap();
     text.lines()
         .skip(1)
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.split(',').nth(4).unwrap().trim().parse::<f64>().unwrap())
+        .map(|l| {
+            l.split(',')
+                .nth(col)
+                .unwrap()
+                .trim()
+                .parse::<f64>()
+                .unwrap()
+        })
         .collect()
+}
+
+fn read_expected_bj() -> Vec<f64> {
+    read_expected(4)
 }
 
 fn load_ratings() -> Ratings {
@@ -65,7 +81,9 @@ fn pearson_abs(a: &[f64], b: &[f64]) -> f64 {
     (cov / (va.sqrt() * vb.sqrt())).abs()
 }
 
-const TAU: f64 = 0.08;
+/// The provisional threshold on the side-balanced score (`docs/02` §A.3, D32;
+/// `protocol::gate::TAU`).
+const TAU: f64 = 0.80;
 
 #[test]
 fn fit_reproduces_oracle_on_identical_dataset() {
@@ -73,7 +91,7 @@ fn fit_reproduces_oracle_on_identical_dataset() {
     let expected = read_expected_bj();
     let true_f = read_vector("true_f.csv");
 
-    let f = fit(&data, &BridgingParams::default());
+    let f = fit(&data, &BridgingParams::default()).unwrap();
     assert_eq!(f.status, Convergence::Converged);
 
     assert!((f.mu - 0.7552).abs() < 0.002, "mu = {:.4}", f.mu);
@@ -91,25 +109,89 @@ fn fit_reproduces_oracle_on_identical_dataset() {
             bj_exp
         );
     }
+
+    // The side-balanced score (D32, T49): averages of the same predictions over the two
+    // sides, so the fit's agreement carries over. The oracle's side 0 is whichever side
+    // its (sign-arbitrary) fit put at the low end of the axis, so the two side means are
+    // compared as an unordered pair.
+    let sides = side_balanced(&f);
+    let (exp_a, exp_b) = (read_expected(6), read_expected(7));
+    let (exp_score, exp_gap) = (read_expected(8), read_expected(9));
+    for j in 0..data.m {
+        let (lo, hi) = (
+            sides.side_a[j].min(sides.side_b[j]),
+            sides.side_a[j].max(sides.side_b[j]),
+        );
+        let (exp_lo, exp_hi) = (exp_a[j].min(exp_b[j]), exp_a[j].max(exp_b[j]));
+        assert!(
+            (lo - exp_lo).abs() < 0.004,
+            "side lo[{j}] = {lo:.4} vs {exp_lo:.4}"
+        );
+        assert!(
+            (hi - exp_hi).abs() < 0.004,
+            "side hi[{j}] = {hi:.4} vs {exp_hi:.4}"
+        );
+        assert!(
+            (sides.score[j] - exp_score[j]).abs() < 0.004,
+            "S_j[{j}] = {:.4}, expected {:.4}",
+            sides.score[j],
+            exp_score[j]
+        );
+        assert!(
+            (sides.gap[j] - exp_gap[j]).abs() < 0.008,
+            "gap[{j}] = {:.4}, expected {:.4}",
+            sides.gap[j],
+            exp_gap[j]
+        );
+    }
+    // 2-means separates the two camps exactly: 80 reviewers on one side, 120 on the other.
+    let n_a = sides.side.iter().filter(|s| **s == Side::A).count();
+    assert!(
+        (n_a, data.n - n_a) == (80, 120) || (n_a, data.n - n_a) == (120, 80),
+        "sides of {n_a} and {}",
+        data.n - n_a
+    );
+    for (u, s) in sides.side.iter().enumerate() {
+        let camp_b = true_f[u] > 0.0;
+        let side_b = *s == Side::B;
+        // Whichever orientation, every reviewer of a camp is on the same side.
+        assert_eq!(
+            camp_b == side_b,
+            (true_f[0] > 0.0) == (sides.side[0] == Side::B)
+        );
+    }
 }
 
 #[test]
 fn asymmetric_regularization_separates_bridging_from_majority() {
     let data = load_ratings();
-    let f = fit(&data, &BridgingParams::default());
+    let f = fit(&data, &BridgingParams::default()).unwrap();
+    let sides = side_balanced(&f);
 
-    // Polarized items (large |f_j|) are rejected even when heavily voted.
+    // Polarized items: one side likes them and the other does not — a wide gap and a
+    // score below τ whichever side is the majority (D32) — and a large axis loading.
     for &j in &[2usize, 7, 8, 9] {
-        assert!(f.b_j[j] < TAU, "polarized item {j}: B_j = {:.4}", f.b_j[j]);
+        assert!(
+            sides.score[j] < TAU,
+            "polarized item {j}: S_j = {:.4}",
+            sides.score[j]
+        );
+        assert!(sides.gap[j] > 0.25, "item {j}: gap = {:.3}", sides.gap[j]);
         assert!(
             f.f_j[j].abs() > 0.4,
             "item {j}: |f_j| = {:.3}",
             f.f_j[j].abs()
         );
     }
-    // Cross-cutting quality items pass.
+    // Cross-cutting quality items: both sides approve, so the sides agree and the score
+    // is the approval itself.
     for &j in &[0usize, 3, 4] {
-        assert!(f.b_j[j] >= TAU, "neutral item {j}: B_j = {:.4}", f.b_j[j]);
+        assert!(
+            sides.score[j] >= TAU,
+            "neutral item {j}: S_j = {:.4}",
+            sides.score[j]
+        );
+        assert!(sides.gap[j] < 0.1, "item {j}: gap = {:.3}", sides.gap[j]);
         assert!(
             f.f_j[j].abs() < 0.4,
             "item {j}: |f_j| = {:.3}",
@@ -122,35 +204,51 @@ fn asymmetric_regularization_separates_bridging_from_majority() {
 fn bootstrap_min_is_pessimistic() {
     let data = load_ratings();
     let p = BridgingParams::default();
-    let full = fit(&data, &p);
-    let bridge = bridge_scores(&data, &p, 10, 0.85);
+    let full = side_balanced(&fit(&data, &p).unwrap());
+    let bridge = bridge_scores(&data, &p, 10, 0.85).unwrap();
+    assert_eq!(
+        bridge.full, full,
+        "the full fit's side scores travel with the robust ones"
+    );
 
-    for (j, &b) in bridge.iter().enumerate() {
+    for (j, &b) in bridge.robust.iter().enumerate() {
         assert!(
-            b <= full.b_j[j] + 1e-6,
-            "bridge[{j}]={:.4} full={:.4}",
+            b <= full.score[j] + 1e-6,
+            "robust[{j}]={:.4} full={:.4}",
             b,
-            full.b_j[j]
+            full.score[j]
         );
     }
     // "≤ full" holds trivially if the minimum is never updated (it starts at the full
     // fit): the subsamples must actually pull some scores down (T41).
-    let lowered = (0..bridge.len())
-        .filter(|&j| bridge[j] < full.b_j[j] - 1e-4)
+    let lowered = (0..bridge.robust.len())
+        .filter(|&j| bridge.robust[j] < full.score[j] - 1e-4)
         .count();
-    assert!(lowered >= bridge.len() / 2, "only {lowered} scores lowered");
+    assert!(
+        lowered >= bridge.robust.len() / 2,
+        "only {lowered} scores lowered"
+    );
     for &j in &[2usize, 7, 8, 9] {
-        assert!(bridge[j] < TAU, "bridge[{j}] = {:.4}", bridge[j]);
+        assert!(
+            bridge.robust[j] < TAU,
+            "robust[{j}] = {:.4}",
+            bridge.robust[j]
+        );
     }
     for &j in &[0usize, 4] {
-        assert!(bridge[j] >= TAU, "bridge[{j}] = {:.4}", bridge[j]);
+        assert!(
+            bridge.robust[j] >= TAU,
+            "robust[{j}] = {:.4}",
+            bridge.robust[j]
+        );
     }
 }
 
 #[test]
 fn corner_case_bipartisan_corruption_cost() {
     // docs/06: with bridging, pushing a partisan item (idx 7) requires corrupting
-    // the OPPOSING field. b_j must rise monotonically with the opposing-field count.
+    // the OPPOSING field. The score must rise monotonically with the opposing-field
+    // count — and only the opposing field can lift the side that dislikes the item.
     let base = load_ratings();
     let true_f = read_vector("true_f.csv");
     let field_b: Vec<usize> = (0..base.n).filter(|&u| true_f[u] > 0.0).collect();
@@ -179,7 +277,7 @@ fn corner_case_bipartisan_corruption_cost() {
             obs,
             weights: base.weights.clone(),
         };
-        fit(&data, &BridgingParams::default()).b_j[item]
+        side_balanced(&fit(&data, &BridgingParams::default()).unwrap()).score[item]
     };
 
     let (s0, s20, s40, s70) = (scored(0), scored(20), scored(40), scored(70));
@@ -202,7 +300,7 @@ fn an_empty_rating_matrix_has_no_reviewers_items_or_observations() {
 #[test]
 fn bridging_scores_do_not_depend_on_the_seed() {
     let data = load_ratings();
-    let base = fit(&data, &BridgingParams::default());
+    let base = fit(&data, &BridgingParams::default()).unwrap();
     for seed in 1..8u64 {
         let f = fit(
             &data,
@@ -210,7 +308,9 @@ fn bridging_scores_do_not_depend_on_the_seed() {
                 seed: seed * 1000,
                 ..BridgingParams::default()
             },
-        );
+        )
+        .unwrap();
+        let (s_base, s_f) = (side_balanced(&base), side_balanced(&f));
         for j in 0..data.m {
             assert!(
                 (f.b_j[j] - base.b_j[j]).abs() < 1e-4,
@@ -218,6 +318,13 @@ fn bridging_scores_do_not_depend_on_the_seed() {
                 seed * 1000,
                 f.b_j[j],
                 base.b_j[j]
+            );
+            assert!(
+                (s_f.score[j] - s_base.score[j]).abs() < 1e-4,
+                "seed {}: S_j[{j}] = {:.5} vs {:.5}",
+                seed * 1000,
+                s_f.score[j],
+                s_base.score[j]
             );
             assert!(
                 (f.f_j[j] - base.f_j[j]).abs() < 1e-3,
@@ -241,7 +348,8 @@ fn a_single_start_can_land_in_a_worse_minimum() {
             n_starts: 1,
             ..BridgingParams::default()
         },
-    );
+    )
+    .unwrap();
     assert!(single.b_j[8] > 0.5, "b_j[8] = {:.3}", single.b_j[8]);
     let multi = fit(
         &data,
@@ -249,7 +357,8 @@ fn a_single_start_can_land_in_a_worse_minimum() {
             seed: 5,
             ..BridgingParams::default()
         },
-    );
+    )
+    .unwrap();
     assert!(multi.b_j[8] < 0.0, "b_j[8] = {:.3}", multi.b_j[8]);
 }
 
@@ -259,9 +368,13 @@ fn a_single_start_can_land_in_a_worse_minimum() {
 fn a_fit_with_every_weight_zero_is_finite() {
     let data = load_ratings();
     let n = data.n;
-    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default());
+    let f = fit(&data.with_weights(vec![0.0; n]), &BridgingParams::default()).unwrap();
     assert!(f.mu.is_finite());
     for v in f.b_j.iter().chain(&f.f_j).chain(&f.b_u).chain(&f.f_u) {
+        assert!(v.is_finite());
+    }
+    let sides = side_balanced(&f);
+    for v in sides.score.iter().chain(&sides.gap) {
         assert!(v.is_finite());
     }
 }

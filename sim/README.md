@@ -17,8 +17,10 @@ pip install numpy scipy
 End-to-end simulation over 10 civic questions, 200 reviewers (a 60/40 unbalanced
 network), 1500 respondents with 30 anchor items. Covers:
 
-- **Level A** — bridging with asymmetric regularization, bootstrap-min, latent axis
-  recovery
+- **Level A** — bridging with asymmetric regularization; the side-balanced score `S_j`
+  (two sides by 2-means on `f_u`, the model's predicted approval averaged per side, the
+  two averaged again; `docs/02` §A.3, D32) with its bootstrap-min and side gap; latent
+  axis recovery
 - **Level B** — IRT, point-biserial, DIF via logistic regression, purified via
   anchors
 - **Combined verdict** of the two filters
@@ -34,10 +36,14 @@ threshold (`TAU`), the item leans.
 
 Expected results (indicative, seed-dependent):
 - latent axis recovered with correlation ~0.99
+- the consensus items score `S_j` ≈ 0.83–0.86 and pass at τ = 0.80; the partisan items
+  (0.53–0.56) and the mildly partisan one (0.70) drop; the intercept `b_j` is printed
+  alongside for comparison
 - the MES item passes bridging but is stopped by DIF (β₂ ≈ 0.7)
 - "follows the peer average" → negative BSS; "psychometric expert" → BSS ~0.95
 - elite consensus: political DIF ≈ 0, education DIF ≈ 0.66
-- bipartisan corruption: ~70/80 nodes of the opposing camp are needed to pass the item
+- bipartisan corruption: ~55/80 nodes of the opposing camp are needed to pass the item
+  (`S_j` 0.76 with 40, 0.83 with 55)
 
 ### `latent_dif_and_capacity.py`
 

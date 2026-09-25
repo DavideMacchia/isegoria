@@ -27,7 +27,8 @@ Four rules shape every crate:
    independently re-runnable to catch a dishonest signer.
 2. **Determinism is a security property, not an optimization.** Given identical
    input, the engine produces identical output, bit-for-bit (pinned toolchain,
-   seeded RNGs, fixed iteration order). See [Reproducibility](#reproducibility).
+   seeded RNGs, fixed iteration order, one pure-Rust implementation of the
+   transcendental functions). See [Reproducibility](#reproducibility).
 3. **Prefer mature crypto; roll our own only with a high bar.** Heavy primitives
    enter behind traits; production wires them to mature, audited libraries. Bespoke
    cryptography is allowed when it genuinely serves the design (no suitable library,
@@ -160,14 +161,15 @@ steps are seeded for reproducibility.
 | `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
 | `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
-| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30), `settle_appeal` | `scoring::bridging` |
+| `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
+| `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
 | `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
 | `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
-| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12) | `lifecycle`, `probation`, `scoring::bridging` |
+| `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 
 Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
@@ -197,11 +199,17 @@ signer. Measures:
   `codegen-units = 1` and no fast-math.
 - Explicitly seeded RNGs (`rand_chacha::ChaCha8Rng`) with a fixed consumption order.
 - In-house L-BFGS with a fixed iteration/summation order.
+- The transcendental functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from the
+  pure-Rust `libm` crate through `scoring::fmath`, not from the platform's libm, whose
+  last bits differ between glibc, musl, Apple and Microsoft (AT-BR-04).
 - `crates/scoring/tests/reproducibility.rs` asserts `fit`, `bridge_scores`, and
-  `mixture_dif` are **bit-for-bit** identical across runs (`f64::to_bits`).
+  `mixture_dif` are **bit-for-bit** identical across runs (`f64::to_bits`), and CI
+  checks the golden bits (`golden.rs`) on linux-gnu (dev and release), linux-musl,
+  macOS-aarch64 and Windows-MSVC (`.github/workflows/ci.yml`, job `golden`).
 
-Note: bit-for-bit equality holds **within** the Rust engine, not between Python and
-Rust — SciPy and the in-house optimizer differ. The Python sims are an oracle of
+Note: bit-for-bit equality holds **within** the Rust engine — across platforms and
+build profiles since AT-BR-04 — not between Python and Rust: SciPy and the in-house
+optimizer differ. The Python sims are an oracle of
 *behaviour* (within tolerance), not of bits.
 
 ## Testing strategy
@@ -228,10 +236,12 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    items of the oracle fixtures through all four crates in one epoch and asserts each
    item is stopped at the right stage (ESM by DIF not review; the non-discriminating
    item by the pilot screen; a true-but-divisive item recovered via the appeal). The
-   bridging uncertainty band is resolved by the **D26 re-decision** (`gate::supplementary_review`,
-   T10/T30): re-run the bridging fit and decide `b_j` against the plain threshold τ — a
-   bridging decision over the latent axis, not a weighted vote. It re-fits the first
-   panel's ratings; the extra reviewers of D26 are roadmap T60.
+   bridging uncertainty band is resolved by the **D26 re-decision**
+   (`gate::supplementary_review`, T10/T30): re-run the bridging fit and decide the
+   side-balanced score against the plain threshold τ — a bridging decision over the
+   latent axis, not a weighted vote — and a polarized item that fails it keeps the
+   appeal channel (D26 amendment, T59). It re-fits the first panel's ratings; the extra
+   reviewers of D26 are roadmap T60.
    `supplementary_redecision.rs` pins the improvement: the partisan fixture items 08/09
    are **not** passed (the retired weighted-mean tie-break carried them), while a genuine
    near-threshold item is. The √k anti-collusion stays covered at the scoring layer
@@ -267,7 +277,7 @@ cargo clippy --workspace --all-targets
 |---|---|---|
 | Bridging, IRT, DIF, reputation, anti-collusion | **Real** | — |
 | Role pseudonyms; one credential per label; proposal rate limit | **Real** — deterministic role nyms; `IssuanceRegistry` (one credential per label, T11); `QuotaLedger` per-credential proposal quota keyed on the proven id (T11) | cryptographic-grade RLN (ZK `slot < quota`, reuse reveals key) — T20 |
-| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review entry points key on its proven `id`, with an action-context binding (draft cid and epoch) against replay, and a duplicate cid refused before the quota is charged (T64) | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
+| ZK nullifier (pseudonym ⇐ valid credential) | **Real** (BBS+-bound sigma protocol), wired into the protocol boundary (T6): `admission` verifies it and the deposit/review/respond entry points key on its proven `id`, with an action-context binding (draft cid and epoch) against replay, and a duplicate cid refused before the quota is charged (T64) | External review of the bespoke composition; cryptographic-grade enrollment/quota (T20/T11) |
 | Content addressing, Merkle, transparency log, checkpoints, erasure | **Real** | — |
 | Uniqueness label | **Real** (single-server VOPRF RFC 9497; **threshold** t-of-n OPRF, Shamir + DLEQ) | Real DKG ceremony + network transport for the committee |
 | Credential issuance | **Real** (BBS+ blind; single-issuer **and** threshold t-of-n MPC) | Real DKG ceremony + network transport; selective-disclosure presentation |
@@ -284,10 +294,15 @@ to make the pipeline testable end-to-end.
   turn prior-epoch reviewer standing into the per-reviewer `w_u` the weighted objective
   minimizes over (docs/08 BRIDGE-007, roadmap T5 — **done**), and `end_to_end.rs::run_epoch`
   drives each item through the `lifecycle` state machine (T12 — **done**). The borderline
-  band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide `b_j` against
-  the plain threshold (`gate::supplementary_review`, T10/T30 — **done** on the first
-  panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
-  tie-break. The open work is ordered in `docs/10` (mathematics → P2P network → the rest).
+  band is decided by the `docs/01` D26 mechanism — re-run bridging, re-decide the
+  side-balanced score against the plain threshold, and keep the appeal open for a
+  polarized item that fails (`gate::supplementary_review`, T10/T30/T59 — **done** on the
+  first panel's ratings; the extra reviewers are T60), replacing the retired weighted-mean
+  tie-break. An appeal's stake is a pseudo-observation inside the author's average
+  (`appeal::AuthorHistory`, D27, T61 — **done**): `run_item` derives the appeal's window
+  and reputation checks from the verdicts, and `orchestrator::settle_appeal` replaces the
+  escrowed zero with the item's measured quality on `ActivePool` and leaves it otherwise.
+  The open work is ordered in `docs/10` (mathematics → P2P network → the rest).
   Still open here: persistence (roadmap T13); `governance`
   sortition feeding the honeypot / blueprint committees; `revalidation` → `exposure`
   retirement on a schedule. (Reviewer-vote dedup via the M3 ZK nullifier is done at the

@@ -63,8 +63,9 @@ fn model_review_round(
 }
 
 /// `run_item` as one decision: the round must be complete; the gate decides whether the
-/// item enters the pilot (a band item if the D26 re-decision passes, a polarized one only
-/// on appeal); the pilot's respondent floor and batch minimum refuse, its verdicts reject.
+/// item enters the pilot (a band item if the D26 re-decision passes, a polarized one —
+/// below the band or failing the re-decision as polarized (T59) — only on appeal); the
+/// pilot's respondent floor and batch minimum refuse, its verdicts reject.
 fn model_run_item(reviewed: &State, v: &ItemVerdicts) -> Result<State, Invalid> {
     let State::Revealing { panel, reveals, .. } = reviewed else {
         return Err(Invalid::UnexpectedEvent);
@@ -74,14 +75,32 @@ fn model_run_item(reviewed: &State, v: &ItemVerdicts) -> Result<State, Invalid> 
     if revealed != panel {
         return Err(Invalid::PartialEpoch);
     }
-    let left_at_the_gate = match v.gate {
+    // The band re-decision has three outcomes; a second band is not one of them.
+    let effective = match v.gate {
+        GateOutcome::SupplementaryReview => match v.band_outcome {
+            GateOutcome::SupplementaryReview => return Err(Invalid::UnexpectedEvent),
+            GateOutcome::Reject => return Ok(State::Rejected(RejectReason::Borderline)),
+            other => other,
+        },
+        other => other,
+    };
+    let left_at_the_gate = match effective {
         GateOutcome::Reject => Some(RejectReason::Defect),
-        GateOutcome::SupplementaryReview if !v.band_advances => Some(RejectReason::Borderline),
         GateOutcome::AppealEligible if !v.appealed => Some(RejectReason::Polarized),
         _ => None,
     };
     if let Some(why) = left_at_the_gate {
         return Ok(State::Rejected(why));
+    }
+    // An appeal is filed within its window by an author whose reputation covers the
+    // stake (T61): both derived from the verdicts, in that order.
+    if effective == GateOutcome::AppealEligible {
+        if !v.appeal_within_window {
+            return Err(Invalid::AppealWindowClosed);
+        }
+        if v.author_reputation < v.appeal_floor {
+            return Err(Invalid::InsufficientReputation);
+        }
     }
     if !v.enough_respondents {
         return Err(Invalid::NotEnoughRespondents);
@@ -286,17 +305,37 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
             GateOutcome::AppealEligible,
             GateOutcome::Reject,
         ]),
-        any::<(bool, bool)>(),
+        (
+            any::<bool>(),
+            prop::sample::select(vec![
+                GateOutcome::Pass,
+                GateOutcome::AppealEligible,
+                GateOutcome::Reject,
+                GateOutcome::SupplementaryReview,
+            ]),
+        ),
+        (prop::bool::weighted(0.8), prop::bool::weighted(0.8)),
         prop::bool::weighted(0.85),
         prop::bool::weighted(0.75),
         prop::bool::weighted(0.75),
         prop_oneof![1 => 0..K_MIN, 5 => K_MIN..K_MIN + 10],
     )
         .prop_map(
-            |(gate, (appealed, band_advances), enough, screen, dif, batch)| ItemVerdicts {
+            |(
+                gate,
+                (appealed, band_outcome),
+                (within_window, covers),
+                enough,
+                screen,
+                dif,
+                batch,
+            )| ItemVerdicts {
                 gate,
                 appealed,
-                band_advances,
+                appeal_within_window: within_window,
+                author_reputation: if covers { 0.6 } else { 0.3 },
+                appeal_floor: 0.4,
+                band_outcome,
                 enough_respondents: enough,
                 screen_passed: screen,
                 dif_passed: dif,

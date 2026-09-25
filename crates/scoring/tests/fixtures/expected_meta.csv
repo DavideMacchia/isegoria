@@ -1,8 +1,8 @@
 key,value
 N,200
 M,10
-mu_hat,0.754864
+mu_hat,0.755056
 corr_axis,0.989828
-tau,0.08
+tau,0.80
 lam_b,0.15
 lam_f,0.03

@@ -13,12 +13,12 @@ it neutralizes).
       ↓
  [4] Review         k reviewers assigned AT RANDOM, blind, commit-reveal
       ↓
- [5] Bridging       B_j ≥ τ → passes;  B_j in band → supplementary review
+ [5] Bridging       S_j ≥ τ → passes;  S_j in band → supplementary review (re-decision)
       ↓                 │
       │                 └──→ [5b] APPEAL TO EVIDENCE
-      ↓                          if discarded for polarization (high |f_j|),
-      │                          not for a defect
-      ↓
+      ↓                          if discarded for polarization (wide side gap), not for
+      │                          a defect — below the band or failing the re-decision;
+      ↓                          the author stakes reputation (`01` D27)
  [6] Pilot 1        ~300 respondents: kills broken and non-discriminating questions
       ↓
  [7] Pilot 2        ~1500–3000 respondents, IN BATCHES: IRT + multi-axis DIF
@@ -75,14 +75,19 @@ Bridging does not tell "true but divisive" from "one-sided propaganda": they pro
 the same voting pattern, and no threshold saves the former (`02`, limit 1). Without an
 appeal the politically most important category is systematically lost.
 
-**Mechanism.** A question discarded at [5] *for polarization* — i.e. with high `|f_j|`
-and not for a formal defect — can, at the author's initiative, **skip review and go
-straight to the pilot**:
+**Mechanism.** A question discarded at [5] *for polarization* — a wide gap between the
+two sides' predicted approval (`02` §A.3), not a formal defect — whether it was scored
+below the band or failed the band's re-decision (`01` D26, amended by T59), can, at the
+author's initiative, **skip review and go straight to the pilot**:
 
-- it costs an amount of the author's reputation (`C_a`)
-- if the Level B psychometrics **promote** it, the reputation is refunded (and the
-  author gains, having been right against the opinion filter)
-- if it **fails**, the reputation is lost
+- filing escrows a zero-quality pseudo-observation in the author's history, so `C_a`
+  falls at once; an author whose `C_a` is below the stake floor — the prior mean of
+  `02` §C.1 — cannot file (`01` D27, T61)
+- if the Level B psychometrics **promote** it, the pseudo-observation is replaced by the
+  item's real quality: the author gains a real, good observation, having been right
+  against the opinion filter — there is no additive bonus
+- if it **fails**, the zero stands — it is the item's real result — and it costs the
+  next appeal until the author's average has recovered
 
 It is the only way to recover "true but inconvenient", moving the decision from peer
 judgment to the data.
@@ -108,7 +113,9 @@ Requirements:
   education).
 
 Respondents are the scarce resource: they can be the same nodes under the third
-pseudonym (`nym_answer`), or a separate panel-style sample.
+pseudonym (`nym_answer`), or a separate panel-style sample. Each respondent proves that
+pseudonym for the batch and the epoch before its answers count, and the sample floors
+count those pseudonyms, not answer sheets: one person cannot fill a sample.
 
 **Administration**: the question under pilot is mixed with already-validated ones and
 the answer does not count toward the respondent's score. Whoever answers does not know

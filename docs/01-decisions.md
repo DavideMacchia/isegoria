@@ -366,11 +366,15 @@ exactly where guessing matters. Resolves Q-6 / G-07.
 
 ## D26 — Borderline items: more reviewers, then a clean re-decision
 
-> **Not yet fully implemented** (third review, 2026-09-24, `docs/08` §0-quinquies): on master
-> the re-decision re-fits the first panel's ratings, so it relaxes the robust threshold
-> instead of adding reviewers; the extra round is roadmap T60. **Open question** (T59): a
-> polarized band item that fails the re-decision is rejected with no appeal, while an item
-> scored below the band can appeal — an amendment is to be decided before T59.
+> **Amendment (decided and implemented 2026-09-25, T59).** A band item that fails the
+> re-decision follows the below-band rule of the gate: with a side gap at or above the
+> appeal threshold it was rejected for polarization and is `AppealEligible`; otherwise it
+> is `Rejected(Borderline)`. Before, `Resolve { passed: false }` ended every failing band
+> item in a terminal reject, so a true-but-divisive item that happened to land in the band
+> lost the correction channel of `docs/05` [5b] that an item scored clearly below the band
+> keeps (third review, `docs/08` PROTO-004). The re-decision itself still re-fits the first
+> panel's ratings, so it relaxes the robust threshold instead of adding reviewers; the
+> extra round is roadmap T60.
 
 **Choice.** An item that lands in the uncertainty band at the bridging gate goes to an
 additional round of reviewers and is then re-decided against the plain threshold,
@@ -384,8 +388,17 @@ evidence-based outcome. Resolves Q-7 / G-15 (supplementary-review part).
 
 ## D27 — Appeal cost is a pseudo-observation inside the author score
 
-> **Not yet wired** (third review, 2026-09-24): the orchestrator does not check that the
-> author's reputation covers the stake and never settles the escrow; roadmap T61.
+> **Implemented as decided (2026-09-25, T61):** `protocol::appeal::AuthorHistory` holds
+> the author's quality observations; `file_appeal` refuses an author whose `C_a` is below
+> the stake floor — the prior mean `α₀ / (α₀ + β₀)`, 0.4 with the default prior — and
+> otherwise escrows a zero-quality observation at age 0, so `C_a` falls at once;
+> `orchestrator::settle_appeal` replaces it with the item's measured quality when the
+> item reaches the pool and leaves it standing on any other terminal. `run_item` derives
+> the appeal's two checks (window, `C_a ≥ floor`) from `ItemVerdicts` instead of taking
+> the caller's word. The ledger form (`gate::settle_appeal`: `+ gain` / `− stake`) is
+> retired: **there is no additive gain** — promotion replaces the pseudo-observation with
+> a real, good observation, and that is the author's reward for being right against the
+> opinion filter (`05` [5b]).
 
 **Choice.** The cost of a (failed) appeal is modelled as a negative pseudo-observation
 inside the author's reputation score, escrowed when the appeal is filed and replaced
@@ -452,6 +465,15 @@ BRIDGE-001.
 ---
 
 ## D32 — Bridge score: side-balanced predicted approval on an absolute threshold
+
+> **Implemented** (T49, 2026-09-24): `scoring::bridging::{two_means, side_balanced,
+> bridge_scores}` and `protocol::gate::{bridging_gate, supplementary_review}` with the
+> provisional constants `TAU = 0.80`, `EPS = 0.02`, `APPEAL_GAP = 0.25`; `sim/`, the
+> fixtures and the golden outputs regenerated. One amendment: appeal eligibility reads the
+> *side gap* `|A_j − B_j|`, not `|f_j|` — the third review showed `|f_j|` falls as the
+> camps become unequal (`docs/08` BRIDGE-009), the gap does not. Measured limits: a
+> residual leak of 0.1–0.2 with 50–100 reviewers, and noisy side means with a minority
+> side of about ten reviewers (`docs/02` §A.3).
 
 **Choice.** The gate no longer reads the item intercept `b_j`. The weighted fit is
 unchanged. After it, the reviewers are split into two sides by a deterministic 1-D

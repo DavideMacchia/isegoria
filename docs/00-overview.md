@@ -82,9 +82,10 @@ voting on the person). Nobody sees others' judgments before casting their own
 The **[4]→appeal** branch is the most important correction to emerge from testing: a
 true but politically divisive question produces the same voting pattern as one-sided
 propaganda, and bridging wrongly discards it. The appeal channel lets the author send
-it straight to the pilot, at the cost of their own reputation, refunded if the
-psychometrics promote it. It is the only way to recover the "true but inconvenient"
-category, politically the most important. Details in `05`.
+it straight to the pilot, staking their own reputation: a zero-quality observation
+enters their average when they file, and the item's real quality replaces it if the
+psychometrics promote it (`01` D27). It is the only way to recover the "true but
+inconvenient" category, politically the most important. Details in `05`.
 
 ## Node types (network layer)
 

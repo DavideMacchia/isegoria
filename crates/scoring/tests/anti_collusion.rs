@@ -142,6 +142,7 @@ fn at_col_06_cartel_moves_the_bridge_score_less_than_independents() {
             &Ratings::from_dense(rows, &mask).with_weights(weights),
             &params,
         )
+        .unwrap()
         .b_j[t]
     };
 
