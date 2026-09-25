@@ -698,6 +698,11 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 #### PRIV-005 — Small-network anonymity degradation
 - `docs/02` §B.6 acknowledges a privacy floor (~2,000 active nodes). No quantitative k-anonymity model exists. **Evidence status.** HYPOTHESIS.
 
+#### PRIV-006 — Respondents are not profiled across batches
+- **Claim.** An operator holding the answer sheets with their `Respond` proofs cannot follow one person's answers from batch to batch, nor read a latent class off them.
+- **Analysis.** The respondent nullifier has role scope, not batch scope: `N = x·H_role` with `H_role = context_generator(role)` (`identity::nullifier`), which depends on the role alone, and `NullifierProof::id()` is `H(N)` — the same for one person on every batch and epoch (`nullifier_is_distinct_per_role_and_stable_within_one`); `pilot::submit_response` keys each batch's `NullifierSet` on that id. Whoever receives the sheets with their proofs can therefore join one person's rows across batches. Before D38 the joined rows carried little: an item with DIF was piloted once and discarded. A contested fact (D38, T55) is by construction an item one latent class misses more often at equal ability, and it stays in the bank, administered continuously; a test's score is DTF-balanced, but the pattern of which contested facts a person misses reveals the class — in the civic use case, the camp. `docs/02` §B.7 forbids the *engine* from matching classes across fits through shared respondents for this reason; the operator can do it from the sheets.
+- **Evidence status.** NOT ESTABLISHED (A-OPERATOR). No mitigation is chosen: `docs/10` T69 lists the options, one of which touches invariant #5.
+
 ### 5.8 Network / storage
 
 #### NET-001 — Content addressing
@@ -909,6 +914,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | PRIV-P5 | A-PARTICIPANT cannot learn who reviews an item before the verdict | assignment private; commitments unlinkable to nyms until reveal | current `commit` has no nym; the assignment list is a plain `Vec<Reviewer>` with nyms | NOT ESTABLISHED |
 | PRIV-P6 | Voting patterns are not on a public register in the clear | — | contradicts INV-7 as designed (PRIV-004) | UNRESOLVED |
 | PRIV-P7 | Small-crowd degradation is bounded | population ≥ ~2,000 | no model | HYPOTHESIS |
+| PRIV-P8 | A-OPERATOR cannot join one person's answer sheets across batches, so the contested facts they miss do not reveal their latent class (their camp) | A-OPERATOR | a respondent id that does not join batches (a batch-scoped nullifier — invariant #5 to be decided), or sheets never kept with the id (PRIV-004 tension), or a per-epoch rate limit in place of an id — `docs/10` T69 | NOT ESTABLISHED — `NullifierProof::id()` is the same on every batch, and contested facts are administered continuously since D38 (PRIV-006) |
 
 ### 8.3 Leakage inventory in the current code
 
@@ -918,6 +924,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 - `governance::Candidate { id, f_u }` likewise.
 - `log::Entry` records `seq` only (no timestamp) — compliant with docs/03's "no precise timestamp in the public log".
 - No encryption anywhere: items under review are plaintext `Draft` bytes; the log holds only CIDs, but content distribution is unspecified, so "questions under review stay encrypted until publication" (docs/04) has no implementation.
+- `pilot::submit_response` admits a `Respond` proof whose id (`NullifierProof::id()`, `H(x·H_role)`) is the same for one person on every batch and epoch: an operator holding the answer sheets with their proofs joins them across batches, and the contested facts (D38) a person misses profile their latent class (PRIV-006, PRIV-P8, `docs/10` T69).
 
 ---
 
@@ -1085,6 +1092,7 @@ Classification vocabulary: PREVENTED (cannot happen given assumptions), DETECTED
 | Small-crowd deanonymization | ACCEPTED RESIDUAL RISK per docs/02 §B.6, unquantified |
 | Operator + issuer collusion | see ID-005; label must never be revealed (PRIV-002) |
 | Re-runner learns every judge's political position | UNRESOLVED design tension (PRIV-004) |
+| Respondent profiling across batches (the `Respond` id is the same on every batch; the contested facts a person misses reveal their latent class) | UNSOLVED — opened by D38, which keeps such facts in the bank and administers them continuously (PRIV-006, PRIV-P8, T69) |
 
 ### 11.6 Network
 
@@ -1402,6 +1410,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | PRIV-003 | stat. deanonymization mitigations | — | NOT IMPLEMENTED | — | roadmap |
 | PRIV-004 | repro vs secrecy | — | UNRESOLVED | decision | G-20 |
 | PRIV-005 | small-crowd bound | — | HYPOTHESIS | model | research |
+| PRIV-006 | respondents not profiled across batches | `nullifier.rs` (`context_generator`, `id`), `pilot.rs` (`submit_response`), `contested.rs` | NOT ESTABLISHED — the `Respond` id is role-scoped, the same on every batch; since D38 the contested facts a person misses reveal their latent class, and the facts stay in the bank | an owner decision among the options of T69 (a batch-scoped nullifier touches invariant #5) | T69 |
 | NET-001 | CID | `integrity.rs` | TESTED; Draft prefix fix RESOLVED @289aae3 (PROTO-011) | — | — |
 | NET-002 | Merkle inclusion | proptest | TESTED | — | — |
 | NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |

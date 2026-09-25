@@ -153,7 +153,9 @@ the selections whose differential test functioning stays within the tolerance (`
 them, measured in the same fit — the classes of different batches are not comparable,
 so across batches their DTF only adds up. The test as a whole favours no latent class. A
 contested fact is administered, counts exposure and retires at the exposure limit like
-any pool item.
+any pool item. The balance protects the score, not the respondent: which contested facts
+a person misses reveals their latent class, and with a respondent pseudonym that is the
+same on every batch the answer sheets can be joined into a profile — open, `10` T69.
 
 **Re-measurement.** The contested pool is re-validated in batches like the active pool.
 A fact whose DIF has gone returns to the active pool; one still showing DIF stays,

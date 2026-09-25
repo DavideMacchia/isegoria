@@ -236,6 +236,7 @@ honeypot is the mitigation.
 |---|---|---|---|
 | T28 | De-anonymization mitigations: text normalization, batched publication with random delay, no precise timestamps, topic quotas | PRIV-003, PV-3 | M |
 | T29 | A small-network anonymity (k-anonymity) model, with the population floor stated as a deployment precondition | PRIV-005, PV-3 | M |
+| T69 | **A respondent's answers can be joined across batches, and the contested facts profile them.** The `Respond` nullifier has role scope, not batch scope (`N = x·H_role`, `identity::nullifier::context_generator` depends on the role alone), so `NullifierProof::id()` is the same for one person on every batch, and `pilot::submit_response` keys each batch's `NullifierSet` on it: whoever holds the answer sheets with their proofs (A-OPERATOR) joins one person's rows across batches. A contested fact (D38, T55) is by construction an item one latent class misses more often at equal ability; a test's score is DTF-balanced, but the pattern of contested facts a person misses reveals their class — in the civic use case, the camp. Before D38 the signal appeared only in the pilots of items then discarded; now the facts stay in the bank and are administered continuously. **Needs an owner decision.** The options, none chosen: (a) a batch-scoped respondent nullifier, as Semaphore's external nullifier — it touches invariant #5 (one respondent pseudonym, not rotatable), so it needs an explicit decision; (b) never keep or publish answer rows joined to the respondent id — in tension with reproducibility (PRIV-004); (c) a per-epoch rate limit (RLN-style) in place of a stable id | PRIV-006, PRIV-P8 (`docs/08` §8.2/§8.3), `docs/06`, `docs/05` [7b], invariant #5, D38 | M |
 
 ### 3.4 · Real-world pilots
 
@@ -285,7 +286,8 @@ Not a phase; done alongside every task.
 - **Phase 3.** T66 is the minimal form of T46's `Panel`. T58 builds on T33/T43 and
   draws replacements from the beacon (after T37). T20 supersedes T11. T37's
   threshold-signature variant needs T19. T68 computes the source check T55 takes as an
-  input.
+  input. T69 waits on an owner decision: one of its options changes the scope of the
+  respondent pseudonym (invariant #5).
 - **External.** Nothing in Phases 1–2 needs the external gates.
 
 ---
