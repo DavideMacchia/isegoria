@@ -219,7 +219,8 @@ tertiles, Mantel–Haenszel with ETS classification:
 > the proxy did. The differential gap of the retired proxy model is a diagnostic only
 > (`MixtureDif::differential`): it inverts in a campaign. An item whose DIF concerns
 > knowledge of a fact established by a primary source becomes a *contested fact* in a
-> balanced pool instead of being rejected (D38, T55).
+> balanced pool instead of being rejected (D38, T55): §B.7 defines the pool, its DTF
+> statistic and the balanced draw, §B.5 the source check that classifies.
 
 ```
 P(x_i) = Σ_g π_g ∫ Π_{a∈A} P_a(x_ia | θ) · Π_{j∈J} P_jg(x_ij | θ) · φ(θ; η_g, 1) dθ,   η_0 = 0
@@ -312,6 +313,36 @@ Psychometrics does not save you from badly conceived questions. Strict taxonomy:
 Disputes over an item are resolved by an evidentiary procedure (comparison with the
 source), not by a vote.
 
+**The source check (`01` D38).** The evidentiary procedure as it decides whether an item
+the latent check flags (§B.3) is a *contested fact* (§B.7). It answers one question —
+does the cited primary source establish the item's key? — from the record, in steps
+anyone can redo, and asks nobody whether the item is true, fair or important:
+
+1. *The citation was committed at deposit.* The primary source is a structured citation
+   (`03`: an act identifier, never an arbitrary URL): the registry, the act's identifier
+   in it, the locator inside the act (article, paragraph, table cell) and the passage or
+   data found there. It is part of the draft's content id (`deposit::Draft::content_id`),
+   so it cannot be changed once the item has shown DIF.
+2. *The registry is a primary one:* it is on the closed list of primary registries — the
+   Official Gazette, the parliamentary records, the official statistical datasets — kept
+   by meta-governance (`05` §Meta-level governance).
+3. *The passage is authentic:* the act the identifier names, as the registry publishes
+   it, holds the cited passage or data at the locator.
+4. *The key follows from the passage:* the item is built from a template (`05` [9])
+   whose key is a declared, deterministic function of the cited data — the datum itself,
+   or a comparison of two figures — and that function, applied to them, gives the keyed
+   answer.
+
+The item is a contested fact only if all four steps hold. A key that rests on an
+interpretation of the source — something a reader must judge rather than a function can
+compute — fails step 4, and the item is rejected on DIF as before. Step 4 limits the
+contested pool to data-bound facts (dates, figures, votes, the text of a provision),
+which the taxonomy above already favours. The check runs only on flagged items, at the
+pilot and at each re-validation (an act amended or repealed since fails step 3). The
+protocol takes its verdict as an input (`source_verified` in `lifecycle::Event`); the
+check itself in code — the citation type, the registry list, the template's key rule — is
+Phase 3 work (`10` T68).
+
 ### B.6 Sample sizes and the minimum viable network
 
 The `~300` and `~1500` respondent counts are not arbitrary; they come from
@@ -375,6 +406,87 @@ output; it does not break correctness.
 | ~10,000 | ~300 questions/month, stable latent-class DIF, good k-anonymity |
 | 100,000+ | Robust on throughput, multi-axis DIF, and privacy |
 
+### B.7 Contested facts and differential test functioning (`01` D38)
+
+DIF shows that an item measures a second dimension on which the latent classes differ;
+whether that dimension is a nuisance is a judgment (paper §4.7). When the key is a fact
+a primary source establishes, the second dimension is knowledge of the fact: one class
+is misinformed about it. Rejecting such items would bar every fact a camp disputes from
+the bank, and the appeal of `05` [5b] could not recover them — Level B would reject them
+for the reason Level A did. So an item the latent check flags (§B.3) goes one of two
+ways:
+
+- its key passes the source check (§B.5) → a **contested fact**, kept in a separate
+  *contested pool* (from the pilot, or from the active pool at re-validation);
+- otherwise → rejected at the pilot, retired at re-validation, as before.
+
+A test draws contested facts only in sets whose differential test functioning (DTF)
+stays within a tolerance, so the test as a whole favours no latent class although each
+of its contested facts does.
+
+**DTF within one fit.** Let `F` be a target-model fit (§B.3) in which the items of a set
+`S` were trial items, with counted classes `g` (share ≥ 5%, as for `DIF_j`), shares
+`π_g` renormalized over them, ability means `η_g` and per-class curves
+`P_jg(θ) = σ(a_jg (θ − b_jg))`. At ability `θ` the expected-score difference between
+classes `g` and `h` is `Δ_gh(S; θ) = Σ_{j∈S} [P_jg(θ) − P_jh(θ)]`, and
+
+```
+DTF_F(S) = max_{g,h} ∫ |Δ_gh(S; θ)| f_F(θ) dθ          f_F(θ) = Σ_g π_g φ(θ; η_g, 1)
+```
+
+— the unsigned DTF (Chalmers, Counsell & Flora, 2016) on the number-correct scale, over
+the batch's own ability distribution, at the worst pair of classes; the integral is the
+fit's quadrature, 41 nodes over `[−5, 5]` with weights `∝ f_F(θ_q)` (`scoring::dtf`).
+Items that lean the same way add up. Items that lean opposite ways cancel, but only
+where their curves overlap: the absolute value inside the integral does not let a set
+favour one class at low ability and the other at high ability. One item has the DTF of
+its own curves; two mirror items cancel exactly; one counted class gives 0.
+
+**Across fits: a bound, not a statistic.** The classes of two fits are not the same
+classes. Labels are arbitrary per fit and nothing links them: the anchors carry no class
+information (their parameters are class-invariant by construction), and matching
+classes through respondents who answered both batches would link a person's answers
+across batches into a latent-class profile (invariant #1, `03` statistical
+deanonymization). The DTF of items from several fits is therefore not identified; a
+bound is. For a test `T`,
+
+```
+D(T) = Σ_F DTF_F(T ∩ F)          summed over the fits of its contested facts
+```
+
+bounds the test's DTF between any two classes of the population, whatever the
+correspondence between the fits' classes (by the triangle inequality: at worst every
+fit's worst pair points the same way). Active-pool items enter at zero: they passed the
+DIF check. Contested facts cancel only against facts measured in the same fit, so the
+periodic re-validation (`05` [8]) re-fits contested facts together: a batch of contested
+facts from different fits gives them one set of classes, and an item's curves are
+always those of the latest fit that measured it.
+
+**Tolerance.** A test's contested facts are admissible when `D(T) ≤ DTF_MAX`,
+`DTF_MAX = 0.10` score points, provisional (T24/T25): about the DTF of one item of
+negligible DIF — at the ETS class-A boundary (`|Δ_MH| = 1`, a log-odds gap of 0.43) a
+mid-difficulty item has 0.08. For scale, with `a = 1.25` and two equal classes: one item
+with a difficulty gap of 1.8 has 0.41 at difficulty 0 and 0.21 at difficulty 2; two such
+items leaning opposite ways have 0.00 at equal difficulty, 0.04 at 0.25 apart, 0.07 at
+0.5 and 0.14 at 1.0. The bound is computed on the fitted curves; its sampling error is
+part of the characterization (T24).
+
+**The balanced draw.** A test with `n` contested slots draws them from the beacon
+(INV-10; `randomness::CONTESTED`, keyed on the test's number) among the selections with
+`D(T) ≤ DTF_MAX`. The fits are visited in a seeded order; for each, the candidates are
+its subsets of at most `n` contested facts whose own DTF is within the tolerance (the
+empty one included); a table of the least bound that completes `n` from the fits not yet
+visited keeps only the candidates that can still be completed, and one is drawn
+uniformly among them. So the draw fails only when no balanced selection of `n` exists —
+it then reports the sizes that do — and every balanced selection has a positive
+probability. The bound is summed in fixed point (each fit's DTF rounded up to `2⁻³²`
+score points), so the budget is exact (`protocol::contested`).
+
+**Scores.** A contested fact is admitted to the bank. Its Level B outcome for the
+evaluator score is 1, as for an item that reaches the pool (§C.2) — scoring it 0 would
+pay reviewers to predict the rejection of true facts a camp disputes — and an appealed
+item that becomes a contested fact promotes the appeal (§C.1, `05` [5b]).
+
 ---
 
 ## Level C — Node reputation
@@ -411,10 +523,11 @@ q_a = q_min + (q_max − q_min) · C_a
 
 **Appeal stake (`01` D27, `05` [5b]).** An appeal is a pseudo-observation *inside* this
 average, not a deduction from it: filing appends `q = 0` at `Δt = 0` (the escrow); the
-verdict replaces it with the item's real `q_j` if the pilot promotes the item and leaves
-it otherwise. The stake floor is the prior mean `α₀ / (α₀ + β₀)` (0.4 with `Beta(2,3)`):
-an author files only while `C_a` covers it, so a failed appeal costs the next one until
-the evidence has restored the average. There is no additive gain — the reward for being
+verdict replaces it with the item's real `q_j` if the pilot promotes the item — to the
+active pool, or to the contested pool (§B.7) — and leaves it otherwise. The stake floor
+is the prior mean `α₀ / (α₀ + β₀)` (0.4 with `Beta(2,3)`): an author files only while
+`C_a` covers it, so a failed appeal costs the next one until the evidence has restored
+the average. There is no additive gain — the reward for being
 right is the good observation itself (`protocol::appeal`, T61). Floor provisional (T25).
 
 ### C.2 Evaluator score `S_u` and review weight `w_u`
@@ -452,9 +565,9 @@ long-window mean of `01` D34 (the change detector on the per-item scores is T51)
 
 **Exploration (`01` D35, T52).** Golden items alone are too few (about one every two
 epochs per reviewer). A reviewer is therefore scored on every reviewed item whose Level
-B outcome is known: the golden items, every live item that reaches a pilot (a pass, or a
-screen or DIF rejection: `o_j = 0`), and a random `ε = 5%` of the items the gate
-rejects, drawn from the public beacon (`protocol::exploration`, keyed on the admitted
+B outcome is known: the golden items, every live item that reaches a pilot (a pass — a
+contested fact is one, §B.7 — or a screen or DIF rejection: `o_j = 0`), and a random
+`ε = 5%` of the items the gate rejects, drawn from the public beacon (`protocol::exploration`, keyed on the admitted
 slot) and piloted for measurement only — never entering the pool. Scoring only the
 outcomes the gate lets through would not be proper: the report then decides whether its
 own outcome is observed, and the bare observed score pays a reviewer to report on the
