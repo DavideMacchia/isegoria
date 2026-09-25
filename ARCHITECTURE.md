@@ -66,7 +66,7 @@ executable specification; the Rust implementation must reproduce their results.
 | `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif::differential` is a diagnostic, D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
 | `reputation` | §C | `author_score`, `loo_scores`, `mean_score`, `odds_weight` (D33), `Cusum` (D34), `weight_cap`, `brier_skill_score` (sim oracle only), `dasgupta_ghosh` |
-| `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
+| `collusion` | §Anti-collusion | `ResidualHistory`, `coordination_clusters`, `permutation_p_value`, `CoordinationParams` (residual-correlation detection, D39/T56); `sublinear_group_weight`, `discount_weights` (analysis only, D40); `correlation_matrix`, `cluster_by_correlation` (the retired raw rule, kept as reference) |
 | `glm` (private) | — | shared maximum-likelihood logistic regression |
 | `optim` (private) | §A.5 | in-house L-BFGS + numerical gradient |
 
@@ -250,7 +250,10 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    (`anti_collusion.rs`) and in the T5 bridging weights.
 5. **Adversarial scenarios** (`*/tests/adversarial.rs`) compose mechanisms against
    the threat model: a 400-node cartel is detected and √k-discounted below an honest
-   majority; a long con is caught by the change detector on its per-item scores and
+   majority (the engine's measure; on the protocol path a cluster is kept apart on
+   panels, D40), and a jittered cartel among two honest camps is found on the residuals
+   of the bridging fit with no honest pair flagged (`coordination.rs`, D39); a long con
+   is caught by the change detector on its per-item scores and
    sent back to probation, and any weight is capped;
    whitewashing fails because the role pseudonym is deterministic and re-enrollment
    is refused.

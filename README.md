@@ -179,9 +179,12 @@ rewarded structurally.
 
 ### Anti-collusion
 
-A cartel that votes as a block is detected by the correlation of its behaviour, and
-its combined weight is discounted **sub-linearly**: 500 coordinated nodes count
-for about √500 ≈ 22 independent ones.
+A cartel that votes as a block is detected by the correlation of what its ratings leave
+**unexplained by the bridging model** — its residuals — over long histories, so honest
+reviewers who merely share a position are not mistaken for one (`docs/01` D39). A
+detected cluster is never seated twice on a panel (D40). The engine also keeps the
+sub-linear measure of a bloc's influence: 500 coordinated nodes count for about
+√500 ≈ 22 independent ones.
 
 ### Anonymous identity
 

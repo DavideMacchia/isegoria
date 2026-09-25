@@ -11,7 +11,7 @@
 | Brigading specific items | Random reviewer assignment; item not searchable before the verdict | `05` [4] |
 | Herding / information cascades | Commit-reveal, blind judgments, no visibility of others' votes | `05` [4] |
 | Majority capture | Bridging: the majority alone is not enough, cross-cutting approval is needed (on master the score still keeps part of the camp-size effect; corrected by the side-balanced score, D32/T49) | `02` A |
-| Coordinated cartel | Sublinear √k discount for correlated clusters (revised: residual-correlation detection and panel diversification, D39/D40) | `02` anti-collusion |
+| Coordinated cartel | Detection on the correlation of model residuals over long histories — a jittered cartel is flagged, like-minded honest reviewers are not (D39, T56); a detected cluster is never seated twice on a panel (D40, T57); the √k discount stays in the engine for analysis | `02` anti-collusion, `05` [4] |
 | Long-con (reputation accumulated and spent) | the CUSUM change detector on the per-item scores sends the reviewer back to probation (D34, T51); `w_max` cap on the odds scale (D33, T50); continuous honeypots | `02` C.4, `05` |
 | Biased item passing peer review | Field-data DIF (does not depend on opinions) | `02` B.3 |
 | Vote-buying | Random assignment + no verifiable receipt | `05` [4] |

@@ -709,6 +709,19 @@ facts. Admitting contested facts without scoring them: loses the measurement.
 
 ## D39 — Coordination is detected on model residuals over long histories
 
+> **Implemented (2026-09-25, T56):** `scoring::collusion::{ResidualHistory,
+> coordination_clusters, CoordinationParams}` — residuals `r − r̂` recorded per reviewer
+> and item across epochs; a pair read only from 30 shared items; a pair flagged at a
+> residual correlation of at least `ρ_min = 0.7` with a permutation p-value ≤ 0.001 (999
+> seeded permutations); average-linkage clusters over the flagged pairs. On the paper's
+> dataset ported to Rust (`coordination.rs`): honest same-camp residual correlation
+> +0.015, cross-camp +0.018, the jittered cartel +0.889; all 45 cartel pairs flagged and
+> no honest pair, the cartel one cluster and every honest reviewer a singleton — while the
+> raw rule chains the whole majority camp into one cluster. `ρ_min` is 0.7, not 0.5: at
+> 0.5 four of the 18,000 honest pairs are flagged by chance. Parameters provisional (T25).
+> The clusters constrain panel assignment (D40, T57); the sublinear discount stays in the
+> engine for analysis.
+
 **Choice.** Coordination between two reviewers is measured by the correlation of their
 residuals (rating minus the bridging model's prediction) on the items both rated. The
 histories accumulate across epochs. A pair is considered only once it shares at least 30

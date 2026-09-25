@@ -494,28 +494,56 @@ stationary level sat far below the true mean, and a cautious reviewer who beat t
 
 ---
 
-## Anti-collusion (sublinear discount)
+## Anti-collusion (coordination detection)
 
-> **Superseded for the protocol by D39 and D40 (T56, T57).** Within an epoch two reviewers
-> share under one item (paper §6.3), and raw correlations cannot separate a cartel from
-> like-minded honest reviewers. Detection will use the correlation of model residuals over
-> long histories (≥ 30 shared items, permutation null), and a detected cluster will limit
-> panel assignment (at most one member per panel) instead of losing weight.
+> **Revised by D39 and D40 (T56 done; T57 next).** Within an epoch two reviewers share
+> under one item (paper §6.3), and raw correlations cannot separate a cartel from
+> like-minded honest reviewers. Detection reads the correlation of model residuals over
+> long histories; a detected cluster limits panel assignment (at most one member per
+> panel, `05` [4]) instead of losing weight. The sublinear discount below is kept in the
+> engine for analysis and is not applied on the protocol path.
 
-The individual cap does not stop a cartel of coordinated nodes. Correlation is
-penalized.
+**Detection (`01` D39, T56).** For every rating the bridging fit leaves a residual,
+`e_uj = r_uj − r̂_uj` with `r̂_uj = μ + b_u + b_j + f_u·f_j`. The model already explains
+the agreement of two honest reviewers who share a position: their residuals do not
+correlate. A cartel agrees beyond the model: its residuals do.
 
 ```
-1. correlation matrix ρ_uv between the historical judgment vectors
-2. clustering (spectral on 1−|ρ|, or distance in f_u)
-3. sublinear group weight:   W(G) = ( Σ_{u∈G} w_u )^α,   α ≈ 0.5
+1. residuals accumulate per reviewer and item across epochs   (ResidualHistory)
+2. a pair (u, v) is read only once it shares ≥ 30 items         (min_shared)
+3. ρ_uv = Pearson correlation of the shared residuals
+4. flagged if ρ_uv ≥ ρ_min = 0.7 and the permutation p-value ≤ 0.001 (999 permutations, seeded)
+5. clusters by average linkage over the flagged pairs: two groups merge only while the mean
+   correlation over all their cross pairs (an unflagged pair counting 0) is ≥ ρ_min
+```
+
+On the paper's dataset (200 reviewers in two camps, 60 items, a cartel of 10 minority
+members rating 5 majority-favoured items at 1.0 with jitter σ = 0.05): honest pairs of
+the same camp correlate at +0.015 on residuals (+0.93 on raw ratings, level with the
+cartel's +0.92), the cartel at +0.89; every cartel pair is flagged and no honest pair,
+where the raw rule — `|ρ| ≥ threshold` with connected components — chains the whole
+majority camp into one cluster. `ρ_min` is 0.7 because at 0.5 four of the 18,000 honest
+pairs reach it by chance. Average linkage means one spurious pair never chains an honest
+reviewer to a cartel, and opposite camps, whose residuals are uncorrelated, are never
+joined. All thresholds provisional (T25).
+
+**What a cluster does (`01` D40, T57).** A panel holds at most one member of each
+cluster, the band's extra round included. Nobody's weight changes: false positives cost
+their members only co-assignment, and splitting a cartel to evade detection buys nothing
+that assignment does not already deny.
+
+**Sublinear discount (`01` D7, analysis only).** The individual cap does not stop a
+cartel of coordinated nodes; the engine keeps the discount as a measure of a cluster's
+influence:
+
+```
+W(G) = ( Σ_{u∈G} w_u )^α,   α ≈ 0.5
 ```
 
 A coalition of `k` nodes voting identically counts as `√k`: 500 coordinated ≈ 22
-independent. Genuinely independent nodes end up as singletons and are not discounted.
-
-Accepted cost: it also penalizes genuine agreement. The system is tuned
-conservatively.
+independent. It is not applied to the protocol's weights: it can be evaded by splitting
+(paper Prop. 17) and it penalizes honest like-minded reviewers, which the residual
+detector no longer confuses with a cartel.
 
 ---
 
@@ -536,7 +564,9 @@ conservatively.
 | `\|β₂\|` max DIF | 0.40 | logistic regression |
 | `DIF_j` max (latent classes) | 1.0 logit (provisional; literature 0.5) | IRT mixture; see §B.3 |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
-| `α` (cluster discount) | 0.5 | square root |
+| `α` (cluster discount) | 0.5 | square root; analysis only, not applied to the protocol's weights (D40) |
+| `min_shared` (coordination) | 30 | shared items before a pair's residual correlation is read (D39) |
+| `ρ_min`, `p_max` (coordination) | 0.7, 0.001 | a flagged pair's residual correlation and permutation p-value (999 permutations); 0.5 flags honest pairs by chance |
 | `w_max` | 3× median | individual cap |
 | `T` (reputation half-life) | 18 months | |
 | `η` (honeypot rate) | 5% | see `05` |
