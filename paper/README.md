@@ -6,7 +6,8 @@ Mechanism for Validating Test Items** (working paper, version 0.2, September 202
 - **PDF:** [`main.pdf`](main.pdf), built from the sources in this directory.
 - **Describes:** the code at commit `2ee5e79` and the design decisions D32–D41 of
   [`docs/01`](../docs/01-decisions.md) (commit `7507eab`); D32 is implemented since T49
-  (2026-09-24), the rest are planned (roadmap `docs/10` Phase 1.1). The paper is a dated
+  (2026-09-24) and the precondition of D37 since T53 (2026-09-25), the rest are planned
+  (roadmap `docs/10` Phase 1.1). The paper is a dated
   snapshot: what the repository changed after it is listed below
   ([Since version 0.2](#since-version-02)). The living specification is still
   [`docs/02-scoring-engine.md`](../docs/02-scoring-engine.md) and
@@ -64,11 +65,12 @@ statement of the paper no longer holds, the specification wins. In order of the 
 | §7.1, Tables 10–11: the leak falls to between −0.08 and 0.00 | Measured on the engine: leak ≤ 0.1 from 200 reviewers; 0.1–0.2 residual with 50–100 reviewers (a handful of minority ratings per item); noisy side means with a minority side of about ten reviewers (at 95/5 one consensus item in eight fell to 0.78) | `docs/02` §A.3, `side_balanced.rs` (AT-BR-08/09) |
 | §2 (setting): a band item "gets more reviewers and is re-decided against `τ`"; below the band a polarization rejection may appeal | The re-decision re-fits the first panel's ratings (the extra reviewers are T60); a band item that fails it keeps the appeal when its side gap is at least the appeal threshold, and is `Rejected(Borderline)` otherwise (D26 amendment, T59, 2026-09-25) | `docs/01` D26, `docs/05` [5b], `docs/08` §9.1 |
 | §5: the failed appeal "is to be recorded as a negative pseudo-observation inside `C_a` … The reference implementation still applies a simpler stake-and-refund rule" | Done as stated (D27, T61, 2026-09-25): `protocol::appeal::AuthorHistory` escrows a zero-quality observation at filing, the verdict replaces it with the item's quality on promotion and leaves it otherwise; the floor is the prior mean `α₀/(α₀+β₀)`; there is no additive gain; the stake-and-refund rule is removed | `docs/01` D27, `docs/02` §C.1, `docs/05` [5b], `docs/08` REPUTATION-007 |
+| §7.3 (D37): "the latent re-check *will* run only when the anchors' KR-20 … is at least 0.90"; §4.5, remedy (b): the differential gap | Done (T53, 2026-09-25), the precondition and the diagnostic: `irt::kr20` (the paper's formula, population variance) with `KR20_MIN = 0.90`; `pilot::admit_anchors`; `revalidate_batch_latent` takes the anchor responses, refuses `PilotError::UnreliableAnchors` before fitting and derives θ itself. On the paper's null-batch design at N = 6,000 the gate refuses 10 and 20 anchors (KR-20 0.72 / 0.83, where the ungated engine flagged 7–8 and 2–3 clean items of 8) and admits 60 (0.93, no flag). `MixtureDif::differential_gap` is reported as a diagnostic only, generalized to G classes (per class pair, the gap net of its median over the items; the largest over pairs), and inverts at 6 of 8 as Table 15 says. The target model (θ inside the likelihood) is still T54 | `docs/01` D37, `docs/02` §B.3–B.4, `docs/08` DIF-010 |
 | §7 (implementation): "reproducibility is tested bit for bit within a platform; cross-platform agreement has not yet been tested" | The transcendental functions come from the pure-Rust `libm` crate (`scoring::fmath`); the golden bits are checked on linux-gnu (dev and release), linux-musl, macOS-aarch64 and Windows-MSVC in CI (AT-BR-04, 2026-09-25) | `docs/02` §A.5, `docs/08` REPRO-001 |
 | §2 (assumptions on the protocol layer) | The engine refuses malformed ratings instead of panicking (T62); a deposit is accepted once and its proof is bound to the epoch (T64); pilot respondents pass the identity gate and the floors count persons, not rows (T65) | `docs/08` §0-quinquies, `docs/10` Completed work |
 
-The findings themselves (Sections 3–6) and the other revisions (D33–D41) are unchanged;
-their tasks are `docs/10` T50–T57.
+The findings themselves (Sections 3–6) and the other revisions (D33–D36, D38–D41, and
+the model half of D37) are unchanged; their tasks are `docs/10` T50–T52 and T54–T57.
 
 ## Layout
 

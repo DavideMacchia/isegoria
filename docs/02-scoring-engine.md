@@ -197,10 +197,18 @@ tertiles, Mantel–Haenszel with ETS classification:
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
 
 > **Revised by D37 and D38 (T53–T55).** Error in the ability proxy creates spurious latent
-> classes (paper §4.5): the re-check will run only when the anchors' KR-20 is ≥ 0.90, and
-> the target model integrates `θ` with the anchors inside the likelihood. An item whose
-> DIF concerns knowledge of a fact established by a primary source becomes a *contested
-> fact* in a balanced pool instead of being rejected (D38).
+> classes (paper §4.5). The precondition is implemented (T53, 2026-09-25): the production
+> re-check (`protocol::revalidation::revalidate_batch_latent`) takes the anchor responses,
+> runs only when their KR-20 on the batch's respondents is ≥ 0.90 (`irt::KR20_MIN`,
+> `pilot::admit_anchors`; otherwise `PilotError::UnreliableAnchors`, before any fit) and
+> derives `θ` from them (§B.4). The *differential gap* — each item's class gap net of the
+> batch's common class shift, the median over items of the signed gap — is reported in
+> `MixtureDif::differential_gap` as a diagnostic and never read by the verdict: it
+> removes the artefact when few items are biased but inverts in a campaign (6 of 8 items
+> shifted the same way: ≈ 0 on the shifted items, > 1 on the clean ones). The target
+> model, which integrates `θ` with the anchors inside the likelihood, is T54. An item
+> whose DIF concerns knowledge of a fact established by a primary source becomes a
+> *contested fact* in a balanced pool instead of being rejected (D38).
 
 ```
 P(X_ij = 1 | θ_i, g) = [1 + exp(−a_jg (θ_i − b_jg))]⁻¹
@@ -257,6 +265,28 @@ otherwise the biased items contaminate the very measure used to judge them:
 
 In the prototype, `θ` is estimated on 30 anchor items external to the batch under
 validation.
+
+**Reliability precondition (D37, T53).** The anchors' internal consistency bounds the
+proxy's error, and an unreliable proxy makes the latent-class detector see classes that
+are not there (`08` DIF-010; paper Prop. 10). Before a latent re-check the engine
+computes the Kuder–Richardson 20 of the anchor total on the batch's own respondents,
+
+```
+KR-20 = K/(K−1) · (1 − Σ_j p_j (1 − p_j) / Var(T))      p_j  proportion correct on anchor j
+                                                         T_i  total over the K anchors
+```
+
+(`irt::kr20`, population variance; 0 when undefined — fewer than two anchors, no spread
+in the totals) and refuses the batch below `KR20_MIN = 0.90` (`pilot::admit_anchors`,
+`PilotError::UnreliableAnchors`), before anything is fitted, like the item and respondent
+floors. With anchors of the sims' kind that is about 40 anchors (paper Table 14: 30 →
+0.87, 40 → 0.90, 60 → 0.93). The 30 anchors of the prototype and of the fixtures are
+therefore *below* the production floor: `levelb_XA.csv` (3PL anchors with a 0.25 guessing
+floor, 1,500 respondents) has KR-20 0.816, and the mixture fixtures carry a `θ` from 30
+2PL anchors; the oracle tests reach the detector through the ungated math
+(`revalidate_pool_latent`, `mixture_dif`), and the fixtures are regenerated with at least
+40 anchors, the anchor matrix exported, when the target model lands (T54). The floor is
+provisional until T24/T25.
 
 ### B.5 Upstream admissibility
 
@@ -480,6 +510,7 @@ conservatively.
 | `a_min` | 0.6 | minimum discrimination |
 | `\|β₂\|` max DIF | 0.40 | logistic regression |
 | `DIF_j` max (latent classes) | 1.0 logit (provisional; literature 0.5) | IRT mixture; see §B.3 |
+| KR-20 min (anchors, latent re-check) | 0.90 (provisional, D37) | on the batch's own respondents, ≈ 40 anchors; below it the batch is refused before fitting (T53, §B.4) |
 | `Δ_MH` max | 1.5 | ETS class C = reject |
 | `α` (cluster discount) | 0.5 | square root |
 | `w_max` | 3× median | individual cap |

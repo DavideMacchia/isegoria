@@ -7,7 +7,9 @@
 //! how an adversary would probe it — and each stage needs enough distinct respondents to
 //! estimate its statistic (`docs/02` §B.6). The per-item math below stays pure; the
 //! **batch-admission gates** [`screen`] / [`dif_batch`] enforce the floors and are what a
-//! caller uses. `K_MIN` is shared with [`crate::lifecycle`].
+//! caller uses. `K_MIN` is shared with [`crate::lifecycle`]. The latent re-check has a
+//! third precondition, on the anchors that give the ability proxy: [`admit_anchors`]
+//! refuses anchors whose KR-20 on the batch's respondents is below `KR20_MIN` (D37, T53).
 //!
 //! "Distinct respondents" is enforced on persons, not rows (INV-9, T65): a respondent
 //! enters a batch through [`submit_response`], proving a `Respond` nullifier bound to
@@ -22,7 +24,9 @@ use identity::nym::{Nym, Role};
 use network::cid::{cid, Cid};
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
-use scoring::irt::{fit_2pl_item, point_biserial, A_MIN, R_PBIS_MIN};
+use scoring::irt::{
+    fit_2pl_item, kr20, point_biserial, theta_from_anchors, A_MIN, KR20_MIN, R_PBIS_MIN,
+};
 use scoring::LogisticFit;
 
 /// Stage-1 distinct-respondent floor (`docs/02` §B.6: the classic discrimination screen).
@@ -30,8 +34,8 @@ pub const N1_MIN: usize = 300;
 /// Stage-2 (Variant-1, attribute DIF) respondent floor (`docs/02` §B.6).
 pub const N2_MIN: usize = 1500;
 
-/// Why a pilot batch is not admissible (`docs/08` INV-8, §B.6 sample sizes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a pilot batch is not admissible (`docs/08` INV-8, §B.6 sample sizes, D37).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PilotError {
     /// Fewer distinct respondents than the stage requires.
     NotEnoughRespondents { have: usize, need: usize },
@@ -40,6 +44,10 @@ pub enum PilotError {
     /// The answer rows are not the admitted respondents one to one (T65): a row without a
     /// respondent, or an item column of another length, is refused.
     RowCountMismatch { rows: usize, respondents: usize },
+    /// The anchors' KR-20 on the batch's respondents is below `KR20_MIN` (D37, T53): an
+    /// ability proxy that unreliable creates latent classes that do not exist (`docs/08`
+    /// DIF-010), so the latent re-check is refused before anything is fitted.
+    UnreliableAnchors { kr20: f64, anchors: usize },
 }
 
 /// Names a pilot batch by its content: the id of its item cids in canonical (sorted,
@@ -152,6 +160,24 @@ pub fn admit_dif_batch(
         });
     }
     Ok(())
+}
+
+/// D37 anchor-reliability gate (T53): the ability proxy of a latent re-check comes only
+/// from anchors whose KR-20, on these respondents, is at least `KR20_MIN`; below it the
+/// batch is refused like the item and respondent floors, because with an unreliable proxy
+/// the detector finds classes that do not exist (`docs/08` DIF-010; paper §4.5: at
+/// N = 6,000 clean items are flagged from 10 or 20 anchors, KR-20 0.69 / 0.82). `anchors`
+/// is respondents × anchor items (0/1), the DIF-free anchors answered alongside the batch
+/// (`docs/02` §B.4). Returns θ, the standardized anchor total.
+pub fn admit_anchors(anchors: &[Vec<f64>]) -> Result<Vec<f64>, PilotError> {
+    let r = kr20(anchors);
+    if r < KR20_MIN {
+        return Err(PilotError::UnreliableAnchors {
+            kr20: r,
+            anchors: anchors.first().map_or(0, Vec::len),
+        });
+    }
+    Ok(theta_from_anchors(anchors))
 }
 
 /// Outcome of the attribute-based DIF screen for one item (calibration-only, D20).

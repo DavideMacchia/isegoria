@@ -66,8 +66,9 @@ The working paper in `paper/` (v0.1 at `2ee5e79`; v0.2 adds the adopted revision
 analysed the scoring mechanism with proofs and reproducible experiments
 (`paper/scripts/`). Its findings are new claims for the matrix of §15; all are decided
 (`docs/01` D32–D41) and planned (`docs/10` Phase 1.1). BRIDGE-008 and BRIDGE-009 are
-resolved (D32, T49, 2026-09-24); the rest are open. What the repository changed after the
-paper's snapshot is listed in `paper/README.md`.
+resolved (D32, T49, 2026-09-24); DIF-010 is resolved in part (D37's precondition and
+diagnostic, T53, 2026-09-25; the target model is T54); the rest are open. What the
+repository changed after the paper's snapshot is listed in `paper/README.md`.
 
 - **BRIDGE-008 — The gate is relative to its batch.** With `μ` unpenalized,
   `Σ_j b_j = 0` at every stationary point (paper Lemma 1), so `B_j ≥ τ > 0` cannot hold
@@ -87,8 +88,17 @@ paper's snapshot is listed in `paper/README.md`.
   trial items are positively dependent even without DIF (paper Prop 10); on null batches
   at N = 6,000 the production detector flags clean items with 10 or 20 anchors (KR-20
   0.69 / 0.82) and passes at 30 (0.87) by 0.01–0.06. The differential gap is no remedy on
-  its own: with 6 of 8 items biased it inverts the verdict. Status: **OPEN** → D37, T53,
-  T54 (`AT-DIF-11`, `AT-DIF-12`); also bears on DIF-006 and DIF-008.
+  its own: with 6 of 8 items biased it inverts the verdict. Status: **PARTIAL** (T53,
+  2026-09-25): `revalidate_batch_latent` takes the anchor responses and refuses the
+  re-check before any fit when their KR-20 on the batch's respondents is below
+  `KR20_MIN = 0.90` (`pilot::admit_anchors`, `PilotError::UnreliableAnchors`), deriving θ
+  itself otherwise. On the paper's null-batch design at N = 6,000: 10 and 20 anchors
+  refused (KR-20 0.72 / 0.83 — ungated, the engine flagged 7–8 and 2–3 clean items of 8),
+  60 admitted with no flag (`anchor_reliability.rs`, `AT-DIF-11`). `MixtureDif::differential_gap`
+  is reported as a diagnostic and never read by the verdict; with 60 anchors the verdict
+  flags exactly the shifted items at 2, 4 and 6 of 8 while the diagnostic inverts at 6
+  (`AT-DIF-12`, on the proxy-θ model). The target model (θ inside the likelihood), which
+  removes the artefact instead of refusing it, is T54; also bears on DIF-006 and DIF-008.
 - **REPUTATION-008 — The evaluator score is not proper.** The ratio-form BSS rewards
   moving toward the crowd: with one scored item `logit p* = logit q + 2 logit b` (paper
   Prop 12). Scoring only items that pass the gate would also be improper. Status:
@@ -479,6 +489,13 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Analysis.** `mixture_dif` uses a central-difference gradient: `2(1+3m)` NLL evaluations per gradient, each `O(NT·m)`, for up to 3000 iterations. For `m = 8, NT = 3000`: ~10⁹ flops per fit (fine). For a pool of `m = 300`: ~10¹⁴ per fit — infeasible. The two-class, one-axis model is also assumed to hold for *all* pool items simultaneously.
 - **Evidence status.** NOT ESTABLISHED at pool scale. The specification MUST bound batch size for this detector or require an analytic gradient and a batched design.
 
+#### DIF-010 — Anchor-reliability precondition (D37)
+- **Claim.** The latent-class re-check runs only when the anchors' KR-20 on the batch's respondents is at least `KR20_MIN = 0.90`; below it the batch is refused before any fit (`PilotError::UnreliableAnchors { kr20, anchors }`), after the item and respondent floors and the shape checks; θ is derived inside the gate from the anchor responses (`pilot::admit_anchors`, `revalidation::revalidate_batch_latent(respondents, anchors, responses, seed)`), so no caller can supply an unchecked proxy.
+- **Why.** Given the anchor total, trial items are positively dependent even without DIF (paper Prop. 10), the more so the less reliable the total. Probe on the previous code (2026-09-25; the paper's null-batch design, N = 6,000, seeds 1300–1301, `ChaCha8`): 10 anchors, KR-20 0.70–0.73 → a two-class mixture (BIC gain 530–710) flagging 7–8 clean items of 8; 20 anchors, 0.83 → 2–3 flagged; 60 anchors, 0.93 → one class, nothing flagged. The re-check ran in every case.
+- **Evidence.** `protocol/tests/anchor_reliability.rs` — `AT-DIF-11`: 10 and 20 anchors refused with the engine's KR-20 in the error, 60 admitted with no flag; the gate is the last precondition (a batch of one, a short sample, a missing or ragged anchor row are reported first); `documents_limitation`: the ungated detector flags clean items from 10 anchors (inverted when T54 removes the artefact). `scoring/tests/anchor_reliability.rs`: KR-20 hand-computed (0.75, 1, −1), the degenerate cases (0, never NaN), the Level-B fixture's 30 anchors at 0.816 — below the floor.
+- **Diagnostic.** `MixtureDif::differential_gap` — per counted class pair `(g, h)`, `|s_j − median_k s_k|` with `s_j = b_jg − b_jh`, the largest over pairs (the paper's `2|δ_j − median δ|` with two classes) — is reported and never read by `latent_flags`. `AT-DIF-12` (proxy-θ model, 60 anchors with KR-20 0.94, N = 6,000): the verdict flags exactly the shifted items at 2, 4 and 6 of 8 (raw gaps 1.7–2.2 on the shifted items, ≤ 0.25 on the clean); the diagnostic agrees at 2 (1.5–2.0 vs ≤ 0.2), cannot separate at 4 (every item 0.86–0.98: the median sits between the two groups) and inverts at 6 (0.00–0.20 on the shifted items, 1.90 on the two clean ones), as the paper's Table 15 says — which is why it is not the verdict.
+- **Evidence status.** TESTED (the precondition and the diagnostic, on the proxy-θ model). The floor is provisional (T24/T25). The repository's fixtures carry θ from 30 anchors (KR-20 0.82–0.87), below the floor, so the oracle tests reach the detector through the ungated `revalidate_pool_latent`; they are regenerated with reliable anchors by T54, the target model.
+
 #### STAT-001 — Sample sizes 300 / 1500 / 3000 are adequate
 - **Claim (docs/02 §B.6).** Pilot 1 ≈ 300, Pilot 2 ≈ 1500 (with group signal) or ≈ 3000 (latent-class).
 - **Evidence.** Literature rules of thumb cited in prose; `power.rs` (ignored, 5 seeds, 2 of 8 biased, `δ = 0.9`); the sim uses NT = 1500 for Variant 1 and 3000 for Variant 2. `docs/02` itself says these are "calibration targets … not a proof".
@@ -753,6 +770,7 @@ Unpenalized MLE via `lbfgs`, `g_tol = 1e-8`, `max_iters` 200 (2PL) / 400 (DIF). 
 **Ability.** `θ_i = (T_i − mean T)/sd_pop(T)`, `T_i = Σ_anchor X_ia`; `θ ≡ 0` when `sd = 0` (T36). Not an IRT ability; downstream thresholds are in this proxy's metric (IRT-001).
 **2PL per item.** `logit P(X_ij = 1 | θ_i) = w₁ θ_i + w₀`; `a_j = w₁`, `b_j = −w₀/w₁` (NaN/∞ when `w₁ = 0`). Retention: `a_j ≥ A_MIN = 0.6`. `B_ABS_MAX = 2.5` is defined and never applied.
 **Point-biserial.** Pearson between the 0/1 item and `total` (caller passes `θ`, a linear transform of the anchor total ⇒ identical correlation). Retention `≥ 0.20`; negative ⇒ inverted key. The spec's "total score on the rest of the test" is not what is computed (anchor total is used).
+**Anchor reliability (D37, T53).** `KR-20 = K/(K−1) · (1 − Σ_j p_j(1−p_j) / Var_pop(T))` on the batch's respondents (`irt::kr20`; 0 when undefined, never NaN); the latent re-check requires `KR-20 ≥ KR20_MIN = 0.90` (`pilot::admit_anchors`), else `PilotError::UnreliableAnchors` before any fit.
 **Not implemented.** 3PL (`c_j`), infit/outfit MNSQ, `|b| ≤ 2.5`.
 **Required.** Either estimate items on an IRT-scaled `θ` (e.g. EAP under the anchors' 2PL) or re-derive `A_MIN` for the proxy metric by simulation; add 3PL or justify its absence for the item types admitted (multiple choice with ≥ 4 options is exactly where guessing matters; item 02 already fails because of it).
 
@@ -768,7 +786,9 @@ P(X_ij = 1 | θ_i, z_i) = σ( a_j (θ_i − b_j − δ_j z_i) ),   z_i ∈ {−1
 ℓ(π, a, b, δ) = Σ_i log[ (1−π)·Π_j P(x_ij | z=−1) + π·Π_j P(x_ij | z=+1) ]
 LR = 2(ℓ_full − ℓ_null(δ≡0)),   BIC_gain = LR − K·ln(NT)   (> 0 ⇒ two classes)
 DIF_j (spec) = |b_j^{+} − b_j^{−}| = 2|δ_j|;  code reports 2|δ_j| and rejects at 1.0 (T35, provisional)
+differential_gap_j = max_{g<h} |s_jgh − median_k s_kgh|,  s_jgh = b_jg − b_jh   (D37 diagnostic, T53: reported, never thresholded)
 ```
+Precondition (D37, T53): the fit runs only on θ from anchors with `KR-20 ≥ 0.90` on the batch's respondents (§6.4).
 Init: `a = 1, b = 0, δ ~ 0.3·N(0,1)` (seeded), `logit π = 0`. Optimizer: `lbfgs` with central differences `h = 1e-5`, `g_tol = 1e-6`, ≤ 3000 iters.
 **Identifiability.** Label switching `(δ, π) ↔ (−δ, 1−π)` resolved by `|δ|`. Under the null, `π` is unidentified and the LR statistic is not χ²_K (boundary + non-identifiability: Self–Liang / mixture-LRT irregularity); BIC comparison is a heuristic, not a calibrated test. `θ` is fixed at the anchor proxy, so measurement error in `θ` is absorbed into `a`, `b`, `δ` (not characterized).
 **Numerical.** Numerical gradient on an NLL of magnitude ~`NT·K·ln 2` has cancellation error ~`ε_mach·f/h ≈ 3e-7` per component at `NT = 3000, K = 8`, comparable to `g_tol`; convergence is effectively decided by the progress criterion. Cost scales as `O(NT·K²)` per gradient (DIF-009).
@@ -892,9 +912,9 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `AppealEligible` | `appeal(N_propose, stake)` | within appeal window; `C_a ≥ α₀/(α₀+β₀)` (✓ T61: `run_item` derives both from `ItemVerdicts`, `appeal::appeal_floor`) | `Pilot1{appealed}` | a zero-quality pseudo-observation escrowed in the author's history (`appeal::AuthorHistory::file_appeal`, D27, REPUTATION-007); settled on the terminal by `orchestrator::settle_appeal` — replaced by `q_j` on `ActivePool`, left otherwise (✓ T61) | appeal after window (`AppealWindowClosed`); `C_a` below the floor (`InsufficientReputation`, and `file_appeal` escrows nothing); appeal on `Reject` |
 | `AppealEligible` | window expires | — | `Rejected` | — | — |
 | `Pilot1` | batch of ≥ `N₁` distinct respondents (`≈300`) answered | respondents present `NullifierProof(Respond)` bound to the batch and epoch (✓ T65, `pilot::submit_response`); item mixed with validated items; answers do not count toward respondent score | `Pilot2` if `r_pbis ≥ 0.20 ∧ a ≥ 0.6` (`stage1_screen`) else `Rejected{Screen}` | — | `N₁` not met (✓ T9: `pilot::screen` → `NotEnoughRespondents`); duplicate respondent nullifier (✓ T65: `ResponseRejected::Duplicate`; the floors count the admitted `NullifierSet`, and a row without a respondent is `RowCountMismatch`) |
-| `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
+| `Pilot2` | batch of ≥ `N₂` respondents **and** ≥ `K_min` items in the batch (INV-8; `K_min` unspecified, ≥ 2 by DIF-005, ≥ 8 by the tested regime); anchors answered by the batch's respondents with KR-20 ≥ 0.90 (D37 ✓ T53: `revalidate_batch_latent` takes the anchor responses and derives θ from them) | mixture DIF (Variant 2) run on the batch; Variant 1 only in attributed pilots | `ActivePool` if `DIF_j ≤ cut` else `Rejected{DIF}`; appealed items: stake settled | `q_j` recorded → `author_score`; `o_j` recorded → evaluator BSS | batch of 1 (✓ T9: `revalidate_batch_latent`/`dif_batch` → `BatchTooSmall`); unreliable anchors (✓ T53: `PilotError::UnreliableAnchors`, before any fit; an anchor row without a respondent → `RowCountMismatch`); Variant 1 with a linked/declared group in production (✓ T32, gated behind `calibration`) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
-| `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound) | `Retired{EmergingDif}` / stays | — | — |
+| `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound), under the same INV-8 floors and the D37 anchor precondition (✓ T53, `revalidate_batch_latent`) | `Retired{EmergingDif}` / stays | — | unreliable anchors (✓ T53) |
 | `ActivePool` | `exposure ≥ EXPOSURE_LIMIT (2000)` | — | `Retired{Exposure}` | template rotation | — |
 
 ### 9.2 Reviewer (judge nym) reputation
@@ -1094,8 +1114,8 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-DIF-08 | purification oscillation | adversarial batch constructed so flags alternate | non-convergence signalled | DIF-007 |
 | AT-DIF-09 | pool-scale mixture | K = 100, NT = 3000 | completes within a stated budget | DIF-009 |
 | AT-DIF-10 ✓ | single item invisible | 1/8 | (documentation claim, not a guard) | DIF-005 |
-| AT-DIF-11 | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 20 vs 60 anchors | 20 anchors (KR-20 ≈ 0.82) refused before fitting; 60 anchors (≈ 0.93) accepted with no flag | DIF-010 |
-| AT-DIF-12 | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction | exactly the shifted items flagged in every case (the differential gap alone inverts at 6 of 8) | DIF-010 |
+| AT-DIF-11 ✓ | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 10, 20 vs 60 anchors, the paper's design seeded with `ChaCha8` (`anchor_reliability.rs`, T53) | 10 and 20 anchors (KR-20 0.72 / 0.83) refused before fitting, the engine's KR-20 in the error; 60 anchors (0.93) accepted with no flag; `documents_limitation`: fed 10-anchor θ, the ungated detector flags 7 of 8 clean items | DIF-010 |
+| AT-DIF-12 ✓ (proxy-θ model) | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction, θ from 60 anchors, N = 6,000 (`anchor_reliability.rs`, T53) | exactly the shifted items flagged in every case; the differential gap, reported as a diagnostic, agrees at 2, cannot separate at 4 and inverts at 6 of 8 (≈ 0 on the shifted, > 1 on the clean). T54 re-runs it on the target model | DIF-010 |
 | AT-NET-01 | consistent rewrite | rewrite entries `i..`, recompute hashes | detected against a stored prior head | NET-004 |
 | AT-NET-02 | leaf duplication | `[x,y,z]` vs `[x,y,z,z]` | distinct roots | NET-003 |
 | AT-NET-03 | checkpoint replay | old valid checkpoint to a client at height `h' < h` | ignored | NET-006 |
@@ -1142,6 +1162,7 @@ verification/
 │   ├── logistic_vs_statsmodels.rs   (β with SE; separation cases)
 │   └── crypto_vs_reference.rs  (VOPRF against RFC 9497 test vectors; BBS+ against the library's vectors)
 ├── adversarial/                §12 AT-ID, AT-REP, AT-COL, AT-BR, AT-DIF-07, AT-NET, AT-PRO
+│   ├── anchor_reliability.rs   (AT-DIF-11, AT-DIF-12 diagnostic; the D37 gate, T53)
 ├── simulations/
 │   ├── bridging_sweeps.py      (BRIDGE-002/003/005 characterization)
 │   ├── dif_power.py            (AT-DIF-01..04; replaces power.rs's 5 seeds)
@@ -1307,7 +1328,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | DIF-007 | purification fixed point | `level_b.rs` | TESTED (1 dataset) | convergence signalling | AT-DIF-08 |
 | DIF-008 | FP/FN characterized | — | NOT ESTABLISHED | simulations | AT-DIF-01..04 |
 | DIF-009 | pool-scale feasibility | — | NOT ESTABLISHED | analytic gradient, benchmark | AT-DIF-09 |
-| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py` | OPEN — false flags on null batches with ≤ 20 anchors | anchor gate, θ in the likelihood (D37) | T53, T54, AT-DIF-11/12 |
+| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py`; `protocol/tests/anchor_reliability.rs` (AT-DIF-11/12), `scoring/tests/anchor_reliability.rs` | PARTIAL (T53, 2026-09-25) — the re-check refuses anchors with KR-20 < 0.90 on the batch's respondents before fitting (10 and 20 anchors refused, where the ungated detector flagged clean items; 60 admitted with no flag); the differential gap is a reported diagnostic only | θ inside the likelihood — the artefact removed, not refused; the floor characterized | T54, T24/T25 |
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
 | REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED | — | — |

@@ -97,7 +97,7 @@ types (a sample with one row per admitted respondent, a square correlation matri
 | `collusion::correlation_matrix` | ragged `judgments` | panic |
 | `collusion::discount_weights` | fewer `cluster_ids` than `weights` | panic; more are ignored |
 | `reputation::crowd_baseline` | ragged `predictions` | panic; a weight vector of another length is zip-truncated |
-| `irt::theta_from_anchors`, `collusion::cluster_by_correlation`, `reputation::{brier_skill_score, author_score}` | ragged, non-square or mismatched input | tolerated (zip truncation or a defined degenerate value) |
+| `irt::theta_from_anchors`, `irt::kr20`, `collusion::cluster_by_correlation`, `reputation::{brier_skill_score, author_score}` | ragged, non-square or mismatched input | tolerated (zip truncation or a defined degenerate value; `kr20` reads a missing cell as 0 and is never NaN — the production gate checks the anchor rows' shape first) |
 
 ## 3. External-input crashes found, and fixes
 

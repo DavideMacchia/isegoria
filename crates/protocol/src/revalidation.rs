@@ -7,7 +7,7 @@
 
 use crate::admission::NullifierSet;
 use crate::exposure::{should_retire, ExposureLedger, ItemHealth, RetirementReason};
-use crate::pilot::{admit_dif_batch, respondent_rows, PilotError};
+use crate::pilot::{admit_anchors, admit_dif_batch, PilotError};
 use network::cid::Cid;
 #[cfg(feature = "calibration")]
 use scoring::dif::{logistic_dif, BETA2_MAX};
@@ -57,7 +57,9 @@ pub fn revalidate_pool(
 /// Latent-class re-check over the whole pool (`docs/02` §B.3, Variant 2): the
 /// anonymity-compatible detector for a distorting axis that was never observed. Flags
 /// each item whose latent-class difficulty gap exceeds the threshold. Only
-/// identifiable in batches, which is what a whole-pool pass provides.
+/// identifiable in batches, which is what a whole-pool pass provides. The math only:
+/// `theta` is taken as given, so the production entry point is [`revalidate_batch_latent`],
+/// which derives it from anchors it has admitted (D37).
 pub fn revalidate_pool_latent(theta: &[f64], responses: &[Vec<f64>], seed: u64) -> Vec<bool> {
     let m = if responses.is_empty() {
         0
@@ -82,34 +84,49 @@ pub fn latent_flags(res: &MixtureDif) -> Vec<bool> {
         .collect()
 }
 
-/// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6): the
-/// pool is re-checked only as a batch of at least `K_MIN` items with at least
+/// Batch-admission gate for the production latent re-check (`docs/08` INV-8, §B.6, D37):
+/// the pool is re-checked only as a batch of at least `K_MIN` items with at least
 /// `N_LATENT_MIN` admitted respondents — persons, counted from the [`NullifierSet`] that
 /// `pilot::submit_response` filled, never rows (T65) — whose rows are those respondents
-/// one to one. A single item is rejected (AT-PRO-02) — it cannot reveal latent bias.
-/// `responses` is respondents × items.
+/// one to one, and only with an ability proxy from anchors reliable enough on those
+/// respondents: `pilot::admit_anchors` refuses a KR-20 below `KR20_MIN` before anything
+/// is fitted (`PilotError::UnreliableAnchors`, T53), since an unreliable proxy creates
+/// latent classes that do not exist (DIF-010). θ is derived here, from the anchors, so no
+/// caller can hand the re-check an ability proxy it has not checked. A single item is
+/// rejected (AT-PRO-02) — it cannot reveal latent bias. `anchors` is respondents × anchor
+/// items (0/1), `responses` respondents × items.
 pub fn revalidate_batch_latent(
     respondents: &NullifierSet,
-    theta: &[f64],
+    anchors: &[Vec<f64>],
     responses: &[Vec<f64>],
     seed: u64,
 ) -> Result<Vec<bool>, PilotError> {
     let m = responses.first().map_or(0, |row| row.len());
-    admit_dif_batch(m, respondents.len(), N_LATENT_MIN)?;
-    if responses.len() != respondents.len() {
-        return Err(PilotError::RowCountMismatch {
-            rows: responses.len(),
-            respondents: respondents.len(),
-        });
+    let n = respondents.len();
+    admit_dif_batch(m, n, N_LATENT_MIN)?;
+    for rows in [responses.len(), anchors.len()] {
+        if rows != n {
+            return Err(PilotError::RowCountMismatch {
+                rows,
+                respondents: n,
+            });
+        }
     }
-    respondent_rows(respondents, theta, std::iter::empty())?;
     if let Some(row) = responses.iter().find(|row| row.len() != m) {
         return Err(PilotError::RowCountMismatch {
             rows: row.len(),
             respondents: m,
         });
     }
-    Ok(revalidate_pool_latent(theta, responses, seed))
+    let n_anchors = anchors.first().map_or(0, Vec::len);
+    if let Some(row) = anchors.iter().find(|row| row.len() != n_anchors) {
+        return Err(PilotError::RowCountMismatch {
+            rows: row.len(),
+            respondents: n_anchors,
+        });
+    }
+    let theta = admit_anchors(anchors)?;
+    Ok(revalidate_pool_latent(&theta, responses, seed))
 }
 
 /// Composes re-validation health with exposure into the retirement list: for each

@@ -60,6 +60,18 @@ fn admitted(n: usize) -> NullifierSet {
     set
 }
 
+/// 40 anchors answered by `n` respondents in a perfect Guttman pattern: reliable well
+/// above `KR20_MIN`, so the D37 anchor gate of the latent re-check (T53,
+/// `anchor_reliability.rs`) admits them and only the respondent checks decide here.
+fn reliable_anchors(n: usize) -> Vec<Vec<f64>> {
+    (0..n)
+        .map(|i| {
+            let total = i * 41 / n;
+            (0..40).map(|j| if j < total { 1.0 } else { 0.0 }).collect()
+        })
+        .collect()
+}
+
 /// `n` respondents' abilities and `m` item columns of `n` answers each, non-degenerate.
 fn sample(n: usize, m: usize) -> (Vec<f64>, Vec<Vec<f64>>) {
     let theta: Vec<f64> = (0..n).map(|i| (i as f64 / n as f64) - 0.5).collect();
@@ -115,13 +127,14 @@ fn three_hundred_rows_from_one_respondent_are_not_enough() {
         })
     );
 
-    // The same for the production latent re-check: 3,000 rows, one person.
-    let (theta, _) = sample(N_LATENT_MIN, 0);
+    // The same for the production latent re-check: 3,000 rows (and 3,000 anchor rows),
+    // one person.
+    let anchors = reliable_anchors(N_LATENT_MIN);
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())
         .collect();
     assert_eq!(
-        revalidate_batch_latent(&respondents, &theta, &responses, 0),
+        revalidate_batch_latent(&respondents, &anchors, &responses, 0),
         Err(PilotError::NotEnoughRespondents {
             have: 1,
             need: N_LATENT_MIN
@@ -208,12 +221,20 @@ fn rows_without_a_respondent_are_refused() {
 
     // The latent re-check: 3,000 admitted persons, 3,001 rows.
     let respondents = admitted(N_LATENT_MIN);
-    let (theta, _) = sample(N_LATENT_MIN + 1, 0);
+    let anchors = reliable_anchors(N_LATENT_MIN + 1);
     let responses: Vec<Vec<f64>> = (0..N_LATENT_MIN + 1)
         .map(|i| (0..8).map(|j| ((i + j) % 2) as f64).collect())
         .collect();
     assert_eq!(
-        revalidate_batch_latent(&respondents, &theta, &responses, 0),
+        revalidate_batch_latent(&respondents, &anchors, &responses, 0),
+        Err(PilotError::RowCountMismatch {
+            rows: N_LATENT_MIN + 1,
+            respondents: N_LATENT_MIN
+        })
+    );
+    // The anchor sheets are persons too: 3,000 answer rows but 3,001 anchor rows.
+    assert_eq!(
+        revalidate_batch_latent(&respondents, &anchors, &responses[..N_LATENT_MIN], 0),
         Err(PilotError::RowCountMismatch {
             rows: N_LATENT_MIN + 1,
             respondents: N_LATENT_MIN

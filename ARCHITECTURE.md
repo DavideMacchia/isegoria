@@ -62,8 +62,8 @@ executable specification; the Rust implementation must reproduce their results.
 | Module | Spec | Key items |
 |---|---|---|
 | `bridging` | §A | `Ratings`, `BridgingParams`, `Fit`, `fit`, `bridge_scores` |
-| `irt` | §B.1–B.2, B.4 | `theta_from_anchors`, `point_biserial`, `fit_2pl_item`, `A_MIN`, `R_PBIS_MIN` |
-| `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif`, `BETA2_MAX`, `MIXTURE_DIF_MAX` |
+| `irt` | §B.1–B.2, B.4 | `theta_from_anchors`, `kr20`, `point_biserial`, `fit_2pl_item`, `A_MIN`, `R_PBIS_MIN`, `KR20_MIN` (D37, T53) |
+| `dif` | §B.3 | `logistic_dif`, `mantel_haenszel` (`EtsClass`), `mixture_dif` (`MixtureDif`, with the `differential_gap` diagnostic of D37), `BETA2_MAX`, `MIXTURE_DIF_MAX` |
 | `validation` | §B.4 | `purify_theta` (iterative purification to a fixed point) |
 | `reputation` | §C | `author_score`, `brier_skill_score`, `evaluator_score`, `asymmetric_ema`, `weight_cap`, `dasgupta_ghosh` |
 | `collusion` | §Anti-collusion | `correlation_matrix`, `cluster_by_correlation`, `sublinear_group_weight`, `discount_weights` |
@@ -78,9 +78,9 @@ Notes on non-obvious choices:
   optimizer noise rather than sampling variability.
 - **L-BFGS is in-house** (`optim`) rather than a dependency, to keep full control
   over floating-point determinism.
-- **The mixture detector uses a numerical gradient**, matching SciPy's gradient-free
-  L-BFGS in `sim/latent_dif_and_capacity.py`; its δ is initialized non-zero to break
-  the class symmetry.
+- **The mixture detector's gradient is analytic** (T40; pinned against central
+  differences), where `sim/latent_dif_and_capacity.py` uses SciPy's gradient-free
+  L-BFGS; the class difficulties are initialized apart to break the class symmetry.
 
 ## `identity` — anonymous enrollment
 
@@ -163,11 +163,11 @@ steps are seeded for reproducibility.
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated) | `admission`, `identity`, `network::cid` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |
-| `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9) | `scoring::irt`, `scoring::dif` |
+| `pilot` | [6]/[7] | `stage1_screen`, `stage2_dif`; batch/sample gates `screen`, `dif_batch`, `admit_dif_batch` (INV-8, T9); `admit_anchors` — θ only from anchors with KR-20 ≥ `KR20_MIN` on the batch's respondents (D37, T53) | `scoring::irt`, `scoring::dif` |
 | `honeypot` | Golden items | `inject`, `reviewer_skill`, `HONEYPOT_RATE` | `scoring::reputation` |
 | `governance` | Meta-level | `stratified_sortition`, `change_approved` | — |
 | `probation` | Cold start / P2 | `status`, `review_weight`, `FounderSet`, `N_PROBATION` | `identity::nym`, `scoring::reputation` |
-| `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent`, `items_to_retire` | `scoring::dif`, `exposure` |
+| `revalidation` | [8] | `revalidate_pool` (multi-axis), `revalidate_pool_latent` (the math), `revalidate_batch_latent` (the production gate: item and respondent floors, persons, anchor reliability — T9/T65/T53), `items_to_retire` | `scoring::dif`, `pilot`, `exposure` |
 | `lifecycle` | §9.1 | `State`, `Event`, `step`, `deposit`, `K_MIN` — rejects every invalid transition (T12); `Event::Resolve` re-decides the band (T10/T30) | `gate`, `review`, `exposure`, `identity::nym` |
 | `orchestrator` | Epoch glue | `bridging_weights`, `weighted_ratings` (prior-epoch `w_u` → the fit, T5), `run_item`, `ItemVerdicts` (drives the epoch through `step`, T12), `settle_appeal` (the escrow on the terminal, T61) | `lifecycle`, `appeal`, `probation`, `scoring::bridging` |
 

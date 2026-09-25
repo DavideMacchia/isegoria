@@ -257,6 +257,13 @@ ones, which therefore pollute the very measure you are judging them with.
 Without this step the neutrality test is unreliable in a subtle way, and it is a very
 common mistake.
 
+**The anchors must be reliable.** The anonymity-compatible detector (the mixture IRT
+below) conditions on the anchor total, and an unreliable total makes it see classes that
+are not there. The engine measures the anchors' internal consistency with **KR-20**
+(Kuder–Richardson 20: `K/(K−1) · (1 − Σ_j p_j(1−p_j) / Var(T))`, `p_j` the proportion
+correct on anchor `j`, `T` the total) on the batch's own respondents, and refuses a
+latent re-check below 0.90 — about 40 anchors (`01` D37, `02` §B.4).
+
 ---
 
 ## Mixture IRT / latent classes

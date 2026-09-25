@@ -176,6 +176,14 @@ pub struct MixtureDif {
     pub dif: Vec<f64>,
     /// Per-item `max_{g,h} |a_jg − a_jh|` (non-uniform DIF); 0 when `a_j` is shared.
     pub a_gap: Vec<f64>,
+    /// Per-item *differential gap* (D37, T53): the class gap net of the batch's common
+    /// class shift — over the counted class pairs `(g, h)`, the largest
+    /// `|s_jgh − median_k s_kgh|` with `s_jgh = b_jg − b_jh` (the paper's
+    /// `2|δ_j − median_k δ_k|` with two classes). A diagnostic only, never the verdict:
+    /// it removes the proxy artefact when few items are biased but inverts when most of
+    /// the batch is shifted the same way (`docs/01` D37; paper §4.5, Table 15). 0 with
+    /// one class.
+    pub differential_gap: Vec<f64>,
     /// `posterior[i][g]`: probability that respondent `i` belongs to class `g`.
     pub posterior: Vec<Vec<f64>>,
     /// `BIC(one class) − BIC(selected)`: > 0 when a mixture is preferred.
@@ -443,6 +451,7 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
     };
     let dif: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.b_idx(g, j), j)).collect();
     let a_gap: Vec<f64> = (0..k).map(|j| gap(&|g, j| model.a_idx(g, j), j)).collect();
+    let differential_gap = differential_gaps(&model, &p, &counted, k);
 
     let ln_pi: Vec<f64> = pi.iter().map(|v| ln(*v)).collect();
     let posterior: Vec<Vec<f64>> = x
@@ -462,10 +471,43 @@ pub fn mixture_dif_with(theta: &[f64], x: &[Vec<f64>], k: usize, mp: &MixturePar
         pi,
         dif,
         a_gap,
+        differential_gap,
         posterior,
         bic_gain: bic1 - best_bic,
         candidates,
         status,
+    }
+}
+
+/// The differential gap of D37 (paper §4.5): for each pair of counted classes the
+/// signed difficulty gaps `s_j = b_jg − b_jh`, less their median over the batch's items
+/// (the common class shift); per item, the largest `|s_j − median_k s_k|` over the pairs.
+/// The sign convention of a pair does not matter (`|−x − median(−s)| = |x − median(s)|`).
+fn differential_gaps(model: &Model, p: &[f64], counted: &[usize], k: usize) -> Vec<f64> {
+    let mut out = vec![0.0_f64; k];
+    for (i, &g) in counted.iter().enumerate() {
+        for &h in &counted[i + 1..] {
+            let s: Vec<f64> = (0..k)
+                .map(|j| p[model.b_idx(g, j)] - p[model.b_idx(h, j)])
+                .collect();
+            let common = median(&s);
+            for (o, sj) in out.iter_mut().zip(&s) {
+                *o = f64::max(*o, (sj - common).abs());
+            }
+        }
+    }
+    out
+}
+
+/// Median of `v` (the mean of the two middle values for an even count); NaN sorts last
+/// (`total_cmp`, docs/08 IQ-2). 0 for an empty slice.
+fn median(v: &[f64]) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    match s.len() {
+        0 => 0.0,
+        n if n % 2 == 1 => s[n / 2],
+        n => (s[n / 2 - 1] + s[n / 2]) / 2.0,
     }
 }
 
@@ -520,6 +562,56 @@ mod tests {
                 "G={g} per-class"
             );
         }
+    }
+
+    /// The differential gap is the signed class gap less its median over the items, the
+    /// largest such value over the counted class pairs (D37): with six of eight items
+    /// shifted the same way, the common shift is the campaign's and the two clean items
+    /// carry the gap — the inversion the diagnostic is documented to have.
+    #[test]
+    fn differential_gap_is_the_gap_net_of_the_common_shift() {
+        let k = 8;
+        let two = Model {
+            g: 2,
+            k,
+            per_class_a: false,
+        };
+        let mut p = vec![0.0; two.len()];
+        let shift = [1.8, 1.8, 1.8, 1.8, 1.8, 1.8, 0.1, -0.1];
+        for (j, s) in shift.iter().enumerate() {
+            p[two.b_idx(1, j)] = *s;
+        }
+        let d = differential_gaps(&two, &p, &[0, 1], k);
+        let expected = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.7, 1.9];
+        for (j, (a, e)) in d.iter().zip(&expected).enumerate() {
+            assert!((a - e).abs() < 1e-12, "item {j}: {a} vs {e}");
+        }
+
+        // Three classes at 0, +1, +2 on items 0–2: the widest pair (0, 2) sets the gap,
+        // and the median over five unshifted items is 0. A class that is not counted
+        // (below `MIN_CLASS_SHARE`) takes no part.
+        let three = Model {
+            g: 3,
+            k,
+            per_class_a: true,
+        };
+        let mut p = vec![0.0; three.len()];
+        for j in 0..3 {
+            p[three.b_idx(1, j)] = 1.0;
+            p[three.b_idx(2, j)] = 2.0;
+        }
+        let d = differential_gaps(&three, &p, &[0, 1, 2], k);
+        assert_eq!(d, vec![2.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        let d = differential_gaps(&three, &p, &[0, 1], k);
+        assert_eq!(d, vec![1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(differential_gaps(&three, &p, &[1], k), vec![0.0; k]);
+    }
+
+    #[test]
+    fn median_of_odd_even_and_empty() {
+        assert_eq!(median(&[3.0, 1.0, 2.0]), 2.0);
+        assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]), 2.5);
+        assert_eq!(median(&[]), 0.0);
     }
 
     /// The analytic mixture gradient matches central differences for every model shape:

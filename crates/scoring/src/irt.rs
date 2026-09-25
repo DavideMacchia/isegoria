@@ -5,12 +5,54 @@ use crate::glm::{fit_logistic, LogisticFit};
 pub const A_MIN: f64 = 0.6;
 pub const B_ABS_MAX: f64 = 2.5;
 pub const R_PBIS_MIN: f64 = 0.20;
+/// Floor on the anchors' KR-20 for a latent-class re-check (`docs/01` D37, T53): below
+/// it the error in the ability proxy creates latent classes that do not exist
+/// (`docs/08` DIF-010). About 40 anchors of the sims' kind; provisional until T24/T25.
+pub const KR20_MIN: f64 = 0.90;
 
 /// Ability θ from a set of DIF-free anchor items: standardized total score
 /// (`docs/02`, §B.4; matches `th` in `sim/bridging_irt_dif.py`).
 pub fn theta_from_anchors(anchors: &[Vec<f64>]) -> Vec<f64> {
     let totals: Vec<f64> = anchors.iter().map(|row| row.iter().sum()).collect();
     standardize(&totals)
+}
+
+/// Kuder–Richardson 20 reliability of the anchor total on these respondents (`docs/02`
+/// §B.4, D37): `K/(K−1) · (1 − Σ_j p_j(1−p_j) / Var(T))`, with `p_j` the proportion
+/// correct on anchor `j`, `T_i` the total over the `K` anchors and `Var` the population
+/// variance (as `paper/scripts/revisions_dif.py`). `anchors` is respondents × anchors.
+/// Undefined with fewer than two anchors, no spread in the totals or a non-finite entry:
+/// reported as 0, which fails `KR20_MIN` rather than propagating NaN (as
+/// `point_biserial`, T36). Never NaN.
+pub fn kr20(anchors: &[Vec<f64>]) -> f64 {
+    let k = anchors.first().map_or(0, Vec::len);
+    if k < 2 {
+        return 0.0;
+    }
+    let n = anchors.len() as f64;
+    let totals: Vec<f64> = anchors.iter().map(|row| row.iter().sum()).collect();
+    let mean = totals.iter().sum::<f64>() / n;
+    let var = totals.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / n;
+    if var.is_nan() || var == 0.0 {
+        return 0.0;
+    }
+    let sum_pq: f64 = (0..k)
+        .map(|j| {
+            let p = anchors
+                .iter()
+                .map(|row| row.get(j).copied().unwrap_or(0.0))
+                .sum::<f64>()
+                / n;
+            p * (1.0 - p)
+        })
+        .sum();
+    let kf = k as f64;
+    let r = kf / (kf - 1.0) * (1.0 - sum_pq / var);
+    if r.is_nan() {
+        0.0
+    } else {
+        r
+    }
 }
 
 /// `(t − mean) / sd_pop`. With no spread (all totals equal) there is no ability signal

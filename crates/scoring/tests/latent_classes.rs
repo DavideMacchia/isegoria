@@ -119,6 +119,34 @@ fn read_matrix(name: &str) -> Vec<Vec<f64>> {
         .collect()
 }
 
+/// The differential gap (D37, T53) is the class gap net of the batch's common class
+/// shift. On the batch fixture (3 of 8 items shifted by δ = 0.9) the common shift is the
+/// clean items' ≈ 0, so the differential gap agrees with the raw gap: ≈ 1.8 on the
+/// shifted items, small on the rest. It is reported next to `dif`, which alone is the
+/// verdict; the campaign in which it inverts is `protocol/tests/anchor_reliability.rs`.
+#[test]
+fn the_differential_gap_agrees_with_the_raw_gap_when_few_items_are_shifted() {
+    let theta: Vec<f64> = read_matrix("mixture_batch_theta.csv")
+        .into_iter()
+        .map(|r| r[0])
+        .collect();
+    let x = read_matrix("mixture_batch_X.csv");
+    let res = mixture_dif(&theta, &x, 8, 0);
+    assert_eq!(res.differential_gap.len(), 8);
+    for j in 0..3 {
+        let (raw, diff) = (res.dif[j], res.differential_gap[j]);
+        assert!(diff > 1.5, "shifted item {j}: differential gap {diff:.2}");
+        assert!(
+            (raw - diff).abs() < 0.4,
+            "item {j}: raw {raw:.2} vs differential {diff:.2}"
+        );
+    }
+    for j in 3..8 {
+        let d = res.differential_gap[j];
+        assert!(d < 0.5, "clean item {j}: differential gap {d:.2}");
+    }
+}
+
 /// The multi-start makes the verdict independent of the seed (as T48 did for bridging):
 /// on the batch fixture, different seeds select the same model and the same gaps.
 #[test]

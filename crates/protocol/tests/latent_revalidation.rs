@@ -37,6 +37,7 @@ fn fit(dif: Vec<f64>, classes: usize, status: Convergence) -> MixtureDif {
         pi: vec![1.0 / classes as f64; classes],
         dif,
         a_gap: vec![0.0; k],
+        differential_gap: vec![0.0; k],
         posterior: Vec::new(),
         bic_gain: if classes > 1 { 10.0 } else { 0.0 },
         candidates: Vec::new(),

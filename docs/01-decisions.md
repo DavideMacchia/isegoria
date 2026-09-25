@@ -617,6 +617,19 @@ non-rotatable pseudonyms (invariant #5), not by the length of probation.
 
 ## D37 — Latent DIF: anchor-reliability precondition; θ inside the likelihood as the target model
 
+> **Implemented in part (T53, 2026-09-25): the precondition and the diagnostic.**
+> `scoring::irt::kr20` computes the anchors' KR-20 on the batch's respondents;
+> `protocol::pilot::admit_anchors` refuses a value below `KR20_MIN = 0.90`
+> (`PilotError::UnreliableAnchors`, before anything is fitted), and
+> `revalidation::revalidate_batch_latent` now takes the anchor responses and derives `θ`
+> from them, so no caller can hand the re-check an unchecked proxy. The differential gap
+> is `MixtureDif::differential_gap`, reported next to the verdict and never read by it. On
+> the paper's null-batch design at N = 6,000 the gate refuses 10 and 20 anchors (KR-20
+> 0.72 / 0.83, where the ungated detector flagged 7–8 and 2–3 clean items of 8) and admits
+> 60 (0.93, no flag) — `protocol/tests/anchor_reliability.rs` (AT-DIF-11). The target
+> model (`θ` inside the likelihood) is T54; until then the repository's fixtures, whose `θ`
+> comes from 30 anchors, sit below the floor (`docs/02` §B.4).
+
 **Choice.** The latent-class re-check runs only if the anchors' KR-20, computed on the
 batch's respondents, is at least 0.90 (about 40 anchors). Below that the batch is
 refused, like the respondent (N) and item (K) floors. The *differential gap* (each

@@ -111,6 +111,11 @@ Requirements:
 - **Multi-axis**: look for bias on more than one latent axis, including a
   socio-economic one (a question neutral on the political axis can be distorted on
   education).
+- **Reliable anchors**: the ability proxy of the latent-class stage comes from anchor
+  items answered alongside the batch, and the stage runs only if their KR-20 on the
+  batch's respondents is at least 0.90 (`01` D37, `02` §B.4 — about 40 anchors); below
+  it the batch is refused like a short sample, before anything is fitted, because an
+  unreliable proxy makes the detector see classes that do not exist.
 
 Respondents are the scarce resource: they can be the same nodes under the third
 pseudonym (`nym_answer`), or a separate panel-style sample. Each respondent proves that
@@ -127,7 +132,8 @@ which one is on trial.
 
 - **Periodic re-validation of the whole pool**: scattered distortions add up over time
   until they become visible; an item accepted today can develop DIF as the context
-  changes.
+  changes. It runs as a batch, under the same floors and the same anchor precondition as
+  the pilot's latent stage ([6]-[7]).
 - **Topic coverage**: DIF removes the bias of a single item, not that of the *pool*.
   You can build a test in which every item passes DIF but the choice of topics is
   skewed. Constrain coverage upstream with a **blueprint of fixed quotas per domain**,
