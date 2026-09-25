@@ -119,6 +119,7 @@ fn appealed() -> ItemVerdicts {
         screen_passed: true,
         dif_passed: true,
         pilot2_batch_size: 8,
+        explored: false,
     }
 }
 

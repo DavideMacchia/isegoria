@@ -148,11 +148,12 @@ An item used a lot gets memorized and circulates: it loses value. Countermeasure
 
 ## Golden items (honeypot)
 
-> **Extended by D35 (T52).** Golden items stay at 5%, but alone they are too few to learn
-> an evaluator's skill (about one every two epochs per reviewer). Evaluators will also be
-> scored on every reviewed item that reaches Level B and on a random 5% of gate
-> rejections sent to the pilot for measurement only (weighted 1/0.05, never entering the
-> pool).
+> **Extended by D35 (T52, done).** Golden items stay at 5%, but alone they are too few to
+> learn an evaluator's skill (about one every two epochs per reviewer). Evaluators are
+> also scored on every reviewed item that reaches Level B and on a random 5% of gate
+> rejections the beacon draws for the pilot, for measurement only (`protocol::exploration`:
+> `Rejected → Explored → Measured`, never the pool; the outcome weighted `1/0.05` in the
+> score, `02` §C.2). The explored items also measure the gate's false-negative rate.
 
 A simple and powerful mechanism, **always active**, not only at startup. A fraction `η
 ≈ 5%` of the items in the review queue are of known quality (excellent or deliberately

@@ -29,6 +29,18 @@ pub enum RejectReason {
     Borderline,
 }
 
+impl RejectReason {
+    /// A rejection by the gate — a defect, an unappealed polarization, a failed band
+    /// re-decision — whose Level B outcome is unknown, so the exploration draw (D35, T52)
+    /// can measure it; a pilot rejection's outcome is already known.
+    pub fn at_the_gate(self) -> bool {
+        matches!(
+            self,
+            RejectReason::Defect | RejectReason::Polarized | RejectReason::Borderline
+        )
+    }
+}
+
 /// The item lifecycle state (`docs/08` §9.1).
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
@@ -74,6 +86,19 @@ pub enum State {
     },
     ActivePool,
     Rejected(RejectReason),
+    /// A gate rejection drawn for exploration (D35, T52): piloted for measurement only,
+    /// through the same two batches as a passing item; `screened` once stage 1 is passed.
+    Explored {
+        reason: RejectReason,
+        screened: bool,
+    },
+    /// The pilot's measurement of an explored rejection: whether Level B would have
+    /// passed it. Terminal — the item never enters the pool; the outcome enters its
+    /// reviewers' scores at weight `1/ε` and the gate's false-negative rate.
+    Measured {
+        reason: RejectReason,
+        passed: bool,
+    },
     Retired(RetirementReason),
 }
 
@@ -86,7 +111,8 @@ pub enum Invalid {
     /// Over the per-credential rate-limit quota (ID-008, T11).
     OverQuota,
     DuplicateCid,
-    /// The lottery seed was not the signed checkpoint head (INV-10, T8).
+    /// The lottery seed — or the exploration draw's (D35, T52) — was not the signed
+    /// checkpoint head (INV-10, T8).
     SeedNotFromCheckpoint,
     /// Panel size must be odd and in `[7, 11]`.
     PanelSizeInvalid,
@@ -199,6 +225,9 @@ pub enum Event {
     },
     /// Pilot stage 2 batch of `batch_size` items; `passed` = DIF (Variant 2).
     Pilot2Batch { batch_size: usize, passed: bool },
+    /// The beacon's exploration draw picked this gate rejection (D35, T52): it goes to
+    /// the pilot for measurement only. `seed_from_checkpoint` must hold (INV-10).
+    Explore { seed_from_checkpoint: bool },
     /// The item is administered (adds exposure).
     Administer,
     /// Periodic re-validation; `emerging_dif` retires it if set.
@@ -528,6 +557,67 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
                 Ok(ActivePool)
             } else {
                 Ok(Rejected(RejectReason::Dif))
+            }
+        }
+
+        // Rejected at the gate → Explored (D35, T52): the beacon's exploration draw sends
+        // a random 5% of gate rejections to the pilot for measurement only. A pilot
+        // rejection has its outcome already; the draw's seed must be the checkpoint's.
+        (
+            Rejected(reason),
+            Explore {
+                seed_from_checkpoint,
+            },
+        ) => {
+            if !reason.at_the_gate() {
+                return Err(Invalid::UnexpectedEvent);
+            }
+            if !seed_from_checkpoint {
+                return Err(Invalid::SeedNotFromCheckpoint);
+            }
+            Ok(Explored {
+                reason,
+                screened: false,
+            })
+        }
+
+        // Explored: the two pilot batches under the pilot's own floors, ending `Measured`
+        // — a pass here measures the gate, it never enters the pool.
+        (
+            Explored {
+                reason,
+                screened: false,
+            },
+            Pilot1Batch {
+                enough_respondents,
+                passed,
+            },
+        ) => {
+            if !enough_respondents {
+                Err(Invalid::NotEnoughRespondents)
+            } else if passed {
+                Ok(Explored {
+                    reason,
+                    screened: true,
+                })
+            } else {
+                Ok(Measured {
+                    reason,
+                    passed: false,
+                })
+            }
+        }
+        (
+            Explored {
+                reason,
+                screened: true,
+            },
+            Pilot2Batch { batch_size, passed },
+        ) => {
+            if batch_size < K_MIN {
+                Err(Invalid::BatchTooSmall)
+            } else {
+                Ok(Measured { reason, passed })
             }
         }
 

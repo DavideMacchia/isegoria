@@ -387,15 +387,16 @@ right is the good observation itself (`protocol::appeal`, T61). Floor provisiona
 
 ### C.2 Evaluator score `S_u` and review weight `w_u`
 
-> **Revised by D33 (T50, done) and D35 (T52).** The ratio-form Brier skill score of the
+> **Revised by D33 and D35 (T50 and T52, done).** The ratio-form Brier skill score of the
 > first design is not a proper scoring rule (paper Prop. 12): it paid a dissenter to move
 > toward the crowd. Since T50 the score is the leave-one-out difference score below and
-> the weight lives on the odds scale. D35 (T52) will add the live outcomes and the
-> randomized exploration that make the scored items more than the golden ones.
+> the weight lives on the odds scale. Since T52 the scored items are the live outcomes
+> too, with the randomized exploration that keeps the score proper when the gate decides
+> which outcomes are observed (§Exploration below).
 
 The reviewer does not give a binary judgment: they **declare a probability** `p_uj`
 that the item passes Level B empirical validation. On every scored item — a golden item
-(`05` §Golden items) or, after T52, a live item whose outcome `o_j ∈ {0,1}` is known —
+(`05` §Golden items) or a live item whose outcome `o_j ∈ {0,1}` is known (`01` D35, T52) —
 the forecast is scored with a **strictly proper** rule, which makes honesty the optimal
 strategy whatever the crowd says:
 
@@ -416,6 +417,31 @@ needed against majority capture.
 
 `S_u` is the mean of `S_uj` over the reviewer's `k_u` scored items — the symmetric
 long-window mean of `01` D34 (the change detector on the per-item scores is T51).
+
+**Exploration (`01` D35, T52).** Golden items alone are too few (about one every two
+epochs per reviewer). A reviewer is therefore scored on every reviewed item whose Level
+B outcome is known: the golden items, every live item that reaches a pilot (a pass, or a
+screen or DIF rejection: `o_j = 0`), and a random `ε = 5%` of the items the gate
+rejects, drawn from the public beacon (`protocol::exploration`, keyed on the admitted
+slot) and piloted for measurement only — never entering the pool. Scoring only the
+outcomes the gate lets through would not be proper: the report then decides whether its
+own outcome is observed, and the bare observed score pays a reviewer to report on the
+gate's side (`08` AT-REP-06: 0.08 for reporting 0.50 against 0.0045 for an honest 0.40).
+Each observed score enters the mean at its inverse inclusion probability `1/π_j` — 1
+for an item that entered the pilot on its own account, `1/ε` for an explored rejection —
+over every reviewed item, observed or not:
+
+```
+S_u = ( Σ_{j observed} S_uj / π_j ) / N_u        N_u = the reviewer's reviewed items after the gate
+```
+
+Its expectation is the mean with every outcome observed, whatever the gate decided
+(paper, "Exploration restores properness"), so the true belief stays the unique optimum.
+`k_u`, the count that decides probation and the shrinkage, is the observed items. The
+change detector (D34) reads the *unweighted* observed scores against their own mean, so
+one explored item cannot fire it by its weight. Exploration also measures the gate's
+false-negative rate — how many rejected items would have passed Level B — and costs
+about `ε` of pilot capacity. The draw is grind-free with the beacon of `01` D41 (T37).
 
 **Use.** `S_u` weights the review vote, on the odds scale and shrunk by the number of
 scored items:
@@ -570,6 +596,7 @@ detector no longer confuses with a cartel.
 | `w_max` | 3× median | individual cap |
 | `T` (reputation half-life) | 18 months | |
 | `η` (honeypot rate) | 5% | see `05` |
+| `ε` (exploration rate) | 5% of gate rejections | measurement only, never the pool; the observed score at weight `1/ε` (D35) |
 
 ---
 

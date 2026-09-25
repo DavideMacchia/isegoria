@@ -344,6 +344,13 @@ Log:    ln(p) if it happens,  ln(1−p) if not      very harsh punishment for co
 With the log score, declaring 99% and being wrong costs enormously. It is why it is used
 when overconfidence is the vice to discourage.
 
+**One more condition.** A proper rule stays proper only if the forecast cannot decide
+whether its own outcome is observed. Isegoria's gate does exactly that — a rejected
+item never reaches the pilot that would reveal its outcome — so a random 5% of the
+rejections is piloted for measurement only and each observed score is weighted by the
+inverse of its probability of being observed (`01` D35): the expected score is then the
+one with every outcome observed, and honesty is again the convenient choice.
+
 ## Brier Skill Score
 
 **Residual problem.** The raw Brier rewards predicting the obvious. If 90% of questions

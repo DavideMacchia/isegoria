@@ -112,6 +112,7 @@ fn model_run_item(
     }
     // The band re-decision needs a complete extra round and has three outcomes; a second
     // band is not one of them.
+    let mut borderline = false;
     let effective = match v.gate {
         GateOutcome::SupplementaryReview => {
             let Some(x) = extra else {
@@ -120,19 +121,43 @@ fn model_run_item(
             model_extra_round(&panel, x)?;
             match band_outcome {
                 GateOutcome::SupplementaryReview => return Err(Invalid::UnexpectedEvent),
-                GateOutcome::Reject => return Ok(State::Rejected(RejectReason::Borderline)),
+                GateOutcome::Reject => {
+                    borderline = true;
+                    GateOutcome::Reject
+                }
                 other => other,
             }
         }
         other => other,
     };
     let left_at_the_gate = match effective {
+        GateOutcome::Reject if borderline => Some(RejectReason::Borderline),
         GateOutcome::Reject => Some(RejectReason::Defect),
         GateOutcome::AppealEligible if !v.appealed => Some(RejectReason::Polarized),
         _ => None,
     };
     if let Some(why) = left_at_the_gate {
-        return Ok(State::Rejected(why));
+        // The beacon's exploration draw (D35, T52): the pilot's floors and verdicts as on
+        // the live path, a `Measured` terminal, never the pool.
+        if !v.explored {
+            return Ok(State::Rejected(why));
+        }
+        if !v.enough_respondents {
+            return Err(Invalid::NotEnoughRespondents);
+        }
+        if !v.screen_passed {
+            return Ok(State::Measured {
+                reason: why,
+                passed: false,
+            });
+        }
+        if v.pilot2_batch_size < K_MIN {
+            return Err(Invalid::BatchTooSmall);
+        }
+        return Ok(State::Measured {
+            reason: why,
+            passed: v.dif_passed,
+        });
     }
     // An appeal is filed within its window by an author whose reputation covers the
     // stake (T61): both derived from the verdicts, in that order.
@@ -418,18 +443,22 @@ fn verdicts() -> impl Strategy<Value = ItemVerdicts> {
         prop::bool::weighted(0.75),
         prop::bool::weighted(0.75),
         prop_oneof![1 => 0..K_MIN, 5 => K_MIN..K_MIN + 10],
+        any::<bool>(),
     )
         .prop_map(
-            |(gate, appealed, (within_window, covers), enough, screen, dif, batch)| ItemVerdicts {
-                gate,
-                appealed,
-                appeal_within_window: within_window,
-                author_reputation: if covers { 0.6 } else { 0.3 },
-                appeal_floor: 0.4,
-                enough_respondents: enough,
-                screen_passed: screen,
-                dif_passed: dif,
-                pilot2_batch_size: batch,
+            |(gate, appealed, (within_window, covers), enough, screen, dif, batch, explored)| {
+                ItemVerdicts {
+                    gate,
+                    appealed,
+                    appeal_within_window: within_window,
+                    author_reputation: if covers { 0.6 } else { 0.3 },
+                    appeal_floor: 0.4,
+                    enough_respondents: enough,
+                    screen_passed: screen,
+                    dif_passed: dif,
+                    pilot2_batch_size: batch,
+                    explored,
+                }
             },
         )
 }
@@ -600,7 +629,8 @@ proptest! {
 
 /// The rounds are not vacuous: over a fixed sample, `review_round` meets every way a round
 /// can fail and succeed, and `run_item` reaches every end of the pipeline — including,
-/// through the band's extra round, every way that round can fail (T60).
+/// through the band's extra round, every way that round can fail (T60), and, through the
+/// exploration draw, the measurement of every kind of gate rejection (T52).
 #[test]
 fn the_rounds_cover_every_outcome() {
     let mut runner = TestRunner::deterministic();
@@ -626,6 +656,10 @@ fn the_rounds_cover_every_outcome() {
         "Rejected(Polarized)",
         "Rejected(Screen)",
         "Rejected(Dif)",
+        "Measured { reason: Defect, passed: true }",
+        "Measured { reason: Defect, passed: false }",
+        "Measured { reason: Polarized, passed: true }",
+        "Measured { reason: Borderline, passed: true }",
         "PartialEpoch",
         "NoExtraPanel",
         "PanelSizeInvalid",

@@ -131,6 +131,12 @@ pub struct ItemVerdicts {
     pub dif_passed: bool,
     /// Number of items in the stage-2 DIF batch (never validate below `K_MIN`, INV-8).
     pub pilot2_batch_size: usize,
+    /// The beacon's exploration draw for this item (D35, T52:
+    /// `exploration::explore_from_beacon` at `EXPLORATION_RATE`, keyed on the admitted
+    /// slot). A gate rejection so drawn is piloted for measurement only, on the pilot
+    /// verdicts above, and ends `Measured`, never in the pool. Ignored for an item that
+    /// passes the gate or is appealed.
+    pub explored: bool,
 }
 
 /// One panelist's blind judgment: the probability it commits to, and the nonce it later
@@ -268,6 +274,11 @@ pub fn expanded_ratings(
 /// fit re-deciding the side-balanced score against the plain threshold (T10/T30, amended
 /// by T59, T60) — so a passing band item advances to the pilot, a polarized failing one
 /// keeps the appeal channel, and a defect is a `Borderline` reject, never a dead end.
+///
+/// A gate rejection the beacon drew for exploration (`explored`, D35, T52) is piloted for
+/// measurement only: the same batches as a passing item, a `Measured` terminal, never the
+/// pool. Its outcome is what its reviewers are scored on, at weight `1/ε`
+/// (`exploration::record_outcome`).
 pub fn run_item(
     reviewed: State,
     v: &ItemVerdicts,
@@ -313,7 +324,25 @@ pub fn run_item(
         };
     }
 
-    if matches!(s, State::Pilot1 { .. }) {
+    // The exploration draw (D35, T52): only a gate rejection can be here — a pilot
+    // rejection is reached below, after the batches.
+    if v.explored && matches!(s, State::Rejected(_)) {
+        s = step(
+            s,
+            Event::Explore {
+                seed_from_checkpoint: true,
+            },
+        )?;
+    }
+
+    if matches!(
+        s,
+        State::Pilot1 { .. }
+            | State::Explored {
+                screened: false,
+                ..
+            }
+    ) {
         s = step(
             s,
             Event::Pilot1Batch {
@@ -323,7 +352,10 @@ pub fn run_item(
         )?;
     }
 
-    if matches!(s, State::Pilot2 { .. }) {
+    if matches!(
+        s,
+        State::Pilot2 { .. } | State::Explored { screened: true, .. }
+    ) {
         s = step(
             s,
             Event::Pilot2Batch {

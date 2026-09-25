@@ -67,17 +67,32 @@ pub fn effective_review_weight(
     review_weight(status(is_founder, judgments_with_outcome), weight, w_max)
 }
 
-/// A reviewer's scored history as the weight reads it (`docs/01` D33, D34, D36; T51):
+/// A reviewer's scored history as the weight reads it (`docs/01` D33–D36; T51, T52):
 /// the running mean of the per-item leave-one-out difference scores (`S_u`, the weight's
 /// symmetric long-window mean), the count of scored items (`k_u`, which also decides
 /// probation), and a one-sided CUSUM on the per-item scores against that mean. Once the
 /// reviewer is out of probation an alarm — a sustained drop, a long con beginning to
-/// spend its reputation — sends them back to probation: the mean, the count and the
+/// spend its reputation — sends them back to probation: the mean, the counts and the
 /// statistic restart, so the weight is 0 until `N_PROBATION` new scored outcomes and
 /// then shrunk again as evidence accumulates.
+///
+/// With randomized exploration (D35) not every reviewed item's outcome is observed: an
+/// observed score enters the mean at `1/π`, its inverse inclusion probability — 1 for an
+/// item that entered the pilot on its own account, `1/ε` for an explored rejection — and
+/// a reviewed item whose outcome was not observed enters the denominator only, so the
+/// mean's expectation is the mean with every outcome observed (paper, "Exploration
+/// restores properness"). The detector reads the *unweighted* observed scores against
+/// their own mean: a change of behaviour shifts that stream too, and one explored item
+/// cannot fire the detector by its weight alone.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SkillTrack {
+    /// `Σ score / π` over the observed items.
     sum: f64,
+    /// `Σ score` over the observed items: the detector's reference.
+    plain: f64,
+    /// Reviewed items whose outcome could have been observed: the mean's denominator.
+    reviewed: usize,
+    /// Observed (scored) items, `k_u`.
     scored: usize,
     cusum: Cusum,
     alarms: usize,
@@ -97,38 +112,85 @@ impl SkillTrack {
         Self::default()
     }
 
-    /// Records one scored item. The CUSUM reads the score against the mean of the items
-    /// before it, and only once the reviewer is out of probation — a mean over fewer than
-    /// `N_PROBATION` items is not a reference. On an alarm the track restarts.
+    /// Records one scored item observed with certainty — a golden item, a pilot outcome:
+    /// [`record_observed`](Self::record_observed) at inclusion 1.
     pub fn record(&mut self, score: f64, params: &CusumParams) -> Option<Alarm> {
-        if self.scored >= N_PROBATION && self.cusum.observe(self.skill(), score, params) {
-            self.alarms += 1;
+        self.record_observed(score, 1.0, params)
+    }
+
+    /// Records one scored item whose outcome was observed with probability `inclusion`,
+    /// in `(0, 1]` (D35). The CUSUM reads the unweighted score against the mean of the
+    /// observed items before it, and only once the reviewer is out of probation — a mean
+    /// over fewer than `N_PROBATION` items is not a reference. On an alarm the track
+    /// restarts.
+    pub fn record_observed(
+        &mut self,
+        score: f64,
+        inclusion: f64,
+        params: &CusumParams,
+    ) -> Option<Alarm> {
+        assert!(
+            inclusion > 0.0 && inclusion <= 1.0,
+            "an inclusion probability in (0, 1], not {inclusion}"
+        );
+        if self.scored >= N_PROBATION && self.cusum.observe(self.reference(), score, params) {
             let closed = self.scored;
-            self.sum = 0.0;
-            self.scored = 0;
-            self.cusum = Cusum::new();
+            *self = SkillTrack {
+                alarms: self.alarms + 1,
+                ..SkillTrack::default()
+            };
             return Some(Alarm {
                 count: self.alarms,
                 scored: closed,
             });
         }
-        self.sum += score;
+        self.sum += score / inclusion;
+        self.plain += score;
+        self.reviewed += 1;
         self.scored += 1;
         None
     }
 
-    /// `S_u`: the mean score of the current stretch (0 with nothing scored).
+    /// Records a reviewed item whose outcome was not observed — a gate rejection the
+    /// exploration draw did not pick (D35): it counts in the mean's denominator, where
+    /// the explored items' weights are set against it, and nowhere else.
+    pub fn record_unobserved(&mut self) {
+        self.reviewed += 1;
+    }
+
+    /// `S_u`: the inverse-probability-weighted mean score of the current stretch over
+    /// its reviewed items (0 with nothing reviewed).
     pub fn skill(&self) -> f64 {
-        if self.scored == 0 {
+        if self.reviewed == 0 {
             0.0
         } else {
-            self.sum / self.scored as f64
+            self.sum / self.reviewed as f64
         }
     }
 
-    /// `k_u`: scored items in the current stretch.
+    /// The detector's reference: the unweighted mean of the observed scores (0 with
+    /// nothing scored).
+    pub fn reference(&self) -> f64 {
+        if self.scored == 0 {
+            0.0
+        } else {
+            self.plain / self.scored as f64
+        }
+    }
+
+    /// The detector's current statistic.
+    pub fn statistic(&self) -> f64 {
+        self.cusum.statistic()
+    }
+
+    /// `k_u`: scored (observed) items in the current stretch.
     pub fn scored(&self) -> usize {
         self.scored
+    }
+
+    /// Reviewed items in the current stretch, observed or not.
+    pub fn reviewed(&self) -> usize {
+        self.reviewed
     }
 
     pub fn alarms(&self) -> usize {

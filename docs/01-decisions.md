@@ -593,6 +593,23 @@ reacts slowly to a long con.
 
 ## D35 — Scored outcomes: live items with randomized exploration; golden items at 5%
 
+> **Implemented (2026-09-25, T52):** `protocol::exploration` — the beacon's draw
+> (`explore_from_beacon`, `EXPLORATION_RATE = 0.05`, keyed on the admitted slot) sends a
+> gate rejection through `lifecycle::Event::Explore` to `Explored`, the two pilot batches
+> and `Measured`, never `ActivePool`; `outcome_of`/`record_outcome` feed every reviewed
+> item's terminal into `probation::SkillTrack` — an observed outcome at weight `1/π_j`
+> (`record_observed`), an unexplored rejection into the denominator only
+> (`record_unobserved`) — and `FalseNegatives` counts the gate's false negatives. The
+> change detector reads the unweighted scores. Evidence: `AT-REP-06` exact (the weighted
+> score's expectation is `(b − q)² − (p − q)²` under a report-dependent gate; the bare
+> observed score pays the paper's dissenter 0.08 to report 0.50 against 0.0045 for the
+> truth) and by Monte Carlo (nine reviewers, 100,000 items: the weighted mean within 2.1
+> standard errors of the full-information mean, the passed-only mean up to 11.6 off);
+> `AT-PRO-07` (the draw reproduces from the beacon, two beacons share 0.24% of their
+> draws, a participant's seed is refused). On the fixtures the explored real-health item
+> is measured as a pass — a gate false negative — and the pool is unchanged. Grind-free
+> with T37; `ε` provisional (T25).
+
 **Choice.** Evaluators are scored on three kinds of item:
 1. golden items, still 5% of the review queue;
 2. every live item they reviewed that reaches Level B, once its outcome is known;

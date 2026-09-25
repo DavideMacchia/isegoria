@@ -422,6 +422,7 @@ fn a_band_item_whose_extra_reviewers_disapprove_is_rejected() {
         screen_passed: true,
         dif_passed: true,
         pilot2_batch_size: 8,
+        explored: false,
     };
     // The extra round: four reviewers who had not rated it, two from each camp.
     let extra_at = |prob: f64| {
