@@ -730,7 +730,8 @@ as the verdict (inverted in a campaign). A threshold tuned to one anchor set.
 > test's DTF is bounded by the sum of its per-fit DTFs, and a test draws contested facts
 > from the beacon only among the selections with a bound of at most `DTF_MAX = 0.10`
 > score points (provisional). The draw is exact: it fails only when no balanced selection
-> exists. AT-PRO-08 passes, on hand-built fits and on two batches fitted through the
+> exists, and a function of the pool's content and the seed, whatever the order of
+> recording. AT-PRO-08 passes, on hand-built fits and on two batches fitted through the
 > production gate. A contested fact scores `o_j = 1` and promotes an appeal. The source
 > check's verdict enters the protocol as an input until T68 computes it.
 

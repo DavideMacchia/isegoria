@@ -484,7 +484,14 @@ visited keeps only the candidates that can still be completed, and one is drawn
 uniformly among them. So the draw fails only when no balanced selection of `n` exists —
 it then reports the sizes that do — and every balanced selection has a positive
 probability. The bound is summed in fixed point (each fit's DTF rounded up to `2⁻³²`
-score points), so the budget is exact (`protocol::contested`).
+score points), so the budget is exact (`protocol::contested`). The draw is a function
+of the pool's content and the seed alone: the pool keeps a canonical order — within a
+fit, the members by content id; the fits by their least member, unique since a fact
+belongs to one fit — so the seeded visiting order, the enumeration of each fit's
+candidates and the order of the drawn facts owe nothing to the order in which facts were
+recorded, re-measured or retired. Two replicas holding the same facts in the same fits
+draw the same test from the same seed, and whoever records the facts cannot pick the
+test by the order of recording (the order-dependence T37 records for the lottery).
 
 **Scores.** A contested fact is admitted to the bank. Its Level B outcome for the
 evaluator score is 1, as for an item that reaches the pool (§C.2) — scoring it 0 would

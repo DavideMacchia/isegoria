@@ -31,9 +31,8 @@ fn fact(name: &str) -> Cid {
     cid(name.as_bytes())
 }
 
-/// Contested facts leaning both ways in three fits, and a lone leaner in a fourth.
-fn pool() -> (ContestedPool, Vec<Cid>) {
-    let mut pool = ContestedPool::new();
+/// The four fits of `pool()`: each one's curves and its members `(fact, index)` in index order.
+fn fits() -> Vec<(ClassCurves, Vec<(Cid, usize)>)> {
     let a = [
         (1.25, 0.0, 0.9),
         (1.25, 0.2, -0.9),
@@ -44,18 +43,39 @@ fn pool() -> (ContestedPool, Vec<Cid>) {
     let b = [(1.2, 0.5, 0.9), (1.2, 0.6, -0.9), (1.0, -1.2, 0.7)];
     let three = [(1.3, 0.3, 0.8), (1.3, 0.4, -0.8), (1.2, -0.2, 0.6)];
     let lone = [(1.25, 0.0, 0.9)];
-    let mut all = Vec::new();
-    for (tag, curves, n) in [
+    [
         ("A", fit(&[0.5, 0.5], &[0.0, 0.0], &a), a.len()),
         ("B", fit(&[0.6, 0.4], &[0.0, 0.3], &b), b.len()),
         ("C", fit(&[0.4, 0.35, 0.25], &[0.0, 0.2, -0.2], &three), 3),
         ("L", fit(&[0.5, 0.5], &[0.0, 0.0], &lone), 1),
-    ] {
-        let members: Vec<(Cid, usize)> = (0..n).map(|j| (fact(&format!("{tag}{j}")), j)).collect();
+    ]
+    .into_iter()
+    .map(|(tag, curves, n)| {
+        let members = (0..n).map(|j| (fact(&format!("{tag}{j}")), j)).collect();
+        (curves, members)
+    })
+    .collect()
+}
+
+/// Contested facts leaning both ways in three fits, and a lone leaner in a fourth.
+fn pool() -> (ContestedPool, Vec<Cid>) {
+    let mut pool = ContestedPool::new();
+    let mut all = Vec::new();
+    for (curves, members) in fits() {
         all.extend(members.iter().map(|m| m.0));
         pool.record(curves, &members).unwrap();
     }
     (pool, all)
+}
+
+/// A fact whose content id sorts before (`first`) or after every one in `all`.
+fn outside(all: &[Cid], first: bool) -> Cid {
+    let least = all.iter().map(|c| c.0).min().unwrap();
+    let most = all.iter().map(|c| c.0).max().unwrap();
+    (0u32..)
+        .map(|i| fact(&format!("outside{i}")))
+        .find(|c| if first { c.0 < least } else { c.0 > most })
+        .unwrap()
 }
 
 /// Every subset of `items` of size `n`, by index.
@@ -327,6 +347,74 @@ fn the_draw_reproduces_from_the_beacon_and_reaches_every_balanced_test() {
         println!("n = {n}: {} balanced tests, all drawn", balanced.len());
         assert_eq!(drawn, balanced, "n = {n}");
         assert!(drawn.iter().flatten().all(|c| *c != fact("L0").0));
+    }
+}
+
+/// AT-PRO-08: the draw depends on the pool's content and the seed, not on the pool's history.
+#[test]
+fn the_draw_depends_on_the_content_of_the_pool_not_on_its_history() {
+    let (reference, all) = pool();
+    let fits = fits();
+    let record = |pool: &mut ContestedPool, f: usize, members: &[(Cid, usize)]| {
+        pool.record(fits[f].0.clone(), members).unwrap();
+    };
+    let mut cases: Vec<(&str, ContestedPool, ContestedPool)> = Vec::new();
+
+    let mut reversed = ContestedPool::new();
+    for (f, (_, members)) in fits.iter().enumerate().rev() {
+        record(&mut reversed, f, members);
+    }
+    cases.push(("fits recorded last to first", reference.clone(), reversed));
+
+    let mut backwards = ContestedPool::new();
+    for (f, (_, members)) in fits.iter().enumerate() {
+        let members: Vec<(Cid, usize)> = members.iter().rev().copied().collect();
+        record(&mut backwards, f, &members);
+    }
+    cases.push((
+        "members recorded last to first",
+        reference.clone(),
+        backwards,
+    ));
+
+    let mut moved = ContestedPool::new();
+    record(&mut moved, 3, &[(fits[0].1[4].0, 0)]);
+    record(&mut moved, 2, &fits[2].1[..2]);
+    record(&mut moved, 1, &fits[1].1);
+    record(&mut moved, 0, &fits[0].1);
+    record(&mut moved, 2, &fits[2].1);
+    record(&mut moved, 3, &fits[3].1);
+    cases.push((
+        "A4 and C0, C1 re-measured into their fits",
+        reference.clone(),
+        moved,
+    ));
+
+    let pair = fit(
+        &[0.5, 0.5],
+        &[0.0, 0.0],
+        &[(1.25, 0.0, 0.9), (1.25, 0.2, -0.9)],
+    );
+    let (first, last) = (outside(&all, true), outside(&all, false));
+    let mut expected = reference.clone();
+    expected.record(pair.clone(), &[(last, 0)]).unwrap();
+    let mut retired = reference.clone();
+    retired.record(pair, &[(last, 0), (first, 1)]).unwrap();
+    assert!(retired.remove(&first));
+    cases.push(("the least fact of the last fit retired", expected, retired));
+
+    for (name, expected, recorded) in &cases {
+        assert_eq!(recorded.len(), expected.len(), "{name}");
+        assert_eq!(recorded.dtf(&all), expected.dtf(&all), "{name}");
+        for n in 0..=6 {
+            for seed in 0..50 {
+                assert_eq!(
+                    recorded.draw(n, DTF_MAX, seed),
+                    expected.draw(n, DTF_MAX, seed),
+                    "{name}: n = {n}, seed {seed}"
+                );
+            }
+        }
     }
 }
 

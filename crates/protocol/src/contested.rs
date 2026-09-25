@@ -28,7 +28,8 @@ struct Candidate {
     units: u64,
 }
 
-/// Contested facts grouped by the latent fit that last measured them.
+/// Contested facts grouped by the latent fit that last measured them, in canonical order:
+/// members by content id within a fit, fits by their least member (`docs/02` §B.7).
 #[derive(Clone, Debug, Default)]
 pub struct ContestedPool {
     fits: Vec<Fit>,
@@ -98,6 +99,7 @@ impl ContestedPool {
                 curves,
                 members: members.to_vec(),
             });
+            self.canonicalize();
         }
         Ok(())
     }
@@ -109,7 +111,16 @@ impl ContestedPool {
             fit.members.retain(|(c, _)| c != item);
         }
         self.fits.retain(|f| !f.members.is_empty());
+        self.canonicalize();
         self.len() != before
+    }
+
+    fn canonicalize(&mut self) {
+        for fit in &mut self.fits {
+            fit.members.sort_unstable_by_key(|(c, _)| c.0);
+        }
+        self.fits
+            .sort_unstable_by_key(|f| f.members.first().map(|(c, _)| c.0));
     }
 
     /// The bound `D(T)` of `selection`, rounded up to `2⁻³²` score points; `None` if an item is
@@ -132,8 +143,8 @@ impl ContestedPool {
     }
 
     /// Draws `n` contested facts whose bound is at most `tolerance`, at random among the
-    /// balanced selections (`docs/02` §B.7), deterministic per `seed`. A negative or NaN
-    /// `tolerance` admits only a bound of 0.
+    /// balanced selections (`docs/02` §B.7), a function of the pool's content and `seed`
+    /// alone. A negative or NaN `tolerance` admits only a bound of 0.
     pub fn draw(&self, n: usize, tolerance: f64, seed: u64) -> Result<Vec<Cid>, NoBalancedDraw> {
         let budget = (tolerance * SCALE).floor() as u64;
         let mut rng = ChaCha8Rng::seed_from_u64(seed);

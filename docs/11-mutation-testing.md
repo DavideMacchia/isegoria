@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool). |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up). |
 
 ## Why this was needed
 
@@ -171,6 +171,16 @@ The other two are equivalent:
 |---|---|
 | `contested.rs:207` `members.len() < n` → `<=` in `candidates` | Also enumerates subsets of `n + 1` facts, which neither the table nor the draw ever reads: both take only subsets of at most `left ≤ n` members. |
 | `contested.rs:208` `k + 1` → `k * 1` in `candidates` | Also enumerates sequences that repeat a member; `ClassCurves::dtf` refuses a repeated index, so they are dropped, and the valid subsets come out in the same order. |
+
+## Run 7 — the T55 follow-up: the pool's canonical order
+
+`cargo mutants --in-diff` on the follow-up's diff of `protocol/src/contested.rs` (the
+`mutants` profile, `calibration` on, `--cargo-test-arg=--test=contested_facts`, the fitted
+scenario skipped): 4 mutants — `record` to `Ok(())`, `remove` to `true` and to `false`,
+`canonicalize` to `()` — 4 caught, none missed, none unviable. The last is the one the
+follow-up adds, killed by the history test of `contested_facts.rs` (`docs/08` AT-PRO-08):
+without the canonical order the same fits recorded last to first draw another test on 46
+of 50 seeds (another set on 43).
 
 ## Keeping it this way
 
