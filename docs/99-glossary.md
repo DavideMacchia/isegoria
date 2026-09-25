@@ -273,6 +273,12 @@ differently on coherent subpopulations at equal competence.
 `G` is chosen with information criteria like BIC, which balance how well the model
 explains the data against how many parameters it uses to do so.
 
+**One trap.** If competence `θ` is replaced by a noisy stand-in — the total score on a
+handful of anchor items — the noise itself looks like a hidden group and the model finds
+classes that do not exist. Isegoria's detector therefore keeps the anchors inside the
+model and integrates `θ` out, so that a group which is simply more competent is read as
+such, not as bias in the items (`01` D37).
+
 ---
 
 # Part 3 — Bayesian statistics

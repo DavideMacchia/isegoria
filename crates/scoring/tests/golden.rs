@@ -11,6 +11,7 @@
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::dif::mixture_dif;
+use scoring::latent::{latent_dif_with, LatentParams};
 use std::fs;
 use std::path::PathBuf;
 
@@ -52,6 +53,51 @@ fn record(rows: &mut Vec<String>, name: &str, v: &[f64]) {
     } else {
         rows.push(format!("{name},digest,{:016x}", digest(v)));
     }
+}
+
+/// A seeded batch for the target model (T54): 1,500 respondents, 20 anchors, 8 trial
+/// items of which the first two are shifted by ±0.9 on a hidden axis — generated here,
+/// as the fixtures carry no anchor responses. Returns (anchors, responses).
+fn latent_batch(seed: u64) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+    let (n, na, k) = (1500, 20, 8);
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let normal = |rng: &mut ChaCha8Rng| {
+        let u1: f64 = 1.0 - rng.gen::<f64>();
+        let u2: f64 = rng.gen();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    };
+    let sigmoid = |z: f64| 1.0 / (1.0 + (-z).exp());
+    let theta: Vec<f64> = (0..n).map(|_| normal(&mut rng)).collect();
+    let z: Vec<f64> = (0..n)
+        .map(|_| if rng.gen::<bool>() { 1.0 } else { -1.0 })
+        .collect();
+    let a_anchor: Vec<f64> = (0..na).map(|_| rng.gen_range(0.9..1.6)).collect();
+    let b_anchor: Vec<f64> = (0..na).map(|_| normal(&mut rng)).collect();
+    let anchors = theta
+        .iter()
+        .map(|&t| {
+            (0..na)
+                .map(|j| f64::from(rng.gen::<f64>() < sigmoid(a_anchor[j] * (t - b_anchor[j]))))
+                .collect()
+        })
+        .collect();
+    let a: Vec<f64> = (0..k).map(|_| rng.gen_range(1.0..1.5)).collect();
+    let b: Vec<f64> = (0..k).map(|_| 0.6 * normal(&mut rng)).collect();
+    let responses = theta
+        .iter()
+        .zip(&z)
+        .map(|(&t, &zi)| {
+            (0..k)
+                .map(|j| {
+                    let d = if j < 2 { 0.9 } else { 0.0 };
+                    f64::from(rng.gen::<f64>() < sigmoid(a[j] * (t - b[j] - d * zi)))
+                })
+                .collect()
+        })
+        .collect();
+    (anchors, responses)
 }
 
 fn current() -> Vec<String> {
@@ -97,6 +143,29 @@ fn current() -> Vec<String> {
             &res.posterior.concat(),
         );
     }
+
+    // The target model (D37, T54): the anchors inside the likelihood, θ integrated out.
+    let (anchors, x) = latent_batch(54);
+    let res = latent_dif_with(
+        &anchors,
+        &x,
+        &LatentParams {
+            n_starts: 2,
+            max_classes: 2,
+            ..LatentParams::default()
+        },
+    );
+    let shape = [res.classes as f64, res.non_uniform as i32 as f64];
+    record(&mut rows, "latent.model", &shape);
+    record(&mut rows, "latent.pi", &res.pi);
+    record(&mut rows, "latent.eta", &res.eta);
+    record(&mut rows, "latent.dif", &res.dif);
+    record(&mut rows, "latent.a_gap", &res.a_gap);
+    record(&mut rows, "latent.anchor_a", &res.anchor_a);
+    record(&mut rows, "latent.anchor_b", &res.anchor_b);
+    record(&mut rows, "latent.item_b", &res.item_b.concat());
+    record(&mut rows, "latent.bic_gain", &[res.bic_gain]);
+    record(&mut rows, "latent.posterior", &res.posterior.concat());
     rows
 }
 

@@ -671,7 +671,19 @@ non-rotatable pseudonyms (invariant #5), not by the length of probation.
 > itself, so a caller cannot vouch for a proxy the gate has not measured. The differential
 > gap is reported as `MixtureDif::differential`, a diagnostic the verdict never reads.
 > AT-DIF-11 passes on null batches drawn as the paper's (20 anchors refused, 60 accepted
-> with no flag). The target model, θ inside the likelihood, is T54.
+> with no flag).
+>
+> **Target model implemented (2026-09-25, T54):** `scoring::latent::latent_dif` — the
+> anchors inside the likelihood with class-invariant parameters, a class ability mean
+> `η_g` per class (`η_0 = 0`), θ integrated on a fixed grid of 41 nodes, the number of
+> classes and uniform vs non-uniform DIF by BIC from seeded starts, an analytic gradient
+> from the EM artificial data (one `exp` per class and node per respondent, so a null
+> batch of 6,000 fits in 15–25 s). `revalidate_batch_latent` runs it on the anchors it admits; the
+> proxy-θ model (`dif::mixture_dif`) is retired from the production path and kept for the
+> fixtures. On the paper's null batches: 1 class at 10, 20, 30 and 60 anchors (KR-20 0.68–0.94), no item flagged, where the proxy model selects two classes at 10, 20 and 30 anchors and flags 8, 2 and 0 clean items. Campaigns (AT-DIF-12): 2, 4 and 6 of 8 items shifted by 0.9 at N = 6,000 with 30 anchors: exactly the shifted items flagged, their gaps 1.7–1.9 (the true 2δ = 1.8; 3.6 and 1.1 in the two-item case) and the clean items' at most 0.13.
+> AT-DIF-01 on the target model: 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000. Runtime: on one core (dev profile, `scoring` at opt-level 3) 8–32 s per 8-item null batch at N = 3,000, 90–110 s at N = 12,000, 15–25 s at N = 6,000, and 75–90 s for a campaign batch at N = 6,000 whose BIC search reaches three classes. The verdict
+> threshold stays 1.0 on the difficulty gap, provisional: the null gaps sit far below it
+> and the campaign gaps far above; its final value is T24/T25.
 
 **Choice.** The latent-class re-check runs only if the anchors' KR-20, computed on the
 batch's respondents, is at least 0.90 (about 40 anchors). Below that the batch is

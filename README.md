@@ -327,9 +327,9 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    (D37, T53), the proper evaluator score with the change detector (D33/D34/D36,
    T50/T51), the band re-decision with real extra reviewers (D26, T60), the
    coordination detector on model residuals with panel diversification (D39/D40,
-   T56/T57) and live outcomes with randomized exploration (D35, T52); next, the rest
-   of the mechanism (D37's target model, D38, D41), then the characterization of the
-   thresholds.
+   T56/T57), live outcomes with randomized exploration (D35, T52) and the latent DIF
+   target model with θ inside the likelihood (D37, T54); next, the rest of the
+   mechanism (D38, D41), then the characterization of the thresholds.
 2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
    can grind, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot

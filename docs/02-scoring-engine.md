@@ -198,42 +198,61 @@ tertiles, Mantel–Haenszel with ETS classification:
 
 **Variant 2 — latent-class IRT mixture** (independent of Level A):
 
-> **Revised by D37 and D38 (T53–T55).** Error in the ability proxy creates spurious latent
-> classes (paper §4.5): the re-check runs only when the anchors' KR-20 on the batch's
-> respondents is ≥ 0.90 (`irt::KR20_MIN`, enforced by `revalidate_batch_latent` — T53,
-> done), and the target model integrates `θ` with the anchors inside the likelihood (T54).
-> The differential gap — each item's class shift less the batch's median shift — is
-> reported as a diagnostic only (`MixtureDif::differential`): it inverts in a campaign. An
-> item whose
-> DIF concerns knowledge of a fact established by a primary source becomes a *contested
-> fact* in a balanced pool instead of being rejected (D38).
+> **Revised by D37 and D38 (T53 and T54 done; T55).** Error in the ability proxy creates
+> spurious latent classes (paper §4.5): the re-check runs only when the anchors' KR-20 on
+> the batch's respondents is ≥ 0.90 (`irt::KR20_MIN`, enforced by `revalidate_batch_latent`
+> — T53), and since T54 the fit is the target model below — the anchors inside the
+> likelihood and `θ` integrated out (`scoring::latent`) — which finds no mixture where
+> the proxy did. The differential gap of the retired proxy model is a diagnostic only
+> (`MixtureDif::differential`): it inverts in a campaign. An item whose DIF concerns
+> knowledge of a fact established by a primary source becomes a *contested fact* in a
+> balanced pool instead of being rejected (D38, T55).
 
 ```
-P(X_ij = 1 | θ_i, g) = [1 + exp(−a_jg (θ_i − b_jg))]⁻¹
-DIF_j = max_{g,h} | b_jg − b_jh |          reject if DIF_j > 1.0  (provisional, see below)
+P(x_i) = Σ_g π_g ∫ Π_{a∈A} P_a(x_ia | θ) · Π_{j∈J} P_jg(x_ij | θ) · φ(θ; η_g, 1) dθ,   η_0 = 0
+P_a(x = 1 | θ)  = [1 + exp(−a_a (θ − b_a))]⁻¹          the anchors: one parameter set for every class
+P_jg(x = 1 | θ) = [1 + exp(−a_jg (θ − b_jg))]⁻¹        the trial items: per class
+DIF_j = max_{g,h} | b_jg − b_jh |                       reject if DIF_j > 1.0  (provisional, see below)
 ```
 
 The population is a mixture of `G` classes with proportions `π_g`; the classes have no
-label and do not need one. Estimation via EM or MCMC; `G` chosen by BIC. **This
+label and do not need one. The anchors (`A`, the DIF-free items the respondents also
+answered) enter the likelihood with class-invariant parameters and each class has its own
+ability mean `η_g`, so a class-wide shift is attributed to ability, not to the trial
+items: DIF is a trial item's departure from the anchors' account of the classes. `θ` is
+integrated on a fixed grid (41 nodes over `[−5, 5]`); `G` is chosen by BIC. **This
 variant is what makes DIF compatible with full anonymity**: in testing, with ≥2
-distorted questions in a batch, it estimates a difficulty gap `DIF_j` of ~2.0 on the
-defective ones and ~0.2 on the clean ones, and reconstructs the hidden axis with
-correlation 0.5–0.8 without ever observing it.
+distorted questions in a batch, it estimates a difficulty gap `DIF_j` of 1.7–1.9 (the
+true `2δ` = 1.8) on the defective ones when four or six of eight are shifted — 3.6 and
+1.1 when only two are — and under 0.15 on the clean ones, without ever observing the
+axis.
 
-*Threshold.* The literature value for `DIF_j` is 0.5 logit. On this estimator it is
-not usable yet: with one distorted question in eight, every question's estimated gap
-lands in 0.5–1.0, so 0.5 would retire the seven clean ones too. The reference
-implementation therefore rejects at **1.0** on the gap, and only when the selected
-fit converged and the BIC prefers a mixture (two or more classes) over one class. The value is provisional until the
-false-positive / power study (`10` T24/T25) sets it (`08` DIF-006).
+*Why the anchors are in the likelihood.* The first implementation fitted the trial items
+on a proxy — the standardized anchor total as `θ` (`dif::mixture_dif`). Error in the
+proxy makes the trial items positively dependent even without DIF (paper Prop. 10), so
+on null batches the proxy model finds classes that do not exist: at N = 6,000 it selects
+two classes with 10, 20 and 30 anchors (KR-20 0.68–0.89), flagging 8, 2 and 0 clean
+items; the target model selects one class at every anchor count. In a campaign — most
+of a batch shifted the same way — the proxy's differential gap inverts, while the target
+model flags exactly the shifted items (`08` AT-DIF-12). The proxy model is retired from
+the production path (`revalidate_batch_latent` runs the target model on the anchors it
+admits) and kept for the fixtures and the sim reproduction.
 
-*Reference implementation (T40).* `G ∈ {1, …, 4}` and uniform (shared `a_j`) vs
+*Threshold.* The literature value for `DIF_j` is 0.5 logit. The reference
+implementation rejects at **1.0** on the gap, and only when the selected fit converged
+and the BIC prefers a mixture (two or more classes) over one class. On the target model
+the null gaps are 0 (one class selected) or far below 1.0 and the campaign gaps far
+above it, so 1.0 is kept, provisional until the false-positive / power study (`10`
+T24/T25) sets it (`08` DIF-006, DIF-008).
+
+*Reference implementation (T40, T54).* `G ∈ {1, …, 4}` and uniform (shared `a_j`) vs
 non-uniform (per-class `a_jg`) DIF are chosen together by BIC, each candidate fitted from
-several seeded starts with an analytic gradient; a class holding under 5% of the
-respondents does not define `DIF_j` (its difficulties are unidentified). The verdict
-reads the difficulty gap only, as above: a per-class *discrimination* gap is estimated
-and reported (`a_gap`) but has no threshold yet (to be set with the uniform one by the
-false-positive / power study).
+several seeded starts with an analytic gradient (the EM artificial data: per node the
+expected respondents, per respondent the class posterior and its first `θ`-moment); a
+class holding under 5% of the respondents does not define `DIF_j` (its difficulties are
+unidentified). The verdict reads the difficulty gap only, as above: a per-class
+*discrimination* gap is estimated and reported (`a_gap`) but has no threshold yet (to be
+set with the uniform one by the false-positive / power study).
 
 **Critical requirement: validate in batches.** A single distorted question in
 isolation is unidentifiable (in testing: 1 of 8 → invisible; 2 of 8 → detected). The

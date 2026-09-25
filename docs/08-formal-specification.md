@@ -65,9 +65,9 @@ Re-audit of `e43f1bf` against `c4a09b1`, by the same auditor. This time the Rust
 The working paper in `paper/` (v0.1 at `2ee5e79`; v0.2 adds the adopted revisions)
 analysed the scoring mechanism with proofs and reproducible experiments
 (`paper/scripts/`). Its findings are new claims for the matrix of §15; all are decided
-(`docs/01` D32–D41) and planned (`docs/10` Phase 1.1). BRIDGE-008 and BRIDGE-009 are
-resolved (D32, T49, 2026-09-24); the rest are open. What the repository changed after the
-paper's snapshot is listed in `paper/README.md`.
+(`docs/01` D32–D41) and planned (`docs/10` Phase 1.1). Each item below carries its
+status; what the repository changed after the paper's snapshot is listed in
+`paper/README.md`.
 
 - **BRIDGE-008 — The gate is relative to its batch.** With `μ` unpenalized,
   `Σ_j b_j = 0` at every stationary point (paper Lemma 1), so `B_j ≥ τ > 0` cannot hold
@@ -93,8 +93,11 @@ paper's snapshot is listed in `paper/README.md`.
   below `KR20_MIN = 0.90`, `revalidate_batch_latent` takes the anchors and computes θ
   itself, and the differential gap is `MixtureDif::differential`, diagnostic only
   (`AT-DIF-11` ✓, `anchor_reliability.rs`; the inversion in a campaign,
-  `latent_classes.rs`). θ inside the likelihood is T54 (`AT-DIF-12`); also bears on
-  DIF-006 and DIF-008.
+  `latent_classes.rs`). **RESOLVED** with the target model (T54, 2026-09-25):
+  `scoring::latent::latent_dif` — the anchors inside the likelihood, θ integrated out —
+  is the production fit (`revalidate_batch_latent`); on the paper's null batches it
+  selects 1 class at 10, 20, 30 and 60 anchors (KR-20 0.68–0.94), no item flagged, where the proxy model selects two classes at 10, 20 and 30 anchors and flags 8, 2 and 0 clean items (`latent_target_model.rs`); the campaigns are flagged on exactly
+  the shifted items (`AT-DIF-12` ✓). Bears on DIF-006 and DIF-008.
 - **REPUTATION-008 — The evaluator score is not proper.** The ratio-form BSS rewards
   moving toward the crowd: with one scored item `logit p* = logit q + 2 logit b` (paper
   Prop 12). Scoring only items that pass the gate would also be improper. Status:
@@ -496,7 +499,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 
 #### DIF-006 — Mixture rejection threshold is consistent across docs, sim, and code
 - **Analysis.** Model: `logit P = a_j(θ − b_j − δ_j z)`, `z ∈ {−1,+1}` ⇒ class difficulties `b_j ± δ_j` ⇒ `max_{g,h}|b_jg − b_jh| = 2|δ_j|`. `docs/02` rejects at `DIF_j > 0.5` (on the b-gap). `sim/latent_dif_and_capacity.py` declares "DETECTED" at mean `|δ̂| > 0.35` (batch-level, not per item). `scoring::dif::MIXTURE_DIF_MAX = 0.5` is applied to `|δ̂|` in `revalidation::revalidate_pool_latent` (per item) — i.e. 1.0 logit on the b-gap, **twice** the documented cut-off.
-- **Evidence status.** INCONSISTENT at the audit snapshot. **RESOLVED@T35 (metric) / OPEN (value):** `MixtureDif::dif` now reports `DIF_j = 2|δ̂_j|`, and `revalidation::latent_flags` rejects at `MIXTURE_DIF_MAX = 1.0` on the gap — the behaviour the code always had, now stated on the specified quantity — and flags nothing when the free fit did not converge or `BIC ≤ 0`. The literature 0.5 is not adopted: on the one-biased-item fixture `BIC = +32` and every item's gap is 0.56–0.91, so 0.5 would retire all eight (`latent_revalidation.rs`). `docs/02` §B.3 records 1.0 as provisional; the value is set by the FP/FN study (T24/T25).
+- **Evidence status.** INCONSISTENT at the audit snapshot. **RESOLVED@T35 (metric) / OPEN (value):** `MixtureDif::dif` now reports `DIF_j = 2|δ̂_j|`, and `revalidation::latent_flags` rejects at `MIXTURE_DIF_MAX = 1.0` on the gap — the behaviour the code always had, now stated on the specified quantity — and flags nothing when the free fit did not converge or `BIC ≤ 0`. The literature 0.5 is not adopted: on the one-biased-item fixture `BIC = +32` and every item's gap is 0.56–0.91, so 0.5 would retire all eight (`latent_revalidation.rs`). `docs/02` §B.3 records 1.0 as provisional; the value is set by the FP/FN study (T24/T25). On the target model (T54, `LatentDif::flags`, the same rule) the null gaps are 0 — one class selected — and the campaign gaps 1.7–1.9 for a true 1.8, so 1.0 separates them with margin; still provisional.
 
 #### DIF-007 — Purification reaches a fixed point
 - **Claim.** `validation::purify_theta` returns a flagged set that is a fixed point of the flag→re-estimate map.
@@ -505,12 +508,12 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Evidence status.** TESTED (one dataset). Convergence guarantee NOT ESTABLISHED (the map is not monotone; oscillation is possible in principle).
 
 #### DIF-008 — False-positive / false-negative characterization
-- **Evidence status.** NOT ESTABLISHED for every detector (Variant 1 thresholds 0.40, MH 1.5, mixture 0.5). No simulation family in the repository measures FP or FN rates at any sample size. `docs/07` §14 lists this as a minimum expectation.
+- **Evidence status.** NOT ESTABLISHED for every detector (Variant 1 thresholds 0.40, MH 1.5, mixture 0.5). No simulation family in the repository measures FP or FN rates at any sample size. `docs/07` §14 lists this as a minimum expectation. **PARTLY ESTABLISHED for the target model (T54, `AT-DIF-01`):** 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000 (`latent_target_model.rs`, `calibration`); the full surface (≥ 200 seeds per cell, the power table) is T24/T25.
 
 #### DIF-009 — Whole-pool mixture re-validation is computable
 - **Claim.** `revalidate_pool_latent` can run over "the whole active pool".
 - **Analysis.** `mixture_dif` uses a central-difference gradient: `2(1+3m)` NLL evaluations per gradient, each `O(NT·m)`, for up to 3000 iterations. For `m = 8, NT = 3000`: ~10⁹ flops per fit (fine). For a pool of `m = 300`: ~10¹⁴ per fit — infeasible. The two-class, one-axis model is also assumed to hold for *all* pool items simultaneously.
-- **Evidence status.** NOT ESTABLISHED at pool scale. The specification MUST bound batch size for this detector or require an analytic gradient and a batched design.
+- **Evidence status.** NOT ESTABLISHED at pool scale. The specification MUST bound batch size for this detector or require an analytic gradient and a batched design. Since T40 the proxy model has an analytic gradient; the target model (T54) evaluates every transcendental function per node and item, never per respondent — a pass over the batch is `O(N · Q · G)` exponentials plus sums — so its cost is linear in the batch: on one core (dev profile, `scoring` at opt-level 3) 8–32 s per 8-item null batch at N = 3,000, 90–110 s at N = 12,000, 15–25 s at N = 6,000, and 75–90 s for a campaign batch at N = 6,000 whose BIC search reaches three classes. The pool is re-checked in batches of `K_MIN`+ items (`revalidate_batch_latent`), never as one fit over hundreds of items.
 
 #### STAT-001 — Sample sizes 300 / 1500 / 3000 are adequate
 - **Claim (docs/02 §B.6).** Pilot 1 ≈ 300, Pilot 2 ≈ 1500 (with group signal) or ≈ 3000 (latent-class).
@@ -932,7 +935,7 @@ Before any deployment: (1) the threshold OPRF composition and its DLEQ transcrip
 | `Explored{reason}` | stage-1 batch, as `Pilot1` | as `Pilot1` | `Explored{screened}` if the screen passes, else `Measured{reason, passed: false}` | — | as `Pilot1` (✓ `NotEnoughRespondents`); stage 2 before the screen (✓ `UnexpectedEvent`) |
 | `Explored{screened}` | stage-2 batch, as `Pilot2` | as `Pilot2` | `Measured{reason, passed}` — never `ActivePool` (✓ T52, `exploration.rs`, the model suites) | `o_j` recorded → the evaluator difference score at weight `1/ε` (`SkillTrack::record_observed`); the gate's false-negative rate (`FalseNegatives`); an unexplored gate rejection counts in the reviewer's denominator only (`record_unobserved`) | as `Pilot2` (✓ `BatchTooSmall`); any event on `Measured` (✓ terminal) |
 | `ActivePool` | administration | blueprint quotas respected; `exposure.record(cid)` | `ActivePool` | exposure++ | — |
-| `ActivePool` | periodic re-validation | whole-pool or batched mixture run (DIF-009 bound); the batch's anchors reliable: KR-20 ≥ `KR20_MIN` on its respondents (D37, ✓ T53: `revalidate_batch_latent` computes θ from the anchors it admits) | `Retired{EmergingDif}` / stays | — | fewer than `K_MIN` items; fewer than `N_LATENT_MIN` respondents; unreliable anchors (`PilotError::UnreliableAnchors`) |
+| `ActivePool` | periodic re-validation | batched mixture run (DIF-009 bound) on the target model — the anchors inside the likelihood, θ integrated out (D37, ✓ T54: `revalidate_batch_latent` → `scoring::latent::latent_dif`); the batch's anchors reliable: KR-20 ≥ `KR20_MIN` on its respondents (✓ T53) | `Retired{EmergingDif}` / stays | — | fewer than `K_MIN` items; fewer than `N_LATENT_MIN` respondents; unreliable anchors (`PilotError::UnreliableAnchors`) |
 | `ActivePool` | `exposure ≥ EXPOSURE_LIMIT (2000)` | — | `Retired{Exposure}` | template rotation | — |
 
 ### 9.2 Reviewer (judge nym) reputation
@@ -1122,7 +1125,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-BR-08 ✓ | camp-size neutrality (D32) | mirror-image partisan items (same quality, opposite lean), camps 60/40 and 80/20, 200–3,200 reviewers; the review's dataset at 50/50–95/5 in both orientations | leak ≤ 0.1 where the intercept leaks 0.5–0.9; neither mirror item passes at any ratio; a residual leak of 0.1–0.2 with 50–100 reviewers (`side_balanced.rs`, T49) | BRIDGE-009 |
 | AT-BR-09 ✓ | decoy stuffing (D32) | add ten weak items (approval ≈ 0.3, no lean) to a batch; the six consensus items alone | no other item's score moves by more than 0.02 and no verdict changes; alone, within 0.02; the intercept moves by more than 0.1 (`side_balanced.rs`, T49) | BRIDGE-008 |
 | AT-BR-10 ✓ | co-assignment of a flagged cluster (D40) | randomized assignment draws with a flagged cluster of 50 among 1,000 reviewers, panels of 9 | no panel ever holds two members of the cluster; honest weights unchanged — `panel_diversification.rs` (T57): 2,000 seeds, at most one member per panel and per first-plus-extra round, every panel spans the axis, the uniform draw seats two or more on 6.6% of panels (paper 7.0%); `bridging_weights` takes no cluster input | COLLUSION-006 |
-| AT-DIF-01 | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α | DIF-008 |
+| AT-DIF-01 ◐ | FP rate | `n_biased = 0`, NT ∈ {1500, 3000}, K ∈ {4, 8, 16}, ≥ 200 seeds | FP per item ≤ documented α — on the target model (T54, `latent_target_model.rs`): 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000; the full design (≥ 200 seeds, K ∈ {4, 16}) is T24/T25 | DIF-008 |
 | AT-DIF-02 | power surface | `δ ∈ {0.3, 0.5, 0.7, 0.9}`, `n_biased ∈ {1,2,3}`, `π ∈ {0.5, 0.3, 0.1}` | sensitivity table with CI; docs' "1500/3000" replaced by the table | STAT-001 |
 | AT-DIF-03 | non-uniform DIF | class-specific `a_j` | detected or documented as out of scope | DIF-004 |
 | AT-DIF-04 | two axes | biased items split across two independent hidden axes | detected or documented | DIF-004 |
@@ -1133,7 +1136,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-DIF-09 | pool-scale mixture | K = 100, NT = 3000 | completes within a stated budget | DIF-009 |
 | AT-DIF-10 ✓ | single item invisible | 1/8 | (documentation claim, not a guard) | DIF-005 |
 | AT-DIF-11 ✓ | unreliable anchors (D37) | null batches (no biased item), N = 6,000, θ from 20 vs 60 anchors | 20 anchors (KR-20 ≈ 0.82) refused before fitting; 60 anchors (≈ 0.93) accepted with no flag — `anchor_reliability.rs` (T53): batches drawn as the paper's `dif_generate`, KR-20 within 0.03 of the paper's table for 10, 20, 30 and 60 anchors; the 20-anchor batch is `UnreliableAnchors` and, through the bare engine, a spurious two-class fit; the 60-anchor batch is accepted with no flag | DIF-010 |
-| AT-DIF-12 | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction | exactly the shifted items flagged in every case (the differential gap alone inverts at 6 of 8) | DIF-010 |
+| AT-DIF-12 ✓ | campaign (D37) | 2, 4 and 6 of 8 items shifted in the same direction | exactly the shifted items flagged in every case (the differential gap alone inverts at 6 of 8) — `latent_target_model.rs` (T54): 2, 4 and 6 of 8 items shifted by 0.9 at N = 6,000 with 30 anchors: exactly the shifted items flagged, their gaps 1.7–1.9 (the true 2δ = 1.8; 3.6 and 1.1 in the two-item case) and the clean items' at most 0.13 | DIF-010 |
 | AT-NET-01 | consistent rewrite | rewrite entries `i..`, recompute hashes | detected against a stored prior head | NET-004 |
 | AT-NET-02 | leaf duplication | `[x,y,z]` vs `[x,y,z,z]` | distinct roots | NET-003 |
 | AT-NET-03 | checkpoint replay | old valid checkpoint to a client at height `h' < h` | ignored | NET-006 |
@@ -1344,9 +1347,9 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | DIF-005 | 1/8 invisible | `level_b.rs`, sim | TESTED (limitation) | — | relabel as documentation |
 | DIF-006 | threshold consistent | — | INCONSISTENT | — | G-08 |
 | DIF-007 | purification fixed point | `level_b.rs` | TESTED (1 dataset) | convergence signalling | AT-DIF-08 |
-| DIF-008 | FP/FN characterized | — | NOT ESTABLISHED | simulations | AT-DIF-01..04 |
-| DIF-009 | pool-scale feasibility | — | NOT ESTABLISHED | analytic gradient, benchmark | AT-DIF-09 |
-| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py`; `irt.rs` (`kr20`), `pilot.rs` (`admit_anchors`), `revalidation.rs`, `anchor_reliability.rs` (AT-DIF-11), `latent_classes.rs` (the differential gap inverts in a campaign) | PARTLY RESOLVED (T53) — a batch whose anchors' KR-20 is below 0.90 is refused before the fit; the differential gap is a diagnostic only | θ inside the likelihood (D37) | T54, AT-DIF-12 |
+| DIF-008 | FP/FN characterized | `latent_target_model.rs` (AT-DIF-01 on the target model) | PARTLY ESTABLISHED (T54) — 0 of 120 clean items flagged and no batch with a mixture over 15 null batches — 20, 40 and 60 anchors (KR-20 0.79–0.94), four seeds at N = 3,000 and one at N = 12,000; the surface is T24/T25 | ≥ 200 seeds per cell, the power table | T24, T25, AT-DIF-02..04 |
+| DIF-009 | pool-scale feasibility | `latent.rs` (analytic gradient, per-node evaluation) | PARTLY ESTABLISHED (T54) — linear in the batch: on one core (dev profile, `scoring` at opt-level 3) 8–32 s per 8-item null batch at N = 3,000, 90–110 s at N = 12,000, 15–25 s at N = 6,000, and 75–90 s for a campaign batch at N = 6,000 whose BIC search reaches three classes; the pool is re-checked in batches | a pool-scale budget statement | AT-DIF-09 |
+| DIF-010 | no spurious latent classes | paper §4.5, `levelB_detector.py`; `irt.rs` (`kr20`), `pilot.rs` (`admit_anchors`), `revalidation.rs`, `anchor_reliability.rs` (AT-DIF-11), `latent.rs`, `latent_target_model.rs` (AT-DIF-12, AT-DIF-01) | RESOLVED (T53, T54) — a batch whose anchors' KR-20 is below 0.90 is refused before the fit, and the fit is the target model: one class on every null batch of the paper, the campaigns flagged on exactly the shifted items | threshold value | T24, T25 |
 | STAT-001 | 300/1500/3000 adequate | `power.rs` (ignored, 5 seeds) | HYPOTHESIS | power study | AT-DIF-02 |
 | REPUTATION-001 | author score | `level_c.rs` | TESTED | definition of q_j | docs |
 | REPUTATION-002 | BSS = oracle | `level_c.rs` | TESTED — the retired function, kept as the sim oracle (D33, T50) | — | — |

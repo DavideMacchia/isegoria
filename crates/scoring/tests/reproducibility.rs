@@ -3,6 +3,7 @@
 
 use scoring::bridging::{bridge_scores, fit, BridgingParams, Ratings};
 use scoring::dif::mixture_dif;
+use scoring::latent::{latent_dif_with, LatentParams};
 use std::fs;
 use std::path::PathBuf;
 
@@ -67,6 +68,34 @@ fn mixture_dif_is_bit_for_bit_reproducible() {
     let a = mixture_dif(&theta, &x, 8, 0);
     let b = mixture_dif(&theta, &x, 8, 0);
     assert_eq!(bits(&a.dif), bits(&b.dif));
+    assert_eq!(a.bic_gain.to_bits(), b.bic_gain.to_bits());
+    assert_eq!(bits(&a.pi), bits(&b.pi));
+    assert_eq!(bits(&a.posterior.concat()), bits(&b.posterior.concat()));
+}
+
+/// The target model (T54) on a seeded batch: same input, same bits.
+#[test]
+fn latent_dif_is_bit_for_bit_reproducible() {
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+    let (n, na, k) = (600, 12, 6);
+    let mut rng = ChaCha8Rng::seed_from_u64(5);
+    let anchors: Vec<Vec<f64>> = (0..n)
+        .map(|_| (0..na).map(|_| f64::from(rng.gen::<f64>() < 0.5)).collect())
+        .collect();
+    let x: Vec<Vec<f64>> = (0..n)
+        .map(|_| (0..k).map(|_| f64::from(rng.gen::<f64>() < 0.6)).collect())
+        .collect();
+    let lp = LatentParams {
+        n_starts: 2,
+        max_classes: 2,
+        ..LatentParams::default()
+    };
+    let a = latent_dif_with(&anchors, &x, &lp);
+    let b = latent_dif_with(&anchors, &x, &lp);
+    assert_eq!(bits(&a.dif), bits(&b.dif));
+    assert_eq!(bits(&a.eta), bits(&b.eta));
+    assert_eq!(bits(&a.anchor_b), bits(&b.anchor_b));
     assert_eq!(a.bic_gain.to_bits(), b.bic_gain.to_bits());
     assert_eq!(bits(&a.pi), bits(&b.pi));
     assert_eq!(bits(&a.posterior.concat()), bits(&b.posterior.concat()));

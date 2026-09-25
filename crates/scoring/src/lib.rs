@@ -9,6 +9,7 @@ pub mod dif;
 mod fmath;
 mod glm;
 pub mod irt;
+pub mod latent;
 mod optim;
 pub mod reputation;
 
