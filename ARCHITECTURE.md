@@ -12,6 +12,7 @@ between the conceptual specification and the Rust implementation. Read
 - [`identity` — anonymous enrollment](#identity--anonymous-enrollment)
 - [`network` — tamper-evident storage](#network--tamper-evident-storage)
 - [`protocol` — lifecycle orchestration](#protocol--lifecycle-orchestration)
+- [`characterization` — the T24 harness](#characterization--the-t24-harness)
 - [Invariants and where they are enforced](#invariants-and-where-they-are-enforced)
 - [Reproducibility](#reproducibility)
 - [Testing strategy](#testing-strategy)
@@ -46,6 +47,8 @@ Four rules shape every crate:
 protocol ──► scoring
         ├──► identity
         └──► network
+
+characterization ──► protocol, scoring   (the T24 harness: a tool, not part of a node)
 
 scoring   (no internal deps; only rand, rand_chacha)
 identity  (sha2, voprf, curve25519-dalek, bbs_plus, schnorr_pok, arkworks,
@@ -181,6 +184,22 @@ Each module's doc comment names the attack the stage neutralizes (brigading,
 information cascades, queue explosion, the true-but-divisive false negative, block
 voting).
 
+## `characterization` — the T24 harness
+
+Not part of a node: nothing depends on it. It runs the seeded simulation studies of
+[`docs/13`](docs/13-characterization.md) on the production estimators and gates — in
+parallel, resumable after an interruption, every run reproducible from its seed on any
+machine — and summarizes them with intervals and the threshold tables T25 reads.
+
+| Module | Role |
+|---|---|
+| `grid` | the ten studies, their cells (`Cell::key`, `Cell::parse`), replicates and each run's seed |
+| `generate` | the populations: latent-DIF batches (the paper's `dif_generate`, extended), the Level A mirror design, the reference fixture |
+| `run` | one run: `latent_dif` read by `revalidation::target_flags`, the gates recorded as `admitted`; `bridge_scores` read by `gate::bridging_gate`; `ClassCurves` fitted and true |
+| `record` | a run's CSV record and the store that appends to it and resumes |
+| `runner` | worker threads, progress and ETA, `errors.log` |
+| `stats`, `summary` | Wilson and design-effect intervals, quantiles; `summary.md` and the CSV tables |
+
 ## Invariants and where they are enforced
 
 The invariants from [`docs/CLAUDE.md`](docs/CLAUDE.md):
@@ -220,7 +239,7 @@ optimizer differ. The Python sims are an oracle of
 
 ## Testing strategy
 
-Eight kinds of test (the per-crate counts change often; `cargo test --workspace` reports them):
+Nine kinds of test (the per-crate counts change often; `cargo test --workspace` reports them):
 
 1. **Oracle acceptance tests** run the Rust engine on the *same dataset* as the
    Python sims (exported by `sim/export_fixtures.py` into
@@ -275,6 +294,11 @@ Eight kinds of test (the per-crate counts change often; `cargo test --workspace`
    fixtures from the Python sims and diffs them against the committed ones (catches
    sim/fixture drift; needs numpy/scipy); `power` is a Monte-Carlo check of the
    §B.6 sample-size claim (latent-class DIF detection rate at N≈1500 vs 3000).
+9. **Characterization** (T24, `docs/13`): the studies run on demand through
+   `crates/characterization`; its own tests pin the grid to `docs/13` §4, the generators
+   to the paper's populations (the KR-20 table), the records to their tasks whatever the
+   number of workers, the resumption after a torn line, the production verdict
+   (`revalidate_batch_latent`) and the summary's statistics on hand-built records.
 
 Run them:
 

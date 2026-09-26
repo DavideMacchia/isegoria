@@ -12,6 +12,9 @@ __pycache__/
 .idea/
 .vscode/
 
+# T24 characterization records (docs/13); they reproduce from their seeds
+/characterization-results/
+
 # cargo-mutants output (docs/11)
 mutants.out/
 mutants.out.old/

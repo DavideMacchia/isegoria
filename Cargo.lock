@@ -300,6 +300,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "characterization"
+version = "0.0.0"
+dependencies = [
+ "identity",
+ "libm",
+ "protocol",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "scoring",
+ "sha2",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
