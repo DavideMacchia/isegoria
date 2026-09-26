@@ -190,6 +190,10 @@ T37, the commit-reveal beacon of D41, is done (2026-09-26): see
 [Completed work](#phase-22--randomness-nobody-can-grind). The threshold-signature beacon
 waits for T19.
 
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T71 | **Reviewer assignment depends on the order of the candidate list.** `review::assign_reviewers` and `assign_diverse` sort the candidates by `f_u` with a stable sort, so reviewers at the same position keep the order the caller lists them in, and that order decides which of them fall into which stratum and which one `choose` picks. Ties are the common case since T39: every newcomer without ratings sits at the origin. Whoever builds the candidate list (the operator, from the reputation store) can therefore choose among the tied reviewers for a panel, with the seed fixed by the beacon — the defect T37 fixed for the lottery. A probe on `cae4954`: 30 reviewers spread on the axis and 20 newcomers at the origin, the same list reversed, panels of 9: another panel on 100 of 100 seeds, for both functions. Fix: break ties by a canonical key (the nym), so the draw is a function of the candidate set and the seed; the extra round (`assign_extra_*`) and the sortition (`governance::stratified_sortition`, ties on `f_u` too) to be checked the same way | INV-10, PROTO-003, D40, T37 | the same candidates in any order draw the same panel from the same seed, for the first panel, the extra round and the sortition | S |
+
 ### 2.3 · Build the runtime
 
 | Task | What it means (plain) | Refs | Done when | Size |
@@ -284,7 +288,7 @@ Not a phase; done alongside every task.
 - **Phase 1 → 2.** T52's exploration draw (done) is grind-free since T37 (done), like every
   other draw.
 - **Phase 2.** T63 and T37 (both done) before T18 (as T38, done, was); T18 carries the
-  beacon's commits and reveals between nodes. T13 and T18 give T5's weights
+  beacon's commits and reveals between nodes. T71 needs nothing else. T13 and T18 give T5's weights
   and the reputation histories of T50–T51 a durable place to live.
 - **Phase 3.** T66 is the minimal form of T46's `Panel`. T58 builds on T33/T43 and
   draws replacements from the beacon (T37, done). T20 supersedes T11. T37's
