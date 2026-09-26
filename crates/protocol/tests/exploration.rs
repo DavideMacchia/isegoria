@@ -2,9 +2,10 @@
 //! items the gate rejects is piloted for measurement only and scored at weight `1/ε`
 //! (AT-PRO-07, AT-REP-06).
 
+mod common;
+
 use identity::nym::Nym;
 use network::cid::Cid;
-use network::consortium::Checkpoint;
 use protocol::exploration::{
     explore_from_beacon, outcome_of, record_outcome, FalseNegatives, Observation, Scored,
     EXPLORATION_RATE,
@@ -16,9 +17,9 @@ use protocol::probation::{SkillTrack, Status, N_PROBATION};
 use protocol::randomness::Beacon;
 use scoring::reputation::{difference_score, CusumParams};
 
-/// A beacon over a signed checkpoint whose head is `head` repeated.
-fn beacon(head: u8) -> Beacon {
-    Beacon::from_checkpoint(&Checkpoint::new([1; 32], [2; 32], 5, [head; 32]))
+/// The beacon of epoch 5 on network `[net; 32]`.
+fn beacon(net: u8) -> Beacon {
+    common::beacon(net, 5)
 }
 
 /// AT-PRO-07: the draw is reproducible from the beacon, about 5% of slots, and not choosable.
@@ -66,10 +67,10 @@ fn at_pro_07_the_draw_is_reproducible_from_the_beacon_and_not_choosable() {
         step(
             State::Rejected(RejectReason::Defect),
             Event::Explore {
-                seed_from_checkpoint: false
+                seed_from_beacon: false
             }
         ),
-        Err(Invalid::SeedNotFromCheckpoint)
+        Err(Invalid::SeedNotFromBeacon)
     );
 }
 
@@ -85,7 +86,7 @@ fn reviewed() -> State {
     let admitted = step(
         deposit(true, true, true, true).unwrap(),
         Event::Admit {
-            seed_from_checkpoint: true,
+            seed_from_beacon: true,
         },
     )
     .unwrap();
@@ -122,7 +123,7 @@ fn verdicts(gate: GateOutcome, explored: bool) -> ItemVerdicts {
 #[test]
 fn an_explored_rejection_is_measured_and_never_enters_the_pool() {
     let explore = Event::Explore {
-        seed_from_checkpoint: true,
+        seed_from_beacon: true,
     };
     for reason in [
         RejectReason::Defect,

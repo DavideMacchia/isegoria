@@ -89,7 +89,7 @@ fn reviewed() -> State {
     let admitted = step(
         deposit(true, true, true, true).unwrap(),
         Event::Admit {
-            seed_from_checkpoint: true,
+            seed_from_beacon: true,
         },
     )
     .unwrap();

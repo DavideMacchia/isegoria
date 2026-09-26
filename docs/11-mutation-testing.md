@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up, run 8 for the T63 consortium). |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up, run 8 for the T63 consortium, run 9 for the T37 beacon). |
 
 ## Why this was needed
 
@@ -195,6 +195,24 @@ the new member-set comparison `!=` → `==` — 5 caught, none missed, none unvi
 checks of `Consortium::new` sit inside `assert!`, whose arguments cargo-mutants does not
 mutate; `consortium_config.rs` pins them instead: every bound (`t = 0`, `t = n + 1`, no
 members) and a duplicate apart from its twin panic, and every `t` in `1..=n` is accepted.
+
+## Run 9 — T37: the commit-reveal beacon and the lottery's canonical order
+
+`cargo mutants --in-diff` on the T37 diff, in two halves. `network` (`beacon.rs`, the
+`consortium.rs` accessors and `verify_excluding`; `--no-config` as in run 8): 53 mutants —
+42 caught, 8 unviable (a `Default` for a type that has none: `BeaconCommit`, `Signature`,
+`RoundId`, `Cid`, `BeaconRound`, `BeaconOutcome`), 3 missed. The three were real and are killed:
+`indices` — the encoding of who revealed and who withheld in the outcome's record — could
+return anything, because every test that compared two records also compared two different
+beacon values; `beacon_round.rs::at_net_10_the_record_binds_who_revealed_and_who_withheld`
+compares five outcomes without a beacon that differ only in those lists (re-run: 3 caught).
+`protocol` (`lottery.rs`, `randomness.rs`, and the renamed `lifecycle`/`orchestrator` lines;
+the config's profile and `calibration`, `--cargo-test-arg=--test=…` with `inv10_beacon_seed`,
+`exploration`, `lifecycle`, `properties`, `exact_outcomes`, `orchestrator`,
+`lifecycle_model`, `orchestrator_model` and `panel_diversification`): 13 mutants — 9 caught,
+4 unviable, none missed. cargo-mutants deletes no statement, so the `sort_unstable` and
+`dedup` that make the lottery a function of the set are not mutated; the lottery test of
+`inv10_beacon_seed.rs` pins them (every order and a repeat draw the same vector).
 
 ## Keeping it this way
 

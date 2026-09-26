@@ -1,6 +1,6 @@
 //! Item lifecycle state machine (`docs/08` §9.1, `docs/05`): rejects every invalid
 //! transition (PC-1). Preconditions from other tasks (identity nullifier T6, quota
-//! proof T11, checkpoint seed T8, source check T68) enter as explicit `bool` inputs.
+//! proof T11, beacon seed T8/T37, source check T68) enter as explicit `bool` inputs.
 
 use crate::exposure::RetirementReason;
 use crate::gate::GateOutcome;
@@ -94,8 +94,8 @@ pub enum Invalid {
     UnprovenIdentity,
     OverQuota,
     DuplicateCid,
-    /// The draw's seed was not the signed checkpoint head (INV-10).
-    SeedNotFromCheckpoint,
+    /// The draw's seed was not the epoch's beacon (INV-10).
+    SeedNotFromBeacon,
     /// Panel size must be odd and in `[7, 11]`.
     PanelSizeInvalid,
     DuplicatePanelist,
@@ -153,8 +153,8 @@ pub fn deposit(
 /// verdicts) are passed in: this is a pure transition layer over the per-stage functions.
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// Epoch close: admitted by the lottery. `seed_from_checkpoint` must hold (INV-10).
-    Admit { seed_from_checkpoint: bool },
+    /// Epoch close: admitted by the lottery. `seed_from_beacon` must hold (INV-10).
+    Admit { seed_from_beacon: bool },
     /// Reviewers assigned to `item`; `panel` are judge nyms, odd length in `[7,11]` (INV-12).
     AssignReviewers { panel: Vec<Nym>, item: Cid },
     /// A panelist commits to a judgment before the deadline.
@@ -194,7 +194,7 @@ pub enum Event {
         source_verified: bool,
     },
     /// The beacon's exploration draw (D35) sends this rejection to the pilot for measurement.
-    Explore { seed_from_checkpoint: bool },
+    Explore { seed_from_beacon: bool },
     /// The item is administered (adds exposure).
     Administer,
     /// Periodic re-validation: `emerging_dif` = DIF flagged, `source_verified` as for stage 2.
@@ -212,16 +212,11 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
     use Event::*;
     use State::*;
     match (state, event) {
-        (
-            Deposited,
-            Admit {
-                seed_from_checkpoint,
-            },
-        ) => {
-            if seed_from_checkpoint {
+        (Deposited, Admit { seed_from_beacon }) => {
+            if seed_from_beacon {
                 Ok(Admitted)
             } else {
-                Err(Invalid::SeedNotFromCheckpoint)
+                Err(Invalid::SeedNotFromBeacon)
             }
         }
 
@@ -524,17 +519,12 @@ pub fn step(state: State, event: Event) -> Result<State, Invalid> {
             }
         }
 
-        (
-            Rejected(reason),
-            Explore {
-                seed_from_checkpoint,
-            },
-        ) => {
+        (Rejected(reason), Explore { seed_from_beacon }) => {
             if !reason.at_the_gate() {
                 return Err(Invalid::UnexpectedEvent);
             }
-            if !seed_from_checkpoint {
-                return Err(Invalid::SeedNotFromCheckpoint);
+            if !seed_from_beacon {
+                return Err(Invalid::SeedNotFromBeacon);
             }
             Ok(Explored {
                 reason,

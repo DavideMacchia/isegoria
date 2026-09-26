@@ -2,15 +2,15 @@
 //! a DIF item whose source passes the check is kept apart, and a test draws contested facts
 //! only in selections whose DTF bound is within the tolerance.
 
+mod common;
+
 use network::cid::{cid, Cid};
-use network::consortium::Checkpoint;
 use protocol::blueprint::{assemble_test, Blueprint};
 use protocol::contested::{ContestedPool, NoBalancedDraw, RecordError};
 use protocol::exploration::{outcome_of, Observation, Scored, EXPLORATION_RATE};
 use protocol::exposure::{should_retire, ItemHealth, RetirementReason, EXPOSURE_LIMIT};
 use protocol::gate::GateOutcome;
 use protocol::lifecycle::{step, Event, RejectReason, State};
-use protocol::randomness::Beacon;
 use scoring::dtf::{ClassCurves, DTF_MAX};
 use std::collections::HashSet;
 
@@ -327,7 +327,7 @@ fn leaners_from_different_fits_do_not_cancel() {
 #[test]
 fn the_draw_reproduces_from_the_beacon_and_reaches_every_balanced_test() {
     let (pool, all) = pool();
-    let beacon = Beacon::from_checkpoint(&Checkpoint::new([1; 32], [2; 32], 7, [3; 32]));
+    let beacon = common::beacon(3, 7);
     let key = |mut test: Vec<Cid>| -> Vec<[u8; 32]> {
         test.sort_by_key(|c| c.0);
         test.iter().map(|c| c.0).collect()

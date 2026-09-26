@@ -487,6 +487,11 @@ Two phases.
 
 It prevents copying others and adapting your judgment to what is emerging.
 
+The consortium uses the same two phases to make the epoch's public randomness, the
+**beacon** (`04`, `01` D41): each member commits to a secret before the deposits close and
+reveals it after, and the beacon is the hash of the reveals. Nobody can choose it; the last
+member to reveal can only withhold, in public, to pick between two values.
+
 ## Merkle tree and transparency log
 
 **Merkle tree.** You organize the hashes into a tree: a single hash at the top (the

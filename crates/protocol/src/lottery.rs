@@ -7,10 +7,9 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-/// Admission lottery seeded from the signed checkpoint (INV-10, D29, T8): the seed is
-/// fixed after deposits close and no depositor can influence it, so nobody can grind for
-/// admission. This is the sanctioned entry point; [`admit`] takes a raw seed for testing.
-pub fn admit_from_beacon<T: Clone>(
+/// Admission lottery seeded from the epoch's beacon (INV-10, D41): the sanctioned entry
+/// point; [`admit`] takes a raw seed for testing.
+pub fn admit_from_beacon<T: Clone + Ord>(
     deposited: &[T],
     capacity: usize,
     beacon: &Beacon,
@@ -19,13 +18,21 @@ pub fn admit_from_beacon<T: Clone>(
     admit(deposited, capacity, beacon.seed(LOTTERY, epoch), epoch)
 }
 
-/// Selects up to `capacity` drafts at random from `deposited`, deterministically
-/// per `(base_seed, epoch)`.
-pub fn admit<T: Clone>(deposited: &[T], capacity: usize, base_seed: u64, epoch: u64) -> Vec<T> {
+/// Selects up to `capacity` of the distinct `deposited` at random, a function of the set and
+/// `(base_seed, epoch)` alone: returned in canonical order (`T`'s, content id for a `Cid`).
+pub fn admit<T: Clone + Ord>(
+    deposited: &[T],
+    capacity: usize,
+    base_seed: u64,
+    epoch: u64,
+) -> Vec<T> {
+    let mut set = deposited.to_vec();
+    set.sort_unstable();
+    set.dedup();
     let mut rng = ChaCha8Rng::seed_from_u64(base_seed ^ epoch.wrapping_mul(0x9E3779B97F4A7C15));
-    let mut idx: Vec<usize> = (0..deposited.len()).collect();
+    let mut idx: Vec<usize> = (0..set.len()).collect();
     idx.shuffle(&mut rng);
-    idx.truncate(capacity.min(deposited.len()));
+    idx.truncate(capacity.min(set.len()));
     idx.sort_unstable();
-    idx.into_iter().map(|i| deposited[i].clone()).collect()
+    idx.into_iter().map(|i| set[i].clone()).collect()
 }

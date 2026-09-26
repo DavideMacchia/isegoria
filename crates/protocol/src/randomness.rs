@@ -1,32 +1,27 @@
-//! Public randomness for the epoch: every draw is seeded from the signed checkpoint head,
-//! domain-separated per purpose and per index (`docs/08` INV-10, CRYPTO-008; `docs/01` D29).
+//! Public randomness for the epoch: every draw seeds from the epoch's commit-reveal beacon,
+//! domain-separated per purpose and per index (`docs/08` INV-10, CRYPTO-008; `docs/01` D41).
 
-use network::consortium::Checkpoint;
+use network::beacon::BeaconOutcome;
 use sha2::{Digest, Sha256};
 
-/// The signed checkpoint head and height. The caller must have verified the checkpoint's
-/// signatures (`Consortium::verify`) first.
+/// The value of an epoch's beacon round (`network::beacon`, `docs/04` §The epoch's beacon).
 #[derive(Clone, Copy, Debug)]
 pub struct Beacon {
-    head: [u8; 32],
-    height: u64,
+    value: [u8; 32],
 }
 
 impl Beacon {
-    pub fn from_checkpoint(cp: &Checkpoint) -> Self {
-        Beacon {
-            head: cp.head,
-            height: cp.height,
-        }
+    /// The epoch's beacon, if its round formed one (at least `t` reveals).
+    pub fn from_outcome(outcome: &BeaconOutcome) -> Option<Self> {
+        outcome.value().map(|value| Beacon { value })
     }
 
-    /// `H(head ‖ height ‖ purpose ‖ index)` as a `u64`. `index` is an epoch or admitted-slot
-    /// index, never draft bytes (AT-BR-05).
+    /// `H(beacon ‖ purpose ‖ index)` as a `u64`. `index` is an epoch or admitted-slot index,
+    /// never draft bytes (AT-BR-05).
     pub fn seed(&self, purpose: &[u8], index: u64) -> u64 {
         let mut h = Sha256::new();
-        h.update(b"isegoria/beacon/v1");
-        h.update(self.head);
-        h.update(self.height.to_le_bytes());
+        h.update(b"isegoria/beacon/v2");
+        h.update(self.value);
         h.update((purpose.len() as u64).to_le_bytes());
         h.update(purpose);
         h.update(index.to_le_bytes());

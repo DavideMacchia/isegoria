@@ -107,6 +107,80 @@ The **two ultimate defenses** matter more than any entry rule:
 System parameters and meta-level composition: **stratified sortition** (see `05`), not
 voting.
 
+### The epoch's beacon (D41)
+
+Every draw of an epoch — the admission lottery, reviewer assignment and the band's extra
+round, exploration, contested facts, honeypot placement, sortition — reads one public
+random value, the epoch's **beacon**. It must be fixed only after the candidates are, and
+nobody may be able to choose it. A value computed from the log, as the checkpoint head was
+(`01` D29), fails the second condition: whoever orders or includes the last deposits
+computes the head of every variant and keeps the one they like. The beacon is therefore
+made by the consortium members, apart from the state they sign, by **commit-reveal**
+(`01` D41). The round of epoch `e`, on network `N`, with the ordered member set `M` (the
+keys the checkpoints' member-set hash commits to) and threshold `t`:
+
+1. **Secret.** Member `i` derives its secret for the epoch from the seed `kᵢ` of its
+   signing key, `sᵢ = H("isegoria/beacon/secret/v1" ‖ N ‖ M ‖ e ‖ kᵢ)`, as RFC 8032
+   derives a signature's nonce: unpredictable without the key, one per epoch, and
+   nothing to keep between commit and reveal.
+2. **Commit.** `cᵢ = H("isegoria/beacon/commitment/v1" ‖ N ‖ M ‖ e ‖ pkᵢ ‖ sᵢ)`: the
+   commitment binds the member's own key, so a copied commitment opens for nobody else
+   (as a review commitment binds its reviewer, INV-12), and the round, so it cannot be
+   replayed into another. The member signs
+   `H("isegoria/beacon/commit/v1" ‖ N ‖ M ‖ e ‖ cᵢ)` with its consortium key and publishes
+   `(N, M, e, i, cᵢ, σᵢ)`. A commit counts
+   when `N`, `M` and `e` are the round's, `i` is a member, the signature verifies under
+   `pkᵢ` and it is `i`'s first commit of the round.
+3. **The commit set is fixed while the deposits are open.** At the commit deadline the
+   commit set — the counted commits, in member order — is appended to the log as one
+   record, and the first checkpoint covering it (the *commit checkpoint*) fixes it: a
+   commit after it is refused. The commit checkpoint comes no later than the checkpoint
+   that closes the deposit window of `e`. A member signs it only if the record lists its
+   own commit, so under the consortium's assumption (fewer than `t` members collude) every
+   threshold-signed commit set holds an honest member's commit, whoever publishes the log.
+4. **Reveal after the deposits close.** Once the deposit checkpoint of `e` is signed, each
+   member publishes `(i, sᵢ)`. A reveal counts when `i` has a commit in the set and `sᵢ`
+   opens it; the commitment authenticates it, no signature is needed. A reveal before the
+   deposit checkpoint, one that does not open its commit, and one from a member without a
+   commit are refused.
+5. **The value.** At the reveal deadline, if at least `t` members revealed, the beacon is
+   `B = H("isegoria/beacon/value/v1" ‖ N ‖ M ‖ e ‖ s₀ ‖ … ‖ sₙ₋₁)`, one field per member in
+   member order, empty for a member without a counted reveal (every field is
+   length-prefixed) — a function of the set of reveals, not of the order they arrived in,
+   and of nothing on the log after the commit set. Every draw of `e` seeds from it,
+   domain-separated by purpose and index (`H("isegoria/beacon/v2" ‖ B ‖ purpose ‖ index)`).
+6. **A member that does not reveal.** A member with a commit in the set and no counted
+   reveal at the deadline has *withheld*. The round's outcome — `B`, who revealed, who
+   withheld — is appended to the log: a public, permanent record, which the governance of
+   the consortium's composition reads (`05`). The withholder is excluded from the signing
+   set for the epoch: the checkpoints that publish the epoch's draws and results count no
+   signature of it. No money is at stake (invariant 3): the penalty is the exclusion and
+   the record.
+7. **Fewer than `t` reveals.** No beacon for `e`: the epoch draws nothing, and its deposits
+   and pending draws wait for epoch `e + 1`, whose round starts from new secrets (a retry
+   of `e` would reuse the secrets already revealed and give the withholders a second
+   look). The withholders are recorded as in 6. Requiring `t` reveals is what makes the
+   value unpredictable under the consortium's own assumption: with fewer than `t` colluding
+   members, any `t` reveals hold an honest secret.
+
+Rules 1, 3 (the member's refusal to sign), 5 (member order) and 7 are decided here; D41
+left them open.
+
+**Residual bias (accepted, D41).** The last member to reveal sees every other reveal and
+can compute the beacon with and without its own: withholding picks the other value, once
+per epoch, at the cost of a public non-reveal. Against a one-shot chance of 9/1000 of
+landing on a target's panel, this at most doubles it, to about 1.8% (`1 − 0.991²`). `k`
+colluding last revealers choose among up to `2^k` values while `t` still reveal, each of
+them recorded. A coalition of `n − t + 1` members can stop the beacon (rule 7): a liveness
+attack, public, which also lets it choose between this epoch's value and the next one's. A
+unique threshold signature over the epoch number (drand-style) removes both once the
+committees have a real distributed key generation (`10` T19); before it, whoever deals the
+key could predict every draw.
+
+The round runs in process today (`10` T37: `network::beacon`, the draws in
+`protocol::randomness`); carrying commits and reveals between nodes, and the deadlines on
+real checkpoints, is the transport's (`10` T18).
+
 ---
 
 ## Durability: erasure coding

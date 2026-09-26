@@ -18,7 +18,7 @@ pub struct Reviewer {
     pub f_u: f64,
 }
 
-/// Reviewer assignment seeded from the signed checkpoint (INV-10), keyed on the item's
+/// Reviewer assignment seeded from the epoch's beacon (INV-10), keyed on the item's
 /// admitted `slot` — never the draft bytes — so an author cannot steer the panel (AT-BR-05).
 /// Sanctioned entry point; [`assign_reviewers`] takes a raw seed for testing.
 pub fn assign_from_beacon(

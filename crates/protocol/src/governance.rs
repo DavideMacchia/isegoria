@@ -21,7 +21,7 @@ pub struct Candidate<Id> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DuplicateCandidate;
 
-/// [`stratified_sortition`] seeded from the signed checkpoint (INV-10).
+/// [`stratified_sortition`] seeded from the epoch's beacon (INV-10).
 pub fn sortition_from_beacon<Id: Clone + Eq + Hash>(
     candidates: &[Candidate<Id>],
     seats: usize,

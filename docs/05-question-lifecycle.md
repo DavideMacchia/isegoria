@@ -50,14 +50,23 @@ capacity, under ~1 proposal/year per node:
 The lottery gives equal access in expected value and keeps the queue bounded. Anyone
 can propose as much as they want; each epoch a drawn subset enters the pipeline.
 
+**Nobody picks the draw.** The lottery, like every draw of the epoch below (reviewer
+assignment, the band's extra round, exploration, contested facts, honeypot placement,
+sortition), seeds from the epoch's **beacon**: a value the consortium members commit to
+before the deposit window closes and reveal after it (`04` §The epoch's beacon, `01` D41),
+so no deposit — not even the last one — can move it. The lottery reads the deposits as a
+set, in the order of their content ids, not in the order the log lists them, which whoever
+publishes the log decides. An epoch whose beacon does not form (fewer than `t` members
+reveal) draws nothing; its deposits wait for the next epoch.
+
 ---
 
 ## [4] Review: random, blind, commit-reveal assignment
 
-> **Revised by D40 (done, T57) and D41 (T37).** A panel holds at most one member of each
-> cluster flagged by the coordination detector (D39, `review::assign_diverse`), the band's
-> extra round included; all draws will use a beacon made by commit-reveal among consortium
-> members (a threshold signature after T19).
+> **Revised by D40 (done, T57) and D41 (done, T37).** A panel holds at most one member of
+> each cluster flagged by the coordination detector (D39, `review::assign_diverse`), the
+> band's extra round included; every draw uses the epoch's beacon, made by commit-reveal
+> among consortium members ([3] above; a threshold signature after T19).
 
 - **Random assignment** of the `k` reviewers (odd, 7–11), stratified on the position
   `f_u` → the batch mirrors all positions of the axis. Prevents **brigading**: nobody

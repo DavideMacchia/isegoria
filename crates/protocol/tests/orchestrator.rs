@@ -27,7 +27,7 @@ fn in_review() -> State {
     let s = step(
         s,
         Event::Admit {
-            seed_from_checkpoint: true,
+            seed_from_beacon: true,
         },
     )
     .unwrap();
@@ -182,10 +182,10 @@ fn a_participant_chosen_lottery_seed_is_rejected() {
         step(
             s,
             Event::Admit {
-                seed_from_checkpoint: false
+                seed_from_beacon: false
             }
         ),
-        Err(Invalid::SeedNotFromCheckpoint)
+        Err(Invalid::SeedNotFromBeacon)
     );
 }
 
@@ -194,7 +194,7 @@ fn an_even_or_out_of_range_panel_is_rejected() {
     let admitted = step(
         deposit(true, true, true, true).unwrap(),
         Event::Admit {
-            seed_from_checkpoint: true,
+            seed_from_beacon: true,
         },
     )
     .unwrap();
@@ -391,7 +391,7 @@ fn a_panel_with_a_repeated_nym_is_rejected() {
     let admitted = step(
         deposit(true, true, true, true).unwrap(),
         Event::Admit {
-            seed_from_checkpoint: true,
+            seed_from_beacon: true,
         },
     )
     .unwrap();

@@ -2,10 +2,10 @@
 //! the assignment, not the weights (AT-BR-10) — no panel holds two of its members, and no
 //! honest reviewer's weight changes.
 
+mod common;
+
 use identity::nym::Nym;
-use network::consortium::Checkpoint;
 use protocol::orchestrator::{bridging_weights, ReviewerStanding};
-use protocol::randomness::Beacon;
 use protocol::review::{
     assign_diverse, assign_diverse_from_beacon, assign_extra_diverse_from_beacon, assign_reviewers,
     Reviewer, K_EXTRA,
@@ -84,7 +84,7 @@ fn at_br_10_no_panel_holds_two_members_of_a_flagged_cluster() {
 #[test]
 fn the_extra_panel_avoids_the_first_panel_and_its_clusters() {
     let (reviewers, clusters) = population();
-    let beacon = Beacon::from_checkpoint(&Checkpoint::new([1; 32], [2; 32], 5, [3; 32]));
+    let beacon = common::beacon(3, 5);
     for slot in 0..200u64 {
         let first = assign_diverse_from_beacon(&reviewers, &clusters, K, &beacon, slot);
         assert!(in_cluster(&first) <= 1);

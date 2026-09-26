@@ -609,10 +609,10 @@ reacts slowly to a long con.
 > observed score pays the paper's dissenter 0.08 to report 0.50 against 0.0045 for the
 > truth) and by Monte Carlo (nine reviewers, 100,000 items: the weighted mean within 2.1
 > standard errors of the full-information mean, the passed-only mean up to 11.6 off);
-> `AT-PRO-07` (the draw reproduces from the beacon, two beacons share 0.24% of their
+> `AT-PRO-07` (the draw reproduces from the beacon, two beacons share 0.27% of their
 > draws, a participant's seed is refused). On the fixtures the explored real-health item
 > is measured as a pass — a gate false negative — and the pool is unchanged. Grind-free
-> with T37; `ε` provisional (T25).
+> since T37; `ε` provisional (T25).
 
 **Choice.** Evaluators are scored on three kinds of item:
 1. golden items, still 5% of the review queue;
@@ -822,6 +822,15 @@ penalizes honest like-minded reviewers.
 ---
 
 ## D41 — Public randomness: commit-reveal now, a unique threshold signature after the DKG
+
+> **Implemented (2026-09-26, T37).** The round is specified in `04` §The epoch's beacon,
+> with the details this decision left open: each member's secret derived from its key per
+> epoch, the commit set fixed by a log record before the deposits close and signed by a
+> member only if it lists its own commit, the value hashed over the reveals in member
+> order, and no beacon below `t` reveals — the epoch's draws wait for the next one.
+> `network::beacon` runs it in process; every draw seeds from its value
+> (`protocol::randomness::Beacon::from_outcome`), and the lottery reads the deposits as a
+> set, in content-id order. The threshold signature still waits for T19.
 
 **Choice.** The beacon feeds the lottery, reviewer assignment, honeypot placement,
 exploration (D35) and sortition. It is produced by commit-reveal among consortium

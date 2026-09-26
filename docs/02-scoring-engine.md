@@ -15,7 +15,7 @@ respondent's latent competence.
 > the appeal by the side gap (§A.3), the target latent model and its anchor precondition
 > (§B.3), the contested-facts pool (§B.5, §B.7), the evaluator score with exploration
 > (§C.2), the change detector and the cap (§C.4), coordination on residuals and panel
-> diversification (anti-collusion). D41, the beacon, is `10` T37. `paper/README.md` lists
+> diversification (anti-collusion). D41, the beacon, is done too (`10` T37). `paper/README.md` lists
 > what changed since the paper's snapshot.
 
 ---
@@ -491,7 +491,7 @@ belongs to one fit — so the seeded visiting order, the enumeration of each fit
 candidates and the order of the drawn facts owe nothing to the order in which facts were
 recorded, re-measured or retired. Two replicas holding the same facts in the same fits
 draw the same test from the same seed, and whoever records the facts cannot pick the
-test by the order of recording (the order-dependence T37 records for the lottery).
+test by the order of recording (the order-dependence the lottery had until T37).
 
 **Scores.** A contested fact is admitted to the bank. Its Level B outcome for the
 evaluator score is 1, as for an item that reaches the pool (§C.2) — scoring it 0 would
@@ -597,7 +597,8 @@ Its expectation is the mean with every outcome observed, whatever the gate decid
 change detector (D34) reads the *unweighted* observed scores against their own mean, so
 one explored item cannot fire it by its weight. Exploration also measures the gate's
 false-negative rate — how many rejected items would have passed Level B — and costs
-about `ε` of pilot capacity. The draw is grind-free with the beacon of `01` D41 (T37).
+about `ε` of pilot capacity. The draw is grind-free: it reads the commit-reveal beacon of
+`01` D41 (`04` §The epoch's beacon, T37).
 
 **Use.** `S_u` weights the review vote, on the odds scale and shrunk by the number of
 scored items:

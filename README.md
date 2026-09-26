@@ -240,7 +240,7 @@ dependency on identity or network** — it runs offline and is reproducible
 |---|---|---|
 | [`scoring`](crates/scoring) | Deterministic engine: bridging (A), IRT/DIF (B), reputation (C), anti-collusion | **Complete**, validated against `sim/` |
 | [`identity`](crates/identity) | Anonymous enrollment: source adapters, threshold-issued credential, role nullifiers | Scaffold + real mechanisms (single-server + threshold OPRF label, single + threshold BBS+ blind credential, ZK nullifier) |
-| [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, erasure coding, anchoring | Scaffold + real integrity primitives (incl. OpenTimestamps proofs) |
+| [`network`](crates/network) | Content addressing, Merkle, transparency log, consortium checkpoints, the epoch's beacon round, erasure coding, anchoring | Scaffold + real integrity primitives (incl. OpenTimestamps proofs) |
 | [`protocol`](crates/protocol) | Lifecycle orchestration: deposit, lottery, blind review, gate + appeal, pilot, honeypot | Scaffold, wires the three layers together |
 
 The uniqueness label runs on a real single-server **VOPRF** (RFC 9497, via `voprf`)
@@ -312,7 +312,7 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
 | Layer | State |
 |---|---|
 | Scoring engine (A + B + C + anti-collusion) | Implemented, reproducible bit-for-bit across platforms and build profiles (CI), matches the sims; the gate reads the side-balanced bridge score (D32, T49; thresholds provisional until T25) |
-| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition and target model, contested facts in a balanced pool, residual-based coordination detection (`docs/01` D32–D41) | D32–D40 done (T49–T57); D41, the beacon, is Phase 2 (T37); thresholds provisional until T24/T25 |
+| Design revisions from the working paper ([`paper/`](paper/)): side-balanced bridge score, proper evaluator score with exploration, DIF anchor precondition and target model, contested facts in a balanced pool, residual-based coordination detection (`docs/01` D32–D41) | D32–D40 done (T49–T57); D41, the commit-reveal beacon, done in process (T37); thresholds provisional until T24/T25 |
 | Findings of the third review (2026-09-24): deposit replay, respondents not identity-gated, consortium threshold, appeal stake, band items without appeal (`docs/08` §0-quinquies) | Deposit replay (T64), respondent gate (T65), band items without appeal (T59), the appeal stake (T61) and the consortium threshold (T63) fixed; the rest confirmed by tests on master and planned (`docs/10` T58–T67) |
 | Identity, network, protocol | Working scaffolds; deterministic mechanisms + single-server & threshold OPRF label + single & threshold BBS+ credential + ZK nullifier + OpenTimestamps anchoring proofs real, remaining heavy crypto/transport behind traits |
 | Real crypto/transport integration (committee DKG/transport, libp2p, live OpenTimestamps calendar/Bitcoin) | Future work |
@@ -332,8 +332,9 @@ input. To regenerate the fixtures you need `numpy`/`scipy` (see `sim/`).
    target model with θ inside the likelihood (D37, T54) and the contested-facts pool,
    drawn into a test only in sets whose differential test functioning stays within a
    tolerance (D38, T55); next, the characterization of the thresholds (T24/T25).
-2. **P2P network** — persistence, transport and replication, a randomness beacon nobody
-   can grind, live anchoring.
+2. **P2P network** — done so far: the consortium's configuration check (T63) and a
+   randomness beacon nobody can grind, by commit-reveal among the consortium members (D41,
+   T37, in process); next persistence, transport and replication, live anchoring.
 3. **The rest** — the protocol boundary (no-show reviewers, validated panels, honeypot
    sampling), distributed identity and the external cryptographic review, statistical
    privacy, real-world pilots.

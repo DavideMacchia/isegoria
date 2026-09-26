@@ -197,7 +197,7 @@ impl ContestedPool {
         Ok(drawn)
     }
 
-    /// [`ContestedPool::draw`] seeded from the signed checkpoint (INV-10), keyed on the test's
+    /// [`ContestedPool::draw`] seeded from the epoch's beacon (INV-10), keyed on the test's
     /// index, never on its content.
     pub fn draw_from_beacon(
         &self,

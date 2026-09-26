@@ -185,13 +185,8 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
     use Invalid::*;
     use Phase::*;
     match (phase, event) {
-        (
-            Deposited,
-            Event::Admit {
-                seed_from_checkpoint,
-            },
-        ) => {
-            guard(&[(!seed_from_checkpoint, SeedNotFromCheckpoint)])?;
+        (Deposited, Event::Admit { seed_from_beacon }) => {
+            guard(&[(!seed_from_beacon, SeedNotFromBeacon)])?;
             Ok(Admitted)
         }
 
@@ -391,17 +386,12 @@ fn model_step(phase: &Phase, event: &Event, preimage: Preimage) -> Result<Phase,
             })
         }
 
-        // The exploration draw (D35, T52): a gate rejection, on the checkpoint's seed,
+        // The exploration draw (D35, T52): a gate rejection, on the beacon's seed,
         // then the two pilot batches to a measurement — never the pool.
-        (
-            Rejected(reason),
-            Event::Explore {
-                seed_from_checkpoint,
-            },
-        ) => {
+        (Rejected(reason), Event::Explore { seed_from_beacon }) => {
             guard(&[
                 (!reason.at_the_gate(), UnexpectedEvent),
-                (!seed_from_checkpoint, SeedNotFromCheckpoint),
+                (!seed_from_beacon, SeedNotFromBeacon),
             ])?;
             Ok(Explored {
                 reason: *reason,
@@ -606,7 +596,7 @@ enum Op {
         passed: bool,
         verified: bool,
     },
-    /// The exploration draw of a gate rejection (T52), on the checkpoint's seed or not.
+    /// The exploration draw of a gate rejection (T52), on the beacon's seed or not.
     Explore(bool),
     Administer,
     /// The re-validation's DIF flag and the source check's verdict (D38).
@@ -864,9 +854,7 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
     let plain = |event| (event, Preimage::Opaque);
     match *op {
         Op::Next(knob) => plan(&next_op(knob, phase), phase),
-        Op::Admit(seed_from_checkpoint) => plain(Event::Admit {
-            seed_from_checkpoint,
-        }),
+        Op::Admit(seed_from_beacon) => plain(Event::Admit { seed_from_beacon }),
         Op::Assign {
             size,
             start,
@@ -954,9 +942,7 @@ fn plan(op: &Op, phase: &Phase) -> (Event, Preimage) {
             passed,
             source_verified: verified,
         }),
-        Op::Explore(seed_from_checkpoint) => plain(Event::Explore {
-            seed_from_checkpoint,
-        }),
+        Op::Explore(seed_from_beacon) => plain(Event::Explore { seed_from_beacon }),
         Op::Administer => plain(Event::Administer),
         Op::Revalidate(emerging_dif, source_verified) => plain(Event::Revalidate {
             emerging_dif,
@@ -1364,7 +1350,7 @@ fn the_walks_cover_every_state_and_every_rejection() {
         "UnprovenIdentity",
         "OverQuota",
         "DuplicateCid",
-        "SeedNotFromCheckpoint",
+        "SeedNotFromBeacon",
         "PanelSizeInvalid",
         "DuplicatePanelist",
         "NotInPanel",

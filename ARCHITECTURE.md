@@ -137,12 +137,14 @@ Integrity without permissionless consensus (`docs/04`).
 | `cid` | §Content-addressed storage | `Cid`, `cid` |
 | `merkle` | §Merkle tree | `leaf_hash`, `merkle_root`, `merkle_proof`, `verify_proof` |
 | `log` | §Signed append-only logs | `TransparencyLog` (hash-chained; `verify` detects tampering; `checkpoint` + `verify_extends` prove consistency/truncation against a signed prior head, T14) |
-| `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint` (net-id + member-set bound, T15), `Consortium::new` (`1 ≤ t ≤ n` distinct keys, T63), `Consortium::verify` (t-of-n over its own member set, T63), `CheckpointClient` (monotonic-height, equivocation, T15) |
+| `consortium` | §The consortium as backbone | `Member` (ed25519), `Checkpoint` (net-id + member-set bound, T15), `Consortium::new` (`1 ≤ t ≤ n` distinct keys, T63), `Consortium::verify` (t-of-n over its own member set, T63), `verify_excluding` (the beacon's withholders, T37), `CheckpointClient` (monotonic-height, equivocation, T15) |
+| `beacon` | §The epoch's beacon (D41) | `BeaconRound` (`open`, `commit`, `close_commits`, `close_deposits`, `reveal`, `finish`), `Member::beacon_commit`, `BeaconCommit`, `BeaconReveal`, `BeaconOutcome` (`value`, `revealed`, `withheld`, `record`), `RoundError` — commit-reveal among the members, in process (T37) |
 | `anchoring` | §Anchoring | `Anchor` trait, `OtsAnchor`, `Receipt`, `AnchorState` |
 | `erasure` | §Durability | `encode`, `reconstruct`, `reconstruct_verified` (real Reed–Solomon; per-shard manifest, corrupt-shard authentication before decode, T16) |
 
 **Real:** content addressing, Merkle trees, the hash-chained append-only log,
-ed25519 consortium checkpoints, erasure coding, and the anchoring proof format —
+ed25519 consortium checkpoints, the commit-reveal beacon round (in process), erasure
+coding, and the anchoring proof format —
 `OtsAnchor` builds, serialises and verifies real **OpenTimestamps** `.ots` proofs (via
 `opentimestamps`): `verify` runs the actual OTS walk (`Op::execute` over the step tree)
 and checks a Bitcoin attestation against a block Merkle root. **Still modeled** for
@@ -163,8 +165,8 @@ steps are seeded for reproducibility.
 | `contested` | [7b] (D38) | `ContestedPool` (`record`, `remove`, `dtf`, `draw`, `draw_from_beacon`), `NoBalancedDraw`, `RecordError` — contested facts by the fit that last measured them, drawn into a test only in selections whose DTF bound (the sum of per-fit DTFs) is within `DTF_MAX`; the draw exact and seeded from the beacon (T55) | `randomness`, `scoring::dtf` |
 | `deposit` | [2] | `Draft`, `deposit`, `deposit_with_identity` (identity-gated) | `admission`, `identity`, `network::{log,cid}` |
 | `exposure` | [9] | `ExposureLedger`, `should_retire`, `Template`, `least_exposed_variant` | `network::cid` |
-| `randomness` | INV-10 | `Beacon::{from_checkpoint, seed}` — checkpoint-derived seeds for every draw (T8) | `network::consortium` |
-| `lottery` | [3] | `admit`, `admit_from_beacon` (checkpoint-seeded) | `randomness` |
+| `randomness` | INV-10 | `Beacon::{from_outcome, seed}` — every draw seeds from the epoch's commit-reveal beacon (D41, T37; checkpoint-derived until then, T8) | `network::beacon` |
+| `lottery` | [3] | `admit`, `admit_from_beacon` (beacon-seeded; the deposits read as a set, in content-id order, T37) | `randomness` |
 | `review` | [4] | `Reviewer`, `assign_reviewers`, `commit`, `reveal`, `submit_review` (identity-gated), `assign_extra_from_beacon`, `K_EXTRA` (the band's extra panel, T60); `assign_diverse`, `assign_diverse_from_beacon`, `assign_extra_diverse_from_beacon` (at most one member of a coordination cluster per panel, D40/T57) | `admission`, `identity`, `network::cid` |
 | `gate` | [5]/[5b] | `GateOutcome`, `bridging_gate`, `supplementary_review` (D26 re-decision, T10/T30/T59) | `scoring::bridging` |
 | `appeal` | [5b] | `AuthorHistory::{record, reputation, covers_stake, file_appeal, settle}`, `appeal_floor`, `STAKE_QUALITY` — the stake as a pseudo-observation inside `C_a` (D27, T61) | `scoring::reputation` |

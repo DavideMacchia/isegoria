@@ -46,7 +46,7 @@ impl Checkpoint {
 }
 
 pub struct Member {
-    key: SigningKey,
+    pub(crate) key: SigningKey,
 }
 
 impl Member {
@@ -96,8 +96,27 @@ impl Consortium {
         self.member_set_hash
     }
 
+    pub(crate) fn keys(&self) -> &[VerifyingKey] {
+        &self.members
+    }
+
+    pub(crate) fn threshold(&self) -> usize {
+        self.threshold
+    }
+
     /// Accepts a checkpoint declaring this member set, signed by `threshold` distinct members.
     pub fn verify(&self, cp: &Checkpoint, sigs: &[(usize, Signature)]) -> bool {
+        self.verify_excluding(cp, sigs, &[])
+    }
+
+    /// As [`Self::verify`], counting no signature of an `excluded` member (the withholders of
+    /// the epoch's beacon round, `docs/04` §The epoch's beacon).
+    pub fn verify_excluding(
+        &self,
+        cp: &Checkpoint,
+        sigs: &[(usize, Signature)],
+        excluded: &[usize],
+    ) -> bool {
         if cp.member_set_hash != self.member_set_hash {
             return false;
         }
@@ -108,7 +127,7 @@ impl Consortium {
             let Some(pk) = self.members.get(*idx) else {
                 continue;
             };
-            if seen[*idx] {
+            if seen[*idx] || excluded.contains(idx) {
                 continue;
             }
             if pk.verify(&msg, sig).is_ok() {

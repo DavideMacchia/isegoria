@@ -11,7 +11,7 @@ use scoring::reputation::{loo_scores, mean_score};
 
 pub const HONEYPOT_RATE: f64 = 0.05;
 
-/// Honeypot placement seeded from the signed checkpoint (INV-10, D29, T8): the golden
+/// Honeypot placement seeded from the epoch's beacon (INV-10, D41): the golden
 /// items' positions are fixed by the beacon, so a reviewer cannot predict which queue
 /// slots are golden. Sanctioned entry point; [`inject`] takes a raw seed for testing.
 pub fn inject_from_beacon<T: Clone>(

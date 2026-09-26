@@ -3,6 +3,7 @@
 //! gossip/DHT transport, CRDT state, and OpenTimestamps anchoring are plug points.
 
 pub mod anchoring;
+pub mod beacon;
 pub mod cid;
 pub mod consortium;
 pub mod erasure;

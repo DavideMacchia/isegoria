@@ -4,7 +4,7 @@
 
 use crate::hash::tagged;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Cid(pub [u8; 32]);
 
 pub fn cid(bytes: &[u8]) -> Cid {

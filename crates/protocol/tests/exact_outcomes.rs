@@ -1,8 +1,9 @@
 //! Exact outcomes of the combinatorial protocol pieces: results that the size,
 //! determinism and ordering suites do not pin.
 
+mod common;
+
 use identity::nym::Nym;
-use network::consortium::Checkpoint;
 use protocol::admission::{NullifierSet, QuotaLedger};
 use protocol::blueprint::{assemble_test, Blueprint};
 use protocol::exposure::RetirementReason;
@@ -11,7 +12,6 @@ use protocol::honeypot::inject_from_beacon;
 use protocol::lifecycle::{step, Event, Invalid, State, K_MIN};
 use protocol::lottery::admit;
 use protocol::probation::FounderSet;
-use protocol::randomness::Beacon;
 use protocol::review::{assign_reviewers, Reviewer};
 use std::collections::HashSet;
 
@@ -100,7 +100,7 @@ fn assemble_test_accepts_exactly_enough_items() {
 
 #[test]
 fn beacon_placed_honeypots_are_actually_inserted() {
-    let beacon = Beacon::from_checkpoint(&Checkpoint::new([1; 32], [2; 32], 5, [3; 32]));
+    let beacon = common::beacon(3, 5);
     let queue: Vec<u32> = (0..100).collect();
     let golden: Vec<u32> = (1000..1010).collect();
     let out = inject_from_beacon(&queue, &golden, 0.05, &beacon, 0);

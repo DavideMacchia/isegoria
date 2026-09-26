@@ -278,7 +278,7 @@ pub fn run_item(
         s = step(
             s,
             Event::Explore {
-                seed_from_checkpoint: true,
+                seed_from_beacon: true,
             },
         )?;
     }
