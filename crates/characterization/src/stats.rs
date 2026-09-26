@@ -32,33 +32,37 @@ pub fn sd(v: &[f64]) -> f64 {
 }
 
 /// A rate over items in batches, `(hits, items)` per batch: the pooled rate, and the Wilson
-/// interval on items over the design effect the batches show, taken as the batch size when
-/// the batches cannot estimate it. NaN with no item.
+/// interval on the effective sample size the between-batch variance gives, kept between one
+/// batch counted once (the fewest) and every item counted once. NaN with no item.
 pub fn clustered_rate(batches: &[(usize, usize)]) -> (f64, f64, f64) {
     let hits: usize = batches.iter().map(|b| b.0).sum();
     let items: usize = batches.iter().map(|b| b.1).sum();
     if items == 0 {
         return (f64::NAN, 0.0, 1.0);
     }
-    let p = hits as f64 / items as f64;
-    let size = items as f64 / batches.len() as f64;
-    let rates: Vec<f64> = batches
+    let (total, p) = (items as f64, hits as f64 / items as f64);
+    let squares: f64 = batches.iter().map(|b| (b.1 * b.1) as f64).sum();
+    let fewest = total * total / squares;
+    let b = batches.len() as f64;
+    let spread: f64 = batches
         .iter()
-        .filter(|b| b.1 > 0)
-        .map(|&(h, n)| h as f64 / n as f64)
-        .collect();
-    let binomial = p * (1.0 - p) / size;
-    let effect = if binomial > 0.0 && rates.len() > 1 {
-        (sd(&rates).powi(2) / binomial).clamp(1.0, size)
+        .map(|&(h, m)| (h as f64 - p * m as f64).powi(2))
+        .sum::<f64>()
+        * b
+        / ((b - 1.0) * total * total);
+    let binomial = p * (1.0 - p);
+    let effective = if binomial == 0.0 || batches.len() < 2 {
+        fewest
+    } else if spread > 0.0 {
+        (binomial / spread).clamp(fewest, total)
     } else {
-        size
+        total
     };
-    let effective = items as f64 / effect;
     let (lo, hi) = wilson_real(p * effective, effective);
     (p, lo, hi)
 }
 
-/// The type-7 (linear) quantile of sorted values; NaN for none.
+/// The type-7 (linear) quantile of sorted values, an infinite value kept infinite; NaN for none.
 pub fn quantile(sorted: &[f64], q: f64) -> f64 {
     match sorted.len() {
         0 => f64::NAN,
@@ -66,8 +70,15 @@ pub fn quantile(sorted: &[f64], q: f64) -> f64 {
         n => {
             let h = (n - 1) as f64 * q;
             let lo = h.floor() as usize;
-            let hi = (lo + 1).min(n - 1);
-            sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
+            let (a, b) = (sorted[lo], sorted[(lo + 1).min(n - 1)]);
+            let t = h - lo as f64;
+            if t == 0.0 || a == b {
+                a
+            } else if b.is_infinite() {
+                b
+            } else {
+                a + t * (b - a)
+            }
         }
     }
 }

@@ -68,7 +68,9 @@ the CSV tables of §5 beside the records; `run` summarizes when it ends.
 length-prefixed) and the replicate. The run draws its population from a ChaCha8 stream
 on that seed, with the transcendental functions of the pure-Rust `libm` the engine uses
 (`scoring::fmath`), and fits it with the engine, whose bits do not depend on the
-platform (INV-7, AT-BR-04). So every record reproduces from its study, cell and replicate
+platform (INV-7, AT-BR-04). The engine's own random starts take a second seed, SHA-256
+over `isegoria/characterization/engine/v1` and the run's seed, so they owe nothing to the
+population's stream, as in production, where the seed does not depend on the data. So every record reproduces from its study, cell and replicate
 on any machine, with any number of workers (`tests/harness.rs`): a surprising cell can be
 re-run alone with `--study` and `--filter`.
 
@@ -76,15 +78,18 @@ re-run alone with `--study` and `--filter`.
 every cell evenly. Stopping the process (Ctrl-C, a reboot) loses at most the runs in
 flight: at the next `run` a torn last line is cut off, the recorded runs are skipped and
 the rest continue. `--replicates 20` followed later by a plain `run` adds replicates 20
-to 199 to the first twenty. A run that panics is written to `<out>/errors.log` and left
-unrecorded, so the next `run` retries it. One process per output directory.
+to 199 to the first twenty. A run that panics is written to `<out>/errors.log`, which
+lists the failures of the latest `run` only, and left unrecorded, so the next `run`
+retries it. One process per output directory; a study named twice runs once.
 
 **Fidelity to production.** The DIF studies fit `scoring::latent::latent_dif` with the
 production settings and read the verdict with `protocol::revalidation::target_flags`, the
 rule of `revalidate_batch_latent`. The gates are recorded, not applied: `admitted` is
 `K ≥ K_MIN`, `N ≥ N_LATENT_MIN` and KR-20 ≥ `KR20_MIN`, so the study also measures what
-the gates refuse, and each table gives the rates over all runs and over the admitted
-ones. `tests/production.rs` checks that an admitted batch gets the flags of
+the gates refuse. The rates are over all runs — the engine's behaviour — and every DIF
+table gives the share production would admit; `summary.csv` also gives the batch, power
+and clean-item rates over the admitted runs alone, which `dif-null` and `dif-misspec`
+show (guessing brings the anchors' KR-20 to the floor). `tests/production.rs` checks that an admitted batch gets the flags of
 `revalidate_batch_latent` and a refused one is recorded as refused. The bridging studies
 compute the gate's robust score as the epoch does (`bridge_scores` with 10 bootstrap
 subsamples keeping 85% of the ratings) and read it with `gate::bridging_gate` at the
@@ -158,9 +163,12 @@ items spread across the threshold: `n` reviewers in two camps, the majority's sh
 `share`, positions `±1 + 0.25 · N(0, 1)`, a severity `0.06 · N(0, 1)` each; ten consensus
 items of quality `q ~ U(0.70, 0.95)` and no lean, ten partisan items of quality 0.55 in
 mirror pairs leaning `±0.8`; each reviewer rates `per_reviewer` items at random, the
-rating `clamp(q + 0.45 · position · lean + severity + noise · N(0, 1), 0, 1)`. A consensus
-item's side-balanced truth is `q`: it should pass if and only if `q ≥ τ`; a partisan
-item should never pass.
+rating `clamp(q + 0.45 · position · lean + severity + noise · N(0, 1), 0, 1)`. An item's
+*truth* is what the side-balanced score estimates: the mean over the two camps of each
+camp's mean expected rating, the clamp included (`E[clamp(X, 0, 1)]` for a normal `X`,
+in closed form). It is `q` for a consensus item away from the bounds and a little below
+it near the top (0.91 at `q = 0.95` with noise 0.15); a partisan item's is about 0.55.
+An item should pass when its truth is above `τ` and fail when it is below.
 
 ### 3.3 The capture design
 
@@ -169,7 +177,8 @@ item should never pass.
 partisan item (08 favours the majority camp, 09 the minority one), `own` reviewers drawn
 from the camp the item favours and then the reviewers of the other camp, in a drawn
 order, rate it 1.0; the gate's score is read at every `step` of the opposing count. The
-crossing is the first opposing count at which the robust score reaches `τ`.
+item *passes* at the first opposing count at which its robust score reaches `τ + ε`, and
+*reaches the band* — supplementary review — at the first at which it reaches `τ − ε`.
 
 ## 4. The studies
 
@@ -194,23 +203,25 @@ no impact, no guessing, no attack.
 of classes, uniform or not, convergence, the BIC gain, the class shares and means, per
 item `DIF_j`, `a_gap` and the production flag, and the roles. A `dtf-error` run: the fit's
 classes, convergence and flags, and for eight item sets of the mirror layout — each
-leaner, the two mirror pairs, a same-side pair, the four leaners, the four clean items,
-a pair with two clean items — the DTF of the fitted curves (`ClassCurves::of`) and of
-the true ones on the same 41-node grid. A sweep run: the axis recovery `|corr(f_u,
-true position)|`, convergence, and per item `q`, the lean, the full and robust scores,
-the side gap and the gate's outcome. A capture run: per step the opposing count, the full
+leaner of the first pair, the two mirror pairs, a same-side pair, the four leaners, the
+four clean items, a pair with two clean items — the DTF of the fitted curves
+(`ClassCurves::of`) and of the true ones on the same 41-node grid. A sweep run: the axis
+recovery `|corr(f_u, true position)|`, convergence, and per item `q`, the lean, the
+truth, the full and robust scores, the side gap and the gate's outcome. A capture run: per step the opposing count, the full
 and robust scores, and the item's plain mean rating.
 
 ## 5. Statistics
 
-- **Over runs** — batches with a flag, all biased items flagged, crossings that never
-  happen — a proportion with its 95% Wilson interval; runs are independent.
+- **Over runs** — batches with a clean item flagged, all biased items flagged, items that
+  never pass — a proportion with its 95% Wilson interval; runs are independent.
 - **Over items** — clean items flagged, power per biased item — the pooled rate with a
-  Wilson interval on the effective sample size: the items over the design effect, the
-  ratio of the between-batch variance of the per-batch rate to its binomial variance,
-  kept in `[1, m]` for `m` items per batch, and `m` when it cannot be estimated (a rate of
-  0 or 1). The items of one batch share one fit, so they are not independent trials; with
-  no event the interval is that of `m`-item batches counted once each.
+  Wilson interval on the effective sample size `p(1 − p) / Var(p̂)`, the variance of the
+  pooled rate estimated from the batches (the ratio estimator over batch totals), kept
+  between `(Σm)² / Σm²` — every batch counted once, the fewest — and `Σm`, every item
+  counted once; the fewest when the rate is 0 or 1 or there is one batch. The items of one
+  batch share one fit, so they are not independent trials.
+- **Batches with a clean item flagged** counts the items marked `c` only: a leaner or an
+  injection's target does not make a batch a false positive.
 - **Engine and production.** Every DIF table gives the rates over all runs; the
   admitted column and the admitted-batch rate restrict them to the runs the gates admit.
 - **Threshold tables.** The flags at other cuts follow the production rule — a converged
@@ -219,17 +230,20 @@ and robust scores, and the item's plain mean rating.
   every `dif-power` cell with two biased items of eight, `π = 0.5`, `N ≥ 3000`;
   `thresholds-a-gap.csv` the same for cuts 0.2–1.0 on `a_gap`, with the pure non-uniform
   cells of `dif-nonuniform`; `bridging-sweep/tau.csv`, for `τ` from 0.70 to 0.90, the
-  share of items that should fail and pass (partisan, or `q < τ − 0.05`) and of consensus
-  items with `q > τ + 0.05` that fail, per reviewer count.
-- **DTF.** The error is the fitted minus the true DTF, over the runs whose fit found two
-  or more classes; a false admission is a set whose fitted DTF is within `DTF_MAX` while
-  its true one is not.
-- **Quantiles** are type 7 (linear); a crossing that never happens counts as infinite.
+  share of the items whose truth is below `τ − 0.05` that the robust score passes and of
+  those whose truth is above `τ + 0.05` that it fails, per reviewer count.
+- **DTF.** Over the runs whose fit converged with two or more classes — the fits whose
+  flags could put facts in the pool — the error is the fitted minus the true DTF. A
+  set is falsely admitted when its fitted DTF is within `DTF_MAX` and its true one is
+  not: the tables give that share of the fitted runs, and the share of the sets truly
+  over the tolerance that the fitted value admits.
+- **Quantiles** are type 7 (linear); an item that never passes counts as infinite, and a
+  quantile that reaches it reads "never".
 
 ## 6. Done when
 
 1. The full grid ran on one commit of the harness — every one of the 51,212 runs
-   recorded, `errors.log` empty — and `summarize` ran on the records.
+   recorded, the last `run` with no `errors.log` — and `summarize` ran on the records.
 2. §7 holds the summary's tables with the commit, the date, the machine and the wall
    time; the CSV tables are committed under `verification/reports/t24/` (`docs/07` §24);
    the records stay with whoever ran them, reproducible from their seeds.

@@ -2,7 +2,7 @@
 //! of `revalidate_batch_latent`; on one they refuse, it records the refusal (`docs/13` §2).
 
 use characterization::generate::dif_batch;
-use characterization::grid::{DifDesign, Layout};
+use characterization::grid::{engine_seed, DifDesign, Layout};
 use characterization::run::dif;
 use identity::nym::Nym;
 use protocol::admission::NullifierSet;
@@ -19,7 +19,7 @@ fn respondents(n: usize) -> NullifierSet {
     set
 }
 
-/// An admitted batch: the same flags as the production re-check, with the same seed.
+/// An admitted batch: the same flags as the production re-check with the same engine seed.
 #[test]
 fn an_admitted_batch_gets_the_production_flags() {
     let d = DifDesign {
@@ -34,7 +34,12 @@ fn an_admitted_batch_gets_the_production_flags() {
     let batch = dif_batch(&d, seed);
     let outcome = dif(&d, seed);
     assert!(outcome.admitted, "KR-20 {}", outcome.kr20);
-    let production = revalidate_batch_latent(&respondents(3000), &batch.anchors, &batch.x, seed);
+    let production = revalidate_batch_latent(
+        &respondents(3000),
+        &batch.anchors,
+        &batch.x,
+        engine_seed(seed),
+    );
     assert_eq!(Ok(outcome.flags.clone()), production);
     assert_eq!(outcome.roles, "++cc");
 }

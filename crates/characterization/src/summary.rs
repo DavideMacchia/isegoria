@@ -5,7 +5,7 @@ use crate::grid::{cells, Cell, DifDesign, Grid, Kind, Study, STUDIES};
 use crate::record::{read, Record};
 use crate::run::{CaptureOutcome, DifOutcome, DtfOutcome, Outcome, SweepOutcome, DTF_SETS};
 use crate::stats::{clustered_rate, mean, quantile, sd, sorted, wilson};
-use protocol::gate::TAU;
+use protocol::gate::{EPS, TAU};
 use scoring::dif::MIXTURE_DIF_MAX;
 use scoring::dtf::DTF_MAX;
 use std::collections::BTreeMap;
@@ -129,7 +129,7 @@ fn values_of(o: &DifOutcome, roles: &str, of: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-const DIF_COLUMNS: [&str; 32] = [
+const DIF_COLUMNS: [&str; 38] = [
     "cell",
     "runs",
     "admitted",
@@ -156,6 +156,12 @@ const DIF_COLUMNS: [&str; 32] = [
     "admitted_batch_fp",
     "admitted_batch_fp_lo",
     "admitted_batch_fp_hi",
+    "admitted_power",
+    "admitted_power_lo",
+    "admitted_power_hi",
+    "admitted_clean_fp",
+    "admitted_clean_fp_lo",
+    "admitted_clean_fp_hi",
     "biased_gap_mean",
     "true_gap",
     "biased_a_gap_mean",
@@ -179,6 +185,8 @@ struct DifCell {
     target_fp: (f64, f64, f64),
     batch_fp: (f64, f64, f64),
     admitted_batch_fp: (f64, f64, f64),
+    admitted_power: (f64, f64, f64),
+    admitted_clean_fp: (f64, f64, f64),
     biased_gap: f64,
     true_gap: f64,
     biased_a_gap: f64,
@@ -193,6 +201,12 @@ fn dif_cell(study: Study, key: &str, records: &[&Record]) -> DifCell {
         |f: &dyn Fn(&DifOutcome) -> bool| runs.iter().filter(|o| f(o)).count() as f64 / n as f64;
     let per_run = |roles: &str| -> Vec<(usize, usize)> {
         runs.iter().filter_map(|o| flagged(o, roles)).collect()
+    };
+    let per_admitted_run = |roles: &str| -> Vec<(usize, usize)> {
+        runs.iter()
+            .filter(|o| o.admitted)
+            .filter_map(|o| flagged(o, roles))
+            .collect()
     };
     let any_clean = |o: &DifOutcome| flagged(o, "c").is_some_and(|(h, _)| h > 0);
     let with_biased: Vec<&&DifOutcome> = runs
@@ -239,6 +253,8 @@ fn dif_cell(study: Study, key: &str, records: &[&Record]) -> DifCell {
             admitted.iter().filter(|o| any_clean(o)).count(),
             admitted.len(),
         ),
+        admitted_power: clustered_rate(&per_admitted_run("+-")),
+        admitted_clean_fp: clustered_rate(&per_admitted_run("c")),
         biased_gap: mean(&biased_gaps),
         true_gap: design(study, key).map_or(f64::NAN, |d| 2.0 * d.delta),
         biased_a_gap: mean(&biased_a_gaps),
@@ -270,6 +286,8 @@ impl DifCell {
             self.target_fp,
             self.batch_fp,
             self.admitted_batch_fp,
+            self.admitted_power,
+            self.admitted_clean_fp,
         ] {
             row.extend(triple(r));
         }
@@ -295,8 +313,8 @@ fn dif_markdown(study: Study, table: &[DifCell]) -> String {
                 "KR-20",
                 "mixture",
                 "clean items flagged",
-                "batches with a flag",
-                "admitted batches with a flag",
+                "batches with a clean item flagged",
+                "admitted batches with a clean item flagged",
                 "max clean gap p95",
                 "fit s",
             ],
@@ -373,7 +391,7 @@ fn dif_markdown(study: Study, table: &[DifCell]) -> String {
                 "power",
                 "targets flagged",
                 "clean items flagged",
-                "batches with a flag",
+                "batches with a clean item flagged",
                 "fit s",
             ],
             |c| {
@@ -394,8 +412,8 @@ fn dif_markdown(study: Study, table: &[DifCell]) -> String {
                 "cell",
                 "runs",
                 "mixture",
+                "power",
                 "clean items flagged",
-                "batches with a flag",
                 "fit s",
             ],
             |c| {
@@ -403,9 +421,37 @@ fn dif_markdown(study: Study, table: &[DifCell]) -> String {
                     c.key.clone(),
                     c.runs.to_string(),
                     pct(c.mixtures),
+                    pct_ci(c.power),
                     pct_ci(c.clean_fp),
-                    pct_ci(c.batch_fp),
                     num(c.seconds, 1),
+                ]
+            },
+        ),
+        Study::DifMisspec => (
+            vec![
+                "cell",
+                "runs",
+                "KR-20",
+                "admitted",
+                "mixture",
+                "power",
+                "admitted: power",
+                "clean items flagged",
+                "admitted: clean items flagged",
+                "biased gap (true)",
+            ],
+            |c| {
+                vec![
+                    c.key.clone(),
+                    c.runs.to_string(),
+                    num(c.kr20, 3),
+                    pct(c.admitted),
+                    pct(c.mixtures),
+                    pct_ci(c.power),
+                    pct_ci(c.admitted_power),
+                    pct_ci(c.clean_fp),
+                    pct_ci(c.admitted_clean_fp),
+                    format!("{} ({})", num(c.biased_gap, 2), num(c.true_gap, 2)),
                 ]
             },
         ),
@@ -554,32 +600,44 @@ fn dtf_section(study: Study, records: &[Record]) -> (String, String) {
         "false_admission",
         "false_admission_lo",
         "false_admission_hi",
+        "over",
+        "missed_over",
+        "missed_over_lo",
+        "missed_over_hi",
         "severe",
     ];
     let (mut csv_rows, mut md_rows) = (Vec::new(), Vec::new());
     for (key, rs) in grouped(study, records) {
         let runs: Vec<&DtfOutcome> = rs.iter().filter_map(|r| dtf_of(r)).collect();
-        let mixtures = runs.iter().filter(|o| o.classes >= 2).count();
+        let fitted: Vec<&&DtfOutcome> = runs
+            .iter()
+            .filter(|o| o.converged && o.classes >= 2)
+            .collect();
         for (s, name) in SET_NAMES.iter().enumerate().take(DTF_SETS.len()) {
-            let pairs: Vec<(f64, f64)> = runs
+            let pairs: Vec<(f64, f64)> = fitted
                 .iter()
-                .filter(|o| o.classes >= 2)
                 .filter_map(|o| Some((*o.fitted.get(s)?, *o.truth.get(s)?)))
                 .filter(|(f, t)| f.is_finite() && t.is_finite())
                 .collect();
             let errors = sorted(pairs.iter().map(|(f, t)| f - t).collect());
-            let admitted = pairs.iter().filter(|(f, _)| *f <= DTF_MAX);
-            let false_admissions = admitted.clone().filter(|(_, t)| *t > DTF_MAX).count();
-            let severe = admitted.filter(|(_, t)| *t > DTF_MAX + 0.05).count();
-            let fa = rate(false_admissions, pairs.len());
+            let over = pairs.iter().filter(|(_, t)| *t > DTF_MAX).count();
+            let missed = pairs
+                .iter()
+                .filter(|(f, t)| *f <= DTF_MAX && *t > DTF_MAX)
+                .count();
+            let severe = pairs
+                .iter()
+                .filter(|(f, t)| *f <= DTF_MAX && *t > DTF_MAX + 0.05)
+                .count();
+            let (fa, miss) = (rate(missed, pairs.len()), rate(missed, over));
             let truth = mean(&pairs.iter().map(|(_, t)| *t).collect::<Vec<_>>());
             let max_abs = errors.iter().fold(f64::NAN, |m, e| m.max(e.abs()));
             let (p5, p95) = (quantile(&errors, 0.05), quantile(&errors, 0.95));
-            csv_rows.push(vec![
+            let mut row = vec![
                 key.clone(),
                 name.to_string(),
                 runs.len().to_string(),
-                mixtures.to_string(),
+                fitted.len().to_string(),
                 pairs.len().to_string(),
                 v(truth),
                 v(mean(&errors)),
@@ -587,11 +645,12 @@ fn dtf_section(study: Study, records: &[Record]) -> (String, String) {
                 v(p5),
                 v(p95),
                 v(max_abs),
-                v(fa.0),
-                v(fa.1),
-                v(fa.2),
-                v(severe as f64 / pairs.len() as f64),
-            ]);
+            ];
+            row.extend(triple(fa));
+            row.push(over.to_string());
+            row.extend(triple(miss));
+            row.push(v(severe as f64 / pairs.len() as f64));
+            csv_rows.push(row);
             md_rows.push(vec![
                 key.clone(),
                 name.to_string(),
@@ -601,6 +660,7 @@ fn dtf_section(study: Study, records: &[Record]) -> (String, String) {
                 format!("[{}, {}]", num(p5, 3), num(p95, 3)),
                 num(max_abs, 3),
                 pct_ci(fa),
+                format!("{} of {}", missed, over),
             ]);
         }
     }
@@ -612,7 +672,8 @@ fn dtf_section(study: Study, records: &[Record]) -> (String, String) {
         "error mean",
         "error p5–p95",
         "max |error|",
-        "admitted but over the tolerance",
+        "fitted within, true over the tolerance",
+        "of the sets truly over, admitted",
     ];
     (md_table(&headers, &md_rows), csv(&columns, &csv_rows))
 }
@@ -697,7 +758,7 @@ fn sweep_section(study: Study, records: &[Record]) -> (String, String, String) {
             .flat_map(|o| {
                 (0..o.q.len())
                     .filter(|&j| consensus(o, j))
-                    .map(|j| o.robust[j] - o.q[j])
+                    .map(|j| o.robust[j] - o.truth[j])
                     .collect::<Vec<_>>()
             })
             .collect();
@@ -710,8 +771,8 @@ fn sweep_section(study: Study, records: &[Record]) -> (String, String, String) {
                     .collect::<Vec<_>>(),
             )
         };
-        let high = rate_of(&|o, j| consensus(o, j) && o.q[j] >= TAU + 0.05, "P");
-        let low = rate_of(&|o, j| consensus(o, j) && o.q[j] <= TAU - 0.05, "P");
+        let high = rate_of(&|o, j| consensus(o, j) && o.truth[j] >= TAU + 0.05, "P");
+        let low = rate_of(&|o, j| consensus(o, j) && o.truth[j] <= TAU - 0.05, "P");
         let band = rate_of(&|o, j| consensus(o, j), "S").0;
         let partisan = rate_of(&|o, j| !consensus(o, j), "P");
         let appeal = rate_of(&|o, j| !consensus(o, j), "A").0;
@@ -763,9 +824,9 @@ fn sweep_section(study: Study, records: &[Record]) -> (String, String, String) {
         "runs",
         "axis corr",
         "axis corr min",
-        "consensus bias / RMSE",
-        "q ≥ τ+0.05 passed",
-        "q ≤ τ−0.05 passed",
+        "consensus: score − truth, mean / RMSE",
+        "truth ≥ τ+0.05: passed",
+        "truth ≤ τ−0.05: passed",
         "band",
         "partisan passed",
         "partisan appealable",
@@ -776,8 +837,8 @@ fn sweep_section(study: Study, records: &[Record]) -> (String, String, String) {
     for tau in [0.70, 0.75, 0.80, 0.85, 0.90] {
         let mut md = vec![num(tau, 2)];
         for (n, runs) in &by_n {
-            let should_fail = |o: &SweepOutcome, j: usize| o.lean[j] != 0.0 || o.q[j] < tau - 0.05;
-            let should_pass = |o: &SweepOutcome, j: usize| o.lean[j] == 0.0 && o.q[j] > tau + 0.05;
+            let should_fail = |o: &SweepOutcome, j: usize| o.truth[j] < tau - 0.05;
+            let should_pass = |o: &SweepOutcome, j: usize| o.truth[j] > tau + 0.05;
             let over = |o: &SweepOutcome,
                         pick: &dyn Fn(usize) -> bool,
                         above: bool|
@@ -826,7 +887,7 @@ fn sweep_section(study: Study, records: &[Record]) -> (String, String, String) {
     );
     let tau_headers: Vec<&str> = tau_headers.iter().map(String::as_str).collect();
     let markdown = format!(
-        "{}\nThe gate's threshold against the design's quality `q` (robust score, no band; items within 0.05 of τ are not counted):\n\n{}",
+        "{}\nThe robust score against each item's truth at other thresholds (no band; items whose truth is within 0.05 of τ are not counted):\n\n{}",
         md_table(&headers, &md_rows),
         md_table(&tau_headers, &tau_md)
     );
@@ -854,12 +915,12 @@ fn capture_of(r: &Record) -> Option<&CaptureOutcome> {
     }
 }
 
-/// The first count of opposing boosters at which `scores` reaches τ; infinite if never.
-fn crossing(o: &CaptureOutcome, scores: &[f64]) -> f64 {
+/// The first count of opposing boosters at which `scores` reaches `level`; infinite if never.
+fn crossing(o: &CaptureOutcome, scores: &[f64], level: f64) -> f64 {
     o.opposing
         .iter()
         .zip(scores)
-        .find(|(_, &s)| s >= TAU)
+        .find(|(_, &s)| s >= level)
         .map_or(f64::INFINITY, |(&k, _)| k as f64)
 }
 
@@ -868,23 +929,44 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
         "cell",
         "runs",
         "opposing",
-        "robust_median",
-        "robust_p5",
-        "robust_p95",
-        "robust_never",
-        "full_median",
-        "full_p5",
-        "full_p95",
-        "full_never",
+        "pass_median",
+        "pass_p5",
+        "pass_p95",
+        "pass_never",
+        "band_median",
+        "band_p5",
+        "band_p95",
+        "band_never",
+        "full_pass_median",
+        "full_pass_never",
         "plain_at_zero",
     ];
     let (mut csv_rows, mut md_rows, mut curve_rows, mut curve_md) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (key, rs) in grouped(study, records) {
         let runs: Vec<&CaptureOutcome> = rs.iter().filter_map(|r| capture_of(r)).collect();
-        let robust = sorted(runs.iter().map(|o| crossing(o, &o.robust)).collect());
-        let full = sorted(runs.iter().map(|o| crossing(o, &o.full)).collect());
-        let never = |v: &[f64]| v.iter().filter(|x| x.is_infinite()).count();
+        let at = |level: f64, full: bool| -> Vec<f64> {
+            sorted(
+                runs.iter()
+                    .map(|o| crossing(o, if full { &o.full } else { &o.robust }, level))
+                    .collect(),
+            )
+        };
+        let (pass, band, full) = (
+            at(TAU + EPS, false),
+            at(TAU - EPS, false),
+            at(TAU + EPS, true),
+        );
+        let never = |c: &[f64]| c.iter().filter(|x| x.is_infinite()).count();
+        let never_share = |c: &[f64]| never(c) as f64 / c.len() as f64;
+        let spread = |c: &[f64]| {
+            format!(
+                "{} [{}, {}]",
+                num(quantile(c, 0.5), 0),
+                num(quantile(c, 0.05), 0),
+                num(quantile(c, 0.95), 0)
+            )
+        };
         let opposing = runs
             .iter()
             .filter_map(|o| o.opposing.last())
@@ -898,48 +980,36 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
                 .copied()
                 .collect::<Vec<_>>(),
         );
-        let q = |v: &[f64], p: f64| quantile(v, p);
-        csv_rows.push(vec![
-            key.clone(),
-            runs.len().to_string(),
-            opposing.to_string(),
-            v(q(&robust, 0.5)),
-            v(q(&robust, 0.05)),
-            v(q(&robust, 0.95)),
-            v(never(&robust) as f64 / runs.len() as f64),
-            v(q(&full, 0.5)),
-            v(q(&full, 0.05)),
-            v(q(&full, 0.95)),
-            v(never(&full) as f64 / runs.len() as f64),
-            v(plain0),
-        ]);
+        let mut row = vec![key.clone(), runs.len().to_string(), opposing.to_string()];
+        for c in [&pass, &band] {
+            row.extend([
+                v(quantile(c, 0.5)),
+                v(quantile(c, 0.05)),
+                v(quantile(c, 0.95)),
+                v(never_share(c)),
+            ]);
+        }
+        row.extend([v(quantile(&full, 0.5)), v(never_share(&full)), v(plain0)]);
+        csv_rows.push(row);
         md_rows.push(vec![
             key.clone(),
             runs.len().to_string(),
             opposing.to_string(),
-            format!(
-                "{} [{}, {}]",
-                num(q(&robust, 0.5), 0),
-                num(q(&robust, 0.05), 0),
-                num(q(&robust, 0.95), 0)
-            ),
-            pct_ci(rate(never(&robust), runs.len())),
-            format!(
-                "{} [{}, {}]",
-                num(q(&full, 0.5), 0),
-                num(q(&full, 0.05), 0),
-                num(q(&full, 0.95), 0)
-            ),
+            spread(&pass),
+            pct_ci(rate(never(&pass), runs.len())),
+            spread(&band),
+            num(quantile(&full, 0.5), 0),
             num(plain0, 3),
         ]);
         let steps: Vec<usize> = runs.first().map(|o| o.opposing.clone()).unwrap_or_default();
         for (i, &k) in steps.iter().enumerate() {
-            let at = |f: fn(&CaptureOutcome) -> &Vec<f64>| -> Vec<f64> {
+            let at_step = |f: fn(&CaptureOutcome) -> &Vec<f64>| -> Vec<f64> {
                 runs.iter().filter_map(|o| f(o).get(i).copied()).collect()
             };
-            let (robust_i, full_i, plain_i) =
-                (at(|o| &o.robust), at(|o| &o.full), at(|o| &o.plain));
-            let passing = robust_i.iter().filter(|&&s| s >= TAU).count();
+            let robust_i = at_step(|o| &o.robust);
+            let (full_i, plain_i) = (at_step(|o| &o.full), at_step(|o| &o.plain));
+            let passing = robust_i.iter().filter(|&&s| s >= TAU + EPS).count();
+            let share = passing as f64 / robust_i.len() as f64;
             curve_rows.push(vec![
                 key.clone(),
                 k.to_string(),
@@ -948,7 +1018,7 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
                 v(sd(&robust_i)),
                 v(mean(&full_i)),
                 v(mean(&plain_i)),
-                v(passing as f64 / robust_i.len() as f64),
+                v(share),
             ]);
             if k % 20 == 0 {
                 curve_md.push(vec![
@@ -957,7 +1027,7 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
                     format!("{} ± {}", num(mean(&robust_i), 3), num(sd(&robust_i), 3)),
                     num(mean(&full_i), 3),
                     num(mean(&plain_i), 3),
-                    pct(passing as f64 / robust_i.len() as f64),
+                    pct(share),
                 ]);
             }
         }
@@ -966,9 +1036,10 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
         "cell",
         "runs",
         "opposing camp",
-        "crossing, robust: median [p5, p95]",
-        "never crosses",
-        "crossing, full fit",
+        "boosters to pass (≥ τ+ε): median [p5, p95]",
+        "never passes",
+        "boosters to the band (≥ τ−ε)",
+        "full fit: boosters to pass",
         "plain mean, no opposing booster",
     ];
     let curve_headers = [
@@ -977,7 +1048,7 @@ fn capture_section(study: Study, records: &[Record]) -> (String, String, String)
         "robust score",
         "full score",
         "plain mean",
-        "robust ≥ τ",
+        "passes (≥ τ+ε)",
     ];
     let markdown = format!(
         "{}\nThe score as opposing boosters join, every 20 (all steps in `curve.csv`):\n\n{}",
@@ -1008,6 +1079,12 @@ fn is_admitted_null(o: &DifOutcome) -> bool {
 /// Reads every study's records under `out`, writes `summary.md` and the CSV tables, and
 /// returns the markdown.
 pub fn summarize(out: &Path) -> io::Result<String> {
+    if !out.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("no records: {} is not a directory", out.display()),
+        ));
+    }
     let mut all: BTreeMap<Study, Vec<Record>> = BTreeMap::new();
     for study in STUDIES {
         all.insert(study, read(out, study)?);

@@ -1,7 +1,7 @@
 //! The generators draw the populations `docs/13` §3 defines: the paper's batches, the
 //! design's class shares and attackers, and the bridging designs.
 
-use characterization::generate::{dif_batch, fixture, sweep_data};
+use characterization::generate::{dif_batch, expected_clamped, fixture, sweep_data};
 use characterization::grid::{Attack, DifDesign, Layout, SweepDesign};
 use scoring::irt::kr20;
 
@@ -147,12 +147,30 @@ fn the_bridging_design_has_its_camps_pairs_and_ratings() {
     assert!(data.lean[..10].iter().all(|&l| l == 0.0));
     assert_eq!(&data.lean[10..12], &[0.8, -0.8]);
     assert!(data.q[..10].iter().all(|&q| (0.70..0.95).contains(&q)));
+    for j in 0..10 {
+        let (q, t) = (data.q[j], data.truth[j]);
+        assert!(
+            t <= q + 0.01 && t > q - 0.06,
+            "consensus item {j}: q {q}, truth {t}"
+        );
+    }
+    assert!(data.truth[10..].iter().all(|&t| (0.45..0.65).contains(&t)));
     let fx = fixture();
     assert_eq!(
         (fx.r.len(), fx.mask.len(), fx.true_f.len()),
         (200, 200, 200)
     );
     assert_eq!(fx.true_f.iter().filter(|&&f| f < 0.0).count(), 80);
+}
+
+/// The expected clamped rating matches hand-computed values (a Monte Carlo agrees to 1e-4).
+#[test]
+fn the_expected_clamped_rating_matches_hand_computed_values() {
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+    assert!(close(expected_clamped(0.95, 0.15), 0.911_865));
+    assert!(close(expected_clamped(0.5, 0.15), 0.5));
+    assert!(close(expected_clamped(0.02, 0.07), 0.039_058));
+    assert_eq!(expected_clamped(1.3, 0.0), 1.0);
 }
 
 /// The same seed draws the same batch; another seed another one.

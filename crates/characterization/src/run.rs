@@ -2,7 +2,7 @@
 //! gates, and return what the study records (`docs/13` §4).
 
 use crate::generate::{dif_batch, fixture, sweep_data, DifBatch, FIXTURE_LEAN};
-use crate::grid::{CaptureDesign, Cell, DifDesign, Kind, SweepDesign, Task};
+use crate::grid::{engine_seed, CaptureDesign, Cell, DifDesign, Kind, SweepDesign, Task};
 use protocol::gate::{bridging_gate, GateOutcome, APPEAL_GAP, EPS, TAU};
 use protocol::lifecycle::K_MIN;
 use protocol::revalidation::{target_flags, N_LATENT_MIN};
@@ -68,13 +68,14 @@ pub struct DtfOutcome {
     pub truth: Vec<f64>,
 }
 
-/// Per item its quality, lean, full and robust side-balanced scores, side gap and gate outcome.
+/// Per item its quality, lean and truth, full and robust scores, side gap and gate outcome.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SweepOutcome {
     pub converged: bool,
     pub axis_corr: f64,
     pub q: Vec<f64>,
     pub lean: Vec<f64>,
+    pub truth: Vec<f64>,
     pub full: Vec<f64>,
     pub robust: Vec<f64>,
     pub gap: Vec<f64>,
@@ -100,13 +101,13 @@ pub fn run(task: &Task) -> Outcome {
     }
 }
 
-/// The production re-check on the drawn batch: the gates of `latent_batch` are recorded in
-/// `admitted`, never applied, so the study also sees what they refuse (`docs/13` §4).
+/// The production re-check on the drawn batch, the engine seeded by [`engine_seed`]: the gates
+/// of `latent_batch` are recorded in `admitted`, never applied (`docs/13` §2).
 pub fn dif(d: &DifDesign, seed: u64) -> DifOutcome {
     let batch = dif_batch(d, seed);
     let reliability = kr20(&batch.anchors);
     let admitted = d.k >= K_MIN && d.n >= N_LATENT_MIN && reliability >= KR20_MIN;
-    let fit = latent_dif(&batch.anchors, &batch.x, seed);
+    let fit = latent_dif(&batch.anchors, &batch.x, engine_seed(seed));
     DifOutcome {
         kr20: reliability,
         admitted,
@@ -147,7 +148,7 @@ fn true_curves(d: &DifDesign, batch: &DifBatch) -> Option<ClassCurves> {
 
 pub fn dtf(d: &DifDesign, seed: u64) -> DtfOutcome {
     let batch = dif_batch(d, seed);
-    let fit = latent_dif(&batch.anchors, &batch.x, seed);
+    let fit = latent_dif(&batch.anchors, &batch.x, engine_seed(seed));
     let fitted = ClassCurves::of(&fit).ok();
     let truth = true_curves(d, &batch);
     let over = |curves: &Option<ClassCurves>| -> Vec<f64> {
@@ -190,7 +191,7 @@ fn gate_code(outcome: GateOutcome) -> char {
 pub fn sweep(d: &SweepDesign, seed: u64) -> SweepOutcome {
     let data = sweep_data(d, seed);
     let params = BridgingParams {
-        seed,
+        seed: engine_seed(seed),
         ..BridgingParams::default()
     };
     let full_fit = fit(&data.ratings, &params).expect("generated ratings are well formed");
@@ -207,6 +208,7 @@ pub fn sweep(d: &SweepDesign, seed: u64) -> SweepOutcome {
         axis_corr: correlation(&full_fit.f_u, &data.true_f).abs(),
         q: data.q,
         lean: data.lean,
+        truth: data.truth,
         full: scores.full.score,
         robust: scores.robust,
         gap: scores.full.gap,
@@ -226,7 +228,7 @@ pub fn capture(d: &CaptureDesign, seed: u64) -> CaptureOutcome {
     opposing.shuffle(&mut rng);
     own.truncate(d.own);
     let params = BridgingParams {
-        seed,
+        seed: engine_seed(seed),
         ..BridgingParams::default()
     };
     let mut out = CaptureOutcome {

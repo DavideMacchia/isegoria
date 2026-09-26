@@ -80,6 +80,13 @@ fn a_larger_replicate_count_extends_a_smaller_one() {
         .all(|t| many.contains(&(t.cell.key(), t.replicate, t.seed()))));
 }
 
+/// A study named twice runs once.
+#[test]
+fn a_study_named_twice_runs_once() {
+    let twice = tasks(&[Study::DifNull, Study::DifNull], Grid::Full, Some(1), None);
+    assert_eq!(twice.len(), 27);
+}
+
 /// A filter keeps the cells whose key contains it.
 #[test]
 fn a_filter_keeps_the_matching_cells() {

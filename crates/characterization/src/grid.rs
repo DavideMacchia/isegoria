@@ -528,6 +528,12 @@ impl Task {
     }
 }
 
+fn first_eight(digest: &[u8]) -> u64 {
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&digest[..8]);
+    u64::from_le_bytes(first)
+}
+
 /// The run's seed: SHA-256 over the study, the cell key and the replicate, length-prefixed.
 pub fn seed(study: Study, key: &str, replicate: u32) -> u64 {
     let mut h = Sha256::new();
@@ -537,10 +543,15 @@ pub fn seed(study: Study, key: &str, replicate: u32) -> u64 {
         h.update(part);
     }
     h.update(replicate.to_le_bytes());
-    let digest = h.finalize();
-    let mut first = [0u8; 8];
-    first.copy_from_slice(&digest[..8]);
-    u64::from_le_bytes(first)
+    first_eight(&h.finalize())
+}
+
+/// The seed of the engine's own random starts, drawn apart from the population's stream.
+pub fn engine_seed(seed: u64) -> u64 {
+    let mut h = Sha256::new();
+    h.update(b"isegoria/characterization/engine/v1");
+    h.update(seed.to_le_bytes());
+    first_eight(&h.finalize())
 }
 
 /// The runs of `studies`, replicate by replicate so that a partial run covers every cell.
@@ -551,7 +562,13 @@ pub fn tasks(
     replicates_cap: Option<u32>,
     filter: Option<&str>,
 ) -> Vec<Task> {
-    let plan: Vec<(Study, Vec<Cell>, u32)> = studies
+    let mut distinct: Vec<Study> = Vec::new();
+    for &s in studies {
+        if !distinct.contains(&s) {
+            distinct.push(s);
+        }
+    }
+    let plan: Vec<(Study, Vec<Cell>, u32)> = distinct
         .iter()
         .map(|&s| {
             let kept = cells(s, grid)

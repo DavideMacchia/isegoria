@@ -76,13 +76,17 @@ impl Progress {
 }
 
 /// Runs every task `opts.out` does not hold yet on `opts.jobs` threads. A run that panics is
-/// logged to `errors.log` and left unrecorded, so the next execution retries it.
+/// logged to `errors.log`, which lists this execution's failures only, and left unrecorded.
 pub fn execute(tasks: &[Task], opts: &Options) -> io::Result<Report> {
     let mut stores: BTreeMap<Study, Store> = BTreeMap::new();
     for task in tasks {
         if let Entry::Vacant(slot) = stores.entry(task.study) {
             slot.insert(Store::open(&opts.out, task.study)?);
         }
+    }
+    let log = opts.out.join("errors.log");
+    if log.exists() {
+        std::fs::remove_file(&log)?;
     }
     let todo: Vec<&Task> = tasks
         .iter()
@@ -132,10 +136,7 @@ pub fn execute(tasks: &[Task], opts: &Options) -> io::Result<Report> {
                 }
                 Err(message) => {
                     let task = todo[i];
-                    let mut log = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(opts.out.join("errors.log"))?;
+                    let mut log = OpenOptions::new().create(true).append(true).open(&log)?;
                     writeln!(
                         log,
                         "{} {} #{}: {message}",

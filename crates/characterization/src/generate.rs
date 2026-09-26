@@ -127,13 +127,32 @@ pub fn dif_batch(d: &DifDesign, seed: u64) -> DifBatch {
     }
 }
 
-/// A drawn mirror design: the ratings, and per item its quality `q` and lean.
+/// A drawn mirror design: the ratings, and per item its quality `q`, its lean and its truth,
+/// the mean over the two camps of the camp's expected clamped rating (`docs/13` §3.2).
 #[derive(Clone, Debug)]
 pub struct SweepData {
     pub ratings: Ratings,
     pub q: Vec<f64>,
     pub lean: Vec<f64>,
+    pub truth: Vec<f64>,
     pub true_f: Vec<f64>,
+}
+
+fn phi(x: f64) -> f64 {
+    libm::exp(-0.5 * x * x) / (2.0 * std::f64::consts::PI).sqrt()
+}
+
+fn cdf(x: f64) -> f64 {
+    0.5 * libm::erfc(-x / std::f64::consts::SQRT_2)
+}
+
+/// `E[clamp(X, 0, 1)]` for `X ~ N(mu, sd²)`.
+pub fn expected_clamped(mu: f64, sd: f64) -> f64 {
+    if sd <= 0.0 {
+        return mu.clamp(0.0, 1.0);
+    }
+    let (a, b) = (-mu / sd, (1.0 - mu) / sd);
+    mu * (cdf(b) - cdf(a)) + sd * (phi(a) - phi(b)) + (1.0 - cdf(b))
 }
 
 pub const CONSENSUS_ITEMS: usize = 10;
@@ -179,10 +198,30 @@ pub fn sweep_data(d: &SweepDesign, seed: u64) -> SweepData {
             r[u][j] = rating.clamp(0.0, 1.0);
         }
     }
+    let camp_a = d.n - n_b;
+    let truth = (0..m)
+        .map(|j| {
+            let camp = |range: std::ops::Range<usize>| -> Option<f64> {
+                let expected: Vec<f64> = range
+                    .map(|u| {
+                        let mu = q[j] + 0.45 * true_f[u] * lean[j] + severity[u];
+                        expected_clamped(mu, d.noise)
+                    })
+                    .collect();
+                (!expected.is_empty()).then(|| expected.iter().sum::<f64>() / expected.len() as f64)
+            };
+            let sides: Vec<f64> = [camp(0..camp_a), camp(camp_a..d.n)]
+                .into_iter()
+                .flatten()
+                .collect();
+            sides.iter().sum::<f64>() / sides.len() as f64
+        })
+        .collect();
     SweepData {
         ratings: Ratings::from_dense(&r, &mask),
         q,
         lean,
+        truth,
         true_f,
     }
 }

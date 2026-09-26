@@ -1,11 +1,11 @@
 //! The summaries compute what `docs/13` §5 defines, checked on hand-built records, and every
 //! study of the smoke grid runs and is summarized (`docs/13` §2).
 
-use characterization::grid::{tasks, Cell, DifDesign, Grid, Layout, Study, STUDIES};
+use characterization::grid::{tasks, CaptureDesign, Cell, DifDesign, Grid, Layout, Study, STUDIES};
 use characterization::record::{header, Record};
-use characterization::run::{DifOutcome, Outcome};
+use characterization::run::{CaptureOutcome, DifOutcome, Outcome};
 use characterization::runner::{execute, Options};
-use characterization::stats::{quantile, wilson};
+use characterization::stats::{clustered_rate, quantile, wilson};
 use characterization::summary::summarize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -33,6 +33,18 @@ fn the_interval_and_the_quantile_match_hand_computed_values() {
     assert_eq!(quantile(&[1.0, 2.0, 3.0, 4.0], 0.5), 2.5);
     assert_eq!(quantile(&[1.0, 2.0, 3.0, 4.0], 0.25), 1.75);
     assert!(close(quantile(&[0.0, 1.2, 1.5], 0.95), 1.47));
+    let inf = f64::INFINITY;
+    assert_eq!(quantile(&[5.0, 10.0, inf], 0.5), 10.0);
+    assert_eq!(quantile(&[5.0, inf], 0.5), inf);
+    assert_eq!(quantile(&[inf, inf], 0.2), inf);
+    let (p, lo, hi) = clustered_rate(&[(0, 4), (1, 4), (2, 4)]);
+    assert!(
+        close(p, 0.25) && close(lo, 0.0764) && close(hi, 0.5731),
+        "{lo} {hi}"
+    );
+    let (_, lo, hi) = clustered_rate(&[(0, 4), (0, 16)]);
+    assert!(close(lo, 0.0) && close(hi, 0.7232), "{lo} {hi}");
+    assert!(clustered_rate(&[]).0.is_nan());
 }
 
 fn outcome(
@@ -164,6 +176,40 @@ fn the_power_summary_counts_detections_per_item_and_per_batch() {
         (1.8 + 1.6 + 1.4 + 0.8) / 6.0
     ));
     assert!(close(value(&r, "true_gap"), 1.8));
+    let _ = fs::remove_dir_all(out);
+}
+
+/// Capture runs: boosters to pass (τ + ε) and to the band (τ − ε), a run that never passes.
+#[test]
+fn the_capture_summary_reads_crossings_and_never() {
+    let out = scratch("capture-summary");
+    let cell = Cell::Capture(CaptureDesign {
+        item: 7,
+        own: 40,
+        step: 5,
+    })
+    .key();
+    let run = |robust: [f64; 3]| {
+        Outcome::Capture(CaptureOutcome {
+            opposing: vec![0, 5, 10],
+            full: robust.to_vec(),
+            robust: robust.to_vec(),
+            plain: vec![0.6, 0.7, 0.8],
+        })
+    };
+    let runs = vec![
+        run([0.5, 0.83, 0.9]),
+        run([0.5, 0.79, 0.85]),
+        run([0.5, 0.6, 0.7]),
+    ];
+    write(&out, Study::BridgingCapture, &cell, runs);
+    summarize(&out).unwrap();
+    let r = row(&out, Study::BridgingCapture);
+    assert_eq!(value(&r, "pass_median"), 10.0);
+    assert_eq!(value(&r, "pass_p95"), f64::INFINITY);
+    assert!(close(value(&r, "pass_never"), 1.0 / 3.0));
+    assert_eq!(value(&r, "band_median"), 5.0);
+    assert!(close(value(&r, "plain_at_zero"), 0.6));
     let _ = fs::remove_dir_all(out);
 }
 
