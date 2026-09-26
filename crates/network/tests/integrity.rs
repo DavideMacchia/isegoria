@@ -104,7 +104,7 @@ fn consortium(n: usize, threshold: usize) -> (Vec<Member>, Consortium) {
 #[test]
 fn checkpoint_needs_a_threshold_of_signers() {
     let (members, con) = consortium(5, 3);
-    let cp = Checkpoint::new([0u8; 32], [0u8; 32], 10, [7u8; 32]);
+    let cp = Checkpoint::new([0u8; 32], con.member_set_hash(), 10, [7u8; 32]);
 
     let three: Vec<_> = (0..3).map(|i| (i, members[i].sign(&cp))).collect();
     assert!(con.verify(&cp, &three), "3 of 5 should pass");
@@ -116,19 +116,24 @@ fn checkpoint_needs_a_threshold_of_signers() {
 #[test]
 fn duplicate_and_wrong_signatures_do_not_count() {
     let (members, con) = consortium(5, 3);
-    let cp = Checkpoint::new([0u8; 32], [0u8; 32], 1, [1u8; 32]);
+    let cp = Checkpoint::new([0u8; 32], con.member_set_hash(), 1, [1u8; 32]);
     // The same member three times is still one signer.
     let dup: Vec<_> = (0..3).map(|_| (0usize, members[0].sign(&cp))).collect();
     assert!(!con.verify(&cp, &dup));
 
     // A signature over a different checkpoint is invalid here.
-    let other = Checkpoint::new([0u8; 32], [0u8; 32], 2, [1u8; 32]);
+    let other = Checkpoint::new([0u8; 32], con.member_set_hash(), 2, [1u8; 32]);
     let mixed = vec![
         (0, members[0].sign(&cp)),
         (1, members[1].sign(&cp)),
         (2, members[2].sign(&other)),
     ];
     assert!(!con.verify(&cp, &mixed), "only 2 valid → below threshold");
+    let three: Vec<_> = (0..3).map(|i| (i, members[i].sign(&cp))).collect();
+    assert!(
+        con.verify(&cp, &three),
+        "the same checkpoint passes with three signers"
+    );
 }
 
 #[test]

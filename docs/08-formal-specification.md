@@ -175,7 +175,10 @@ regression test are on master.
   member set.** `Consortium::new(members, 0)` verifies a checkpoint with no signature;
   `t > n` never verifies; `Consortium::verify` does not compare the checkpoint's
   `member_set_hash` with its own (only `CheckpointClient` does), although
-  `Beacon::from_checkpoint` names `verify` as the check to run. **OPEN** → T63.
+  `Beacon::from_checkpoint` names `verify` as the check to run. **RESOLVED** (T63,
+  2026-09-26): `Consortium::new` panics unless `1 ≤ t ≤ n` with distinct keys (operator
+  configuration, `docs/12` §2.2), and `verify` refuses a checkpoint whose `member_set_hash`
+  is not its own — `consortium_config.rs` (AT-NET-09).
 - **REPUTATION-007 (update) — the appeal stake is not checked and the escrow is never
   settled.** `orchestrator::run_item` sends `Appeal { within_window: true,
   reputation_covers_stake: true }` hard-wired; `gate::settle_appeal` is called only by
@@ -722,7 +725,7 @@ Each critical claim carries the full block required by `docs/07` §4. Secondary 
 - **Evidence status.** RESOLVED@T14 (was TESTED for the inconsistent edit only). `log::checkpoint()` yields the `Checkpoint{height, head}` the consortium signs (`consortium::Member::sign`, a signature over the head that commits the whole prefix), and `log::verify_extends(&prior)` proves the current log consistently extends a checkpoint the verifier trusts — returning `ForkedHistory` for a consistent suffix rewrite of checkpointed history and `Truncated` for a shorter log, which `verify()` alone accepts. The claim now holds *relative to a signed checkpoint the verifier holds*, exactly as NET-004 required. `log_consistency.rs` co-signs the prior head with a `t`-of-`n` consortium.
 
 #### NET-005 — Checkpoint threshold
-- `Consortium::verify` counts distinct valid ed25519 (`ed25519-dalek` 2.2.0) signatures over `SHA-256(tag "isegoria/checkpoint/v1", height_le, head)` and requires `≥ threshold`. TESTED (3-of-5 passes, 2 fails, duplicates ignored, wrong-message signature ignored).
+- `Consortium::verify` refuses a checkpoint whose `member_set_hash` is not the consortium's own, then counts distinct valid ed25519 (`ed25519-dalek` 2.2.0) signatures over the v2 message (`tag "isegoria/checkpoint/v2"`, network id, member-set hash, `height_le`, head; NET-006) and requires `≥ threshold`. TESTED (3-of-5 passes, 2 fails, duplicates ignored, wrong-message signature ignored). **Configuration RESOLVED@T63** (third review, §0-quinquies: `t = 0` verified a checkpoint with no signature, `t > n` never verified, duplicate keys were accepted, and `verify` ignored the member set — only `CheckpointClient` compared it): `Consortium::new` panics unless `1 ≤ t ≤ n` with distinct keys, as `ThresholdOprfOracle::new` (operator configuration, `docs/12` §2.2), and `t` real members signing a checkpoint that declares another member set fail `verify` (`consortium_config.rs`, AT-NET-09: every `t` in `1..=n` for `n ≤ 5` verifies with exactly `t` signers; `checkpoint_model.rs` unchanged).
 
 #### NET-006 — Checkpoint replay, equivocation, network binding
 - **Analysis.** The signed message has no network/consortium identifier and no epoch/time: a checkpoint is valid forever and, after a fork (`docs/04` "freedom to fork" — the same keys may sign on both sides), on both forks. Two threshold-signed checkpoints with the same `height` and different `head` are both accepted; no equivocation detection, no client-side monotonic-height rule, no accountability record. Member set changes (add/remove/rotate keys) are not representable.
@@ -1169,6 +1172,7 @@ Each entry names the test that MUST exist, its oracle, and the claim it falsifie
 | AT-NET-06 | corrupted shard | flip bytes in one shard, decode | detected before/at decode | NET-007 |
 | AT-NET-07 ✓ | hostile `.ots` | fuzz `verify` | no panic, bounded time | NET-008 |
 | AT-NET-08 ✓ | threshold counting | 2-of-5, duplicates | rejected | NET-005 |
+| AT-NET-09 ✓ | consortium configuration (T63) | `Consortium::new` with `t = 0`, `t > n`, no members, a key listed twice; `t` real members sign a checkpoint declaring another member set | refused at construction; `verify` fails — `consortium_config.rs` | NET-005 |
 | AT-PRO-01 | unproven nym | submit a review with a random 32-byte `Nym` | rejected | PROTO-007 |
 | AT-PRO-02 | batch of one | `stage2` / mixture with 1 item | rejected | INV-8 |
 | AT-PRO-03 | supplementary review | band item | defined outcome | PROTO-008 |
@@ -1415,7 +1419,7 @@ Status is the lowest justified. "Missing evidence" names what would raise it one
 | NET-002 | Merkle inclusion | proptest | TESTED | — | — |
 | NET-003 | root commits to leaves | auditor probe (collision); `integrity.rs` (AT-NET-02) | RESOLVED @289aae3 (was DEFECT) — RFC 6962, see §0-bis | — | — |
 | NET-004 | log tamper-evident | `log.rs` (`checkpoint`, `verify_extends`), `log_consistency.rs` | RESOLVED@T14 — consistency proof + truncation detection against a consortium-signed prior head (AT-NET-01) | Merkle-style compact consistency proof for light clients (re-download-free) | G-14 |
-| NET-005 | checkpoint threshold | `integrity.rs`, review probes (§0-quinquies) | PARTIAL — `t = 0` verifies with no signature, `t > n` never verifies, `Consortium::verify` ignores `member_set_hash` | constructor validation; member-set check in `verify` | T63 |
+| NET-005 | checkpoint threshold | `consortium.rs` (`Consortium::new`, `verify`), `integrity.rs`, `consortium_config.rs` (AT-NET-09) | RESOLVED (T63) — `1 ≤ t ≤ n` distinct keys at construction (a panic: operator configuration); `verify` holds a checkpoint to its own member set | — | — |
 | NET-006 | replay/equivocation/net id | `consortium.rs` (`Checkpoint` v2, `CheckpointClient`, `member_set_hash`), `checkpoint_replay.rs`, `checkpoint_fork.rs`, `checkpoint_model.rs` | RESOLVED@T15 — net/member-set binding in the signed message; client monotonic-height rule; same-height equivocation evidence (AT-NET-03..05); higher-height fork reported to a client holding the log (T38); model-tested, and a log behind the trusted checkpoint is `LogBehind`, no longer `LocalLogDiverged` (T43) | member-set rotation (T22) | §9.4 |
 | NET-007 | erasure | `erasure.rs` (`manifest`, `reconstruct_verified`, `check_layout`), `shard_authentication.rs`, `hostile_input.rs`, `fuzz/erasure` | RESOLVED@T16 — shard authentication before decode (AT-NET-06); layout validated before sizing (T44) | placement/repair/churn | AT-NET-06 |
 | NET-008 | OTS verify | `anchoring.rs` (`within_bounds`), `integrity.rs`, `hostile_input.rs`, `fuzz/ots_verify` | RESOLVED@T44 — bounded pre-scan before the library parser; fuzzed (AT-NET-07) | — | AT-NET-07 |
@@ -1581,7 +1585,7 @@ The following cannot be established from the repository, from simulation, or fro
 | Credential | §7.1, CRYPTO-003/004 | `crates/identity/src/credential.rs`: `Credential`, `IssuanceRequest`, `PendingIssuance`, `BlindSignature`, `AnonymousCredential`, `Issuer`, `ThresholdIssuer`, `IssuerPublic`, `setup_base_ot`, `verify_request` | `bbs_credential.rs`, `threshold_bbs.rs`, unit tests | — |
 | Nullifier | §7.1, CRYPTO-005/006 | `crates/identity/src/nullifier.rs`: `NullifierProof`, `prove`, `verify`, `context_generator` | `tests/nullifier.rs`, unit test | — |
 | CID, Merkle, log | §10.1–10.2 | `crates/network/src/{cid,merkle,log}.rs`: `Cid`, `cid`, `leaf_hash`, `merkle_root`, `merkle_proof`, `verify_proof`, `TransparencyLog`, `Entry` | `integrity.rs`, `properties.rs` | — |
-| Checkpoints | §9.4 | `crates/network/src/consortium.rs`: `Checkpoint`, `Member`, `Consortium` | `integrity.rs` | — |
+| Checkpoints | §9.4 | `crates/network/src/consortium.rs`: `Checkpoint`, `Member`, `Consortium` | `integrity.rs`, `consortium_config.rs` | — |
 | Erasure | §10.4 | `crates/network/src/erasure.rs`: `encode`, `reconstruct`, `Encoded` | `integrity.rs`, `properties.rs` | — |
 | Anchoring | §10.5 | `crates/network/src/anchoring.rs`: `Anchor`, `OtsAnchor`, `Receipt`, `AnchorState` | `integrity.rs`, unit tests | — |
 | Lifecycle stages | §9.1 | `crates/protocol/src/{deposit,lottery,review,gate,pilot,exposure,revalidation}.rs`; `lib.rs::Stage` | `lifecycle.rs`, `end_to_end.rs`, `properties.rs` | — |

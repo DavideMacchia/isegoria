@@ -64,9 +64,10 @@ reference implementation / testnet.
   outcomes with randomized exploration (D35, T52), the latent DIF target model with
   θ inside the likelihood (D37, T54), the reviewer floor of the axis (T39), the
   differential oracles on random datasets (T45) and the contested-facts pool with its
-  balanced draw (D38, T55). Details and evidence: [Completed work](#completed-work).
+  balanced draw (D38, T55); in Phase 2, the consortium's configuration check (T63). Details
+  and evidence: [Completed work](#completed-work).
 - **Open:** the design revision D41 (D32 is done, T49; D33 and D36, T50; D34, T51; D35, T52; D37, T53 and T54; D38, T55; D39 and D40, T56 and T57); the characterization of the thresholds (T24/T25); the defects found by the
-  third review (2026-09-24), all but T64, T65, T62, T59 and T61; the network runtime
+  third review (2026-09-24), all but T64, T65, T62, T59, T61 and T63; the network runtime
   (persistence, transport, live anchoring); distributed identity; privacy hardening;
   everything external; the [open problems](#open-problems) that wait on an owner
   decision (T69).
@@ -180,9 +181,8 @@ dealer until T19).
 
 ### 2.1 · Fix what exists
 
-| Task | What it means (plain) | Refs | Done when | Size |
-|---|---|---|---|---|
-| T63 | **The consortium validates its threshold and the member set it verifies against.** `Consortium::new(members, 0)` accepts a checkpoint with no signature, `t > n` can never verify (a silent liveness failure), and duplicate member keys are accepted. `Consortium::verify` signs over a message that includes `member_set_hash` but does not compare it with `self.member_set_hash()`, so `t` real members who sign a checkpoint declaring another member set pass `verify` — and `Beacon::from_checkpoint` documents `verify` as the check to run first (`CheckpointClient` does compare it). `new` requires `1 ≤ t ≤ n` and distinct keys (a panic with a message, as `ThresholdOprfOracle::new`: this is operator configuration); `verify` rejects a foreign `member_set_hash` | NET-005, NET-006, `docs/12` §6 | threshold 0, `t > n` and duplicate keys are refused at construction; a checkpoint declaring another member set fails `verify`; `checkpoint_model.rs` unchanged | S |
+T63, the consortium's configuration and member-set check, is done (2026-09-26): see
+[Completed work](#phase-21--fix-what-exists).
 
 ### 2.2 · Randomness nobody can grind
 
@@ -283,7 +283,7 @@ Not a phase; done alongside every task.
   order and the milestone split: [1.5](#15--order-of-execution-and-milestones).
 - **Phase 1 → 2.** T52's exploration draw (done) works on today's beacon and becomes
   grind-free with T37.
-- **Phase 2.** T63 and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
+- **Phase 2.** T63 (done) and T37 before T18 (as T38, done, was). T13 and T18 give T5's weights
   and the reputation histories of T50–T51 a durable place to live.
 - **Phase 3.** T66 is the minimal form of T46's `Panel`. T58 builds on T33/T43 and
   draws replacements from the beacon (after T37). T20 supersedes T11. T37's
@@ -349,6 +349,12 @@ other documents and commit messages refer to these ids and block names.
 |---|---|---|---|---|
 | T62 | **The engine rejects malformed ratings instead of panicking. Done (2026-09-24):** `Ratings::validate() -> Result<(), RatingsError>` — an observation with `u ≥ n` or `j ≥ m` (`IndexOutOfRange`), `weights.len() ≠ n` (`WeightCount`), a non-finite rating (`NonFiniteRating`), a non-finite or negative weight (`BadWeight`), a duplicate `(u, j)` pair (`DuplicateObservation`) — runs first in `fit` and `bridge_scores`, which return `Result` (the direction of T46); `gate::supplementary_review` propagates it and refuses an item index past the batch (`ItemOutOfRange`); `orchestrator::weighted_ratings` returns `Result` (a standing count that differs from the rows is `WeightCount`; the `assert` in `with_weights` is gone). `scoring/tests/malformed_ratings.rs`: each case returns its error from both entry points, and a property over arbitrary `Ratings` (indices past `n`/`m`, NaN and infinite values, negative weights, any weight count, duplicates) never panics — `fit` and `bridge_scores` succeed exactly when `validate` accepts. `crates/scoring/fuzz/bridging` (cargo-fuzz; not yet run, no nightly in the session) explores the same entry points. *Was:* `Ratings` has public fields and an out-of-range observation panicked on a bounds check inside the objective; duplicates counted twice. *Left to T46* (`docs/12` §2.3): `Ratings::from_dense` on a ragged matrix, and the slice-taking entry points of `irt`, `dif`, `collusion` and `reputation`, which index out of bounds on mismatched lengths or ragged matrices — caller preconditions, probed and recorded | `docs/12` §2.3, T44, T46 | out-of-range index, wrong weight count, non-finite or negative value and duplicate pair each return an error, no panic; a property test: arbitrary `Ratings` never panics | S |
 | — | **Cross-platform reproducibility (`AT-BR-04`). Done (2026-09-25):** the engine's transcendental functions (`exp`, `ln`, `ln_1p`, `cos`, `pow`) come from the pure-Rust `libm` crate through `scoring::fmath`, not from the platform's libm, whose last bits differ between glibc, musl, Apple and Microsoft and which an iterative fit amplifies into a different stopping point; `golden_bits.txt` regenerated on purpose (last-bit changes only, every oracle test unchanged); `libm` optimized in the dev profile (`Cargo.toml`). CI job `golden` (`.github/workflows/ci.yml`) checks the golden bits on linux-gnu in the release profile, linux-musl, macOS-aarch64 and Windows-MSVC on every push, next to the main job's linux-gnu dev run. Verified on 2026-09-25: linux-gnu dev, linux-gnu release and linux-musl agree bit for bit locally, and the first CI run of the job (master `c6ac1fa`, run 38) is green on macOS-aarch64 and Windows-MSVC as well — and the control shows why it was needed: the previous code, on the platform libm, matched its own golden bits in the release profile but moved 96 of the 118 values on musl (glibc vs musl `exp`/`log`/`cos`) | REPRO-001, INV-7 | `AT-BR-04` runs in CI | S |
+
+### Phase 2.1 · Fix what exists
+
+| Task | What it means (plain) | Refs | Done when | Size |
+|---|---|---|---|---|
+| T63 | **The consortium validates its threshold and the member set it verifies against. Done (2026-09-26):** `Consortium::new(members, t)` panics unless `1 ≤ t ≤ n` with distinct keys, with a message (`need 1 <= threshold <= members, got t of n`, `need distinct member keys`), as `ThresholdOprfOracle::new` (operator configuration, `docs/12` §2.2, documented as `# Panics`); the member-set hash is computed once there, and `Consortium::verify` refuses a checkpoint whose `member_set_hash` is not its own before counting signatures, as `CheckpointClient` already did. `network/tests/consortium_config.rs` (AT-NET-09): `t = 0`, `t > n`, an empty set and a key listed twice (next to its twin or apart) are refused; every `t` in `1..=n` for `n ≤ 5` verifies with exactly `t` signers and fails with `t − 1`; four real members signing a checkpoint that declares another member set (a set with a stranger, zeros, one flipped bit) fail `verify`. Six of the seven failed on the previous code (the `1..=n` case is the control). The tests that signed a zero member-set hash now sign the real one (`integrity.rs`, `log_consistency.rs`, `inv10_checkpoint_seed.rs`), and the duplicate-signature test gained its positive control, so it no longer passes on the member-set check alone; `checkpoint_model.rs` unchanged (its thresholds are in `1..=n`) | NET-005, NET-006, `docs/12` §2.2 | threshold 0, `t > n` and duplicate keys are refused at construction; a checkpoint declaring another member set fails `verify`; `checkpoint_model.rs` unchanged | S |
 
 ### P1.1 · Quick fixes (audit block 1)
 

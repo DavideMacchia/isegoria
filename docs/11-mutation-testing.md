@@ -5,7 +5,7 @@
 | **Purpose** | Measure how much of the code the tests actually *verify*, not just execute, and record every mutant that survives with the reason it is acceptable. |
 | **Tool** | `cargo-mutants` 26.0.0 (the newest release that builds on the pinned rustc 1.86). |
 | **Date** | 2026-09-24, branch `test/t41-mutation-survivors`. |
-| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up). |
+| **Status** | Every surviving mutant is either killed or justified below (runs 1–3 for T41, run 4 for the T48 optimizer, run 5 for the T40 detector, run 6 for the T55 contested-facts pool, run 7 for its follow-up, run 8 for the T63 consortium). |
 
 ## Why this was needed
 
@@ -36,6 +36,10 @@ from a baseline that runs alone and parallel jobs otherwise produced false timeo
 Each mutant runs the tests of the crate that contains it. It is too slow for every push:
 run it after changing decision logic (`--in-diff` for a branch), and before a release.
 Output goes to `mutants.out/` (ignored by git).
+
+A diff whose changed `src/` lines are all in `network` or `identity` fails the baseline under
+the config (`the package 'network' does not contain this feature: calibration`): run it with
+`--no-config --profile mutants --timeout-multiplier 3 --minimum-test-timeout 60` instead.
 
 ## Results
 
@@ -181,6 +185,16 @@ scenario skipped): 4 mutants — `record` to `Ok(())`, `remove` to `true` and to
 follow-up adds, killed by the history test of `contested_facts.rs` (`docs/08` AT-PRO-08):
 without the canonical order the same fits recorded last to first draw another test on 46
 of 50 seeds (another set on 43).
+
+## Run 8 — T63: the consortium's configuration and member-set check
+
+`cargo mutants --in-diff` on the T63 diff (`network/src/consortium.rs`; `--no-config` with
+the config's profile and timeouts, since `network` has no `calibration` feature): 5 mutants
+— `member_set_hash` to `[0; 32]` and to `[1; 32]`, `verify` to `true` and to `false`, and
+the new member-set comparison `!=` → `==` — 5 caught, none missed, none unviable. The two
+checks of `Consortium::new` sit inside `assert!`, whose arguments cargo-mutants does not
+mutate; `consortium_config.rs` pins them instead: every bound (`t = 0`, `t = n + 1`, no
+members) and a duplicate apart from its twin panic, and every `t` in `1..=n` is accepted.
 
 ## Keeping it this way
 

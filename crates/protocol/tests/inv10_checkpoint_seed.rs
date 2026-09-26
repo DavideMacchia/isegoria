@@ -14,7 +14,7 @@ use protocol::review::{assign_from_beacon, Reviewer};
 fn signed_beacon(head: [u8; 32]) -> Beacon {
     let members: Vec<Member> = (0u8..4).map(|i| Member::from_seed([i + 1; 32])).collect();
     let consortium = Consortium::new(members.iter().map(|m| m.public()).collect(), 3);
-    let cp = Checkpoint::new([0u8; 32], [0u8; 32], 1, head);
+    let cp = Checkpoint::new([0u8; 32], consortium.member_set_hash(), 1, head);
     let sigs: Vec<(usize, _)> = members
         .iter()
         .enumerate()

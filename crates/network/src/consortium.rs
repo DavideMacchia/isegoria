@@ -4,6 +4,7 @@
 use crate::hash::tagged;
 use crate::log::{ConsistencyError, TransparencyLog};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use std::collections::HashSet;
 
 /// A signed log head bound to its network and signing member set (NET-006).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,22 +68,39 @@ impl Member {
 pub struct Consortium {
     members: Vec<VerifyingKey>,
     threshold: usize,
+    member_set_hash: [u8; 32],
 }
 
 impl Consortium {
+    /// # Panics
+    /// Unless `1 <= threshold <= n` with distinct keys: operator configuration (`docs/12` §2.2).
     pub fn new(members: Vec<VerifyingKey>, threshold: usize) -> Self {
-        Consortium { members, threshold }
+        assert!(
+            (1..=members.len()).contains(&threshold),
+            "need 1 <= threshold <= members, got {threshold} of {}",
+            members.len()
+        );
+        let keys: Vec<[u8; 32]> = members.iter().map(|k| k.to_bytes()).collect();
+        let distinct: HashSet<&[u8; 32]> = keys.iter().collect();
+        assert_eq!(distinct.len(), keys.len(), "need distinct member keys");
+        let refs: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
+        Consortium {
+            members,
+            threshold,
+            member_set_hash: tagged("isegoria/consortium/member-set/v1", &refs),
+        }
     }
 
     /// Hash of the ordered member public keys: commits a checkpoint to *which* set signed it.
     pub fn member_set_hash(&self) -> [u8; 32] {
-        let keys: Vec<[u8; 32]> = self.members.iter().map(|k| k.to_bytes()).collect();
-        let refs: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
-        tagged("isegoria/consortium/member-set/v1", &refs)
+        self.member_set_hash
     }
 
-    /// Accepts a checkpoint signed by at least `threshold` distinct members.
+    /// Accepts a checkpoint declaring this member set, signed by `threshold` distinct members.
     pub fn verify(&self, cp: &Checkpoint, sigs: &[(usize, Signature)]) -> bool {
+        if cp.member_set_hash != self.member_set_hash {
+            return false;
+        }
         let msg = cp.message();
         let mut seen = vec![false; self.members.len()];
         let mut valid = 0;

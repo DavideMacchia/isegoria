@@ -34,7 +34,8 @@ other nodes, and a quorum's answers come from committee members.
 35 sites outside `#[cfg(test)]` at `6c61263` (86 counting test modules): identity 28,
 network 4, protocol 2, scoring 1. After this audit: 30, none of them reachable from
 external input. T48, merged afterwards, adds one internal-invariant site in `scoring`
-(§2.3), for 31. Sites are named by function; line numbers drift.
+(§2.3), for 31; T63 (2026-09-26) two configuration sites in `network` (§2.2), for 33. Sites
+are named by function; line numbers drift.
 
 ### 2.1 `identity`
 
@@ -61,6 +62,7 @@ external input. T48, merged afterwards, adds one internal-invariant site in `sco
 | Where | Site | Class | Status |
 |---|---|---|---|
 | `anchoring::serialize` | `to_writer(..).expect` | internal: a timestamp this module built, written to a `Vec` | kept |
+| `consortium::Consortium::new` (T63) | `assert!(1 <= threshold <= n)`, `assert_eq!` on the count of distinct keys | configuration: the operator sets up the consortium's member keys and threshold; `t = 0` accepted a checkpoint with no signature, `t > n` never verified | kept, `# Panics` |
 | `erasure::encode` | `ReedSolomon::new(..).expect` | configuration: the encoder picks the layout of its own data | kept, `# Panics` |
 | same | `r.encode(..).expect` | internal: equal-length shards built just above | kept |
 | `log::TransparencyLog::append` | `last().unwrap()` | internal: an entry was just pushed | kept |
@@ -215,9 +217,9 @@ entry points:
   above turn into errors when the committee goes remote.
 - **Fuzzing in CI**: the targets are not built by CI (they need nightly). A scheduled job
   running each for a few minutes would keep them from rotting.
-- **Noticed, not panics**: `Consortium::new` accepts a threshold of 0, which accepts any
-  checkpoint with no signature (a configuration footgun; with `verify` ignoring the
-  member-set hash, now T63); `ingest_with_log` trusts the first
+- **Noticed, not panics**: `Consortium::new` accepted a threshold of 0, which accepts any
+  checkpoint with no signature — resolved by T63: it panics unless `1 ≤ t ≤ n` with
+  distinct keys (§2.2), and `verify` checks the member-set hash; `ingest_with_log` trusts the first
   checkpoint on first use, so a local log that does not extend it is reported only at the
   next checkpoint: as `LocalLogDiverged` once it is long enough to show the divergence, as
   `LogBehind` before that (T43).

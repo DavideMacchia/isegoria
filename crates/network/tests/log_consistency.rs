@@ -14,17 +14,22 @@ fn log_of(payloads: &[&[u8]]) -> TransparencyLog {
     log
 }
 
-/// Stamp a head-only checkpoint; the consistency check ignores the network binding, so
-/// fixed zero binding is fine here.
+fn committee() -> (Vec<Member>, Consortium) {
+    let members: Vec<Member> = (0u8..4).map(|i| Member::from_seed([i + 1; 32])).collect();
+    let consortium = Consortium::new(members.iter().map(|m| m.public()).collect(), 3);
+    (members, consortium)
+}
+
+/// Stamp a checkpoint bound to the committee's member set; the consistency check reads only
+/// the height and the head, so a zero network id is fine here.
 fn checkpoint(log: &TransparencyLog) -> Checkpoint {
-    log.checkpoint([0u8; 32], [0u8; 32])
+    log.checkpoint([0u8; 32], committee().1.member_set_hash())
 }
 
 /// A checkpoint the consortium has co-signed (a threshold of members) — what a verifier
 /// trusts as the prior head.
 fn signed(cp: &Checkpoint) -> bool {
-    let members: Vec<Member> = (0u8..4).map(|i| Member::from_seed([i + 1; 32])).collect();
-    let consortium = Consortium::new(members.iter().map(|m| m.public()).collect(), 3);
+    let (members, consortium) = committee();
     let sigs: Vec<(usize, _)> = members
         .iter()
         .enumerate()
